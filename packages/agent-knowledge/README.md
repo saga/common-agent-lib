@@ -2,42 +2,47 @@
 
 把多个 Agent 项目里反复出现的 Knowledge 处理拆成一个领域无关的最小层。
 
-## 数据模型
+## 公共模型
 
 核心层只有：
 
-- KnowledgeEntry：真正存储/发布的知识单元
-- KnowledgeSource：来源与 provenance
-- KnowledgeContent：public / restricted 两层内容
-- KnowledgeDocument：为检索准备的投影
-- KnowledgeHit / KnowledgeEvidence：检索结果及其来源
+- `KnowledgeEntry)：真正存储/发布的知识单元
+- `KnowledgeSource)：来源与 provenance
+- `KnowledgeContent)：public / restricted 两层内容
+- `KnowledgeDocument：为检索准备的投影
+- `KnowledgeHit / KnowledgeEvidence：检索结果及其来源
 
-业务项目可以在外面扩展 metadata 和具体 kind，不把金融、面试、Member 等字段塞进公共模型。
+业务项目可以扩展 `metadata` 和具体 `kind`，不要把金融、面试、Member、Learner 等字段硬塞进公共 Schema。
 
 ## 抽取
 
 公共库不绑定 LLM：
 
-~~~ts
+```ts
 const extractor: KnowledgeExtractor = {
   async extract(input) {
     return await myLLMExtractStructuredKnowledge(input.text);
   },
 };
 
-const entry = await extractKnowledge(
+const entry = await extractKnowledgeEntry(
   extractor,
-  { text: rawDocument, source },
-  KnowledgeEntrySchema,
+  {
+    text: rawDocument,
+    source: {
+      id: 'doc-1',
+      title: 'Architecture guide',
+    },
+  },
 );
-~~~
+```
 
-推荐 pipeline：
+通用 pipeline：
 
-~~~text
+```text
 raw document
   ↓
-extractor
+extractor（LLM / local model / rules）
   ↓
 Zod validation
   ↓
@@ -46,13 +51,13 @@ KnowledgeEntry
 persistent store
   ↓
 KnowledgeCatalog
-~~~
+```
 
-所以公共库负责“抽取结果是否合法”，而不是决定使用哪个模型。
+公共库只负责“结果是否合法”。模型选什么、怎么抽取、从哪些章节取值，都由应用控制。
 
 ## 使用
 
-~~~ts
+```ts
 const catalog = new KnowledgeCatalog(entries);
 
 const evidence = catalog.search({
@@ -61,24 +66,39 @@ const evidence = catalog.search({
   limit: 5,
 });
 
-for (const hit of evidence.hits) {
-  console.log(hit.title, formatKnowledgeSources(hit.sources));
-}
-~~~
+const context = renderKnowledgeEvidence(evidence);
+```
 
-### 为什么默认不是 Vector RAG
+默认检索是确定性的：
 
-小规模、人工整理的知识库先使用确定性检索：
+- metadata filter
+- lexical matching
+- tag matching
+- exact phrase bonus
+- 中文二字片段匹配
 
-- 可解释
-- 容易测试
-- 不需要 embedding runtime
-- 出问题容易定位
+这样小规模知识库容易解释、容易测试，也不需要 embedding runtime。
 
-BM25、embedding、graph retrieval 都可以作为 catalog 外部实现，不需要改变 KnowledgeEntry 契约。
+大规模项目可以在 Catalog 外面替换成：
 
-## 与现有项目的对应
+- BM25
+- embedding / vector
+- graph retrieval
+- hybrid retrieval
 
-- ai-interview-questions：KnowledgeNode 是领域模型，KnowledgeDocument 是检索投影；Question / Concept Graph 仍留在项目内。
-- agentic-data-architect：ArchitectureKnowledge 的 source / confidence / timeSensitivity 可以映射到 KnowledgeSource / metadata。
-- team-member-copilot-agent：filesystem knowledge provider 可以把文件解析成 KnowledgeEntry，再由应用决定如何绑定 Team / Member。
+它们都继续消费 `KnowledgeEntry` / `KnowledgeDocument`，不需要改变业务知识表示。
+
+## Knowledge 与 Evidence
+
+Knowledge 不等于当前任务事实：
+
+```text
+Knowledge
+  = 通用、可复用的知识
+
+Evidence
+  = 当前 Investigation / Business Execution 真正查到的事实
+```
+
+公共库只提供 Knowledge。
+

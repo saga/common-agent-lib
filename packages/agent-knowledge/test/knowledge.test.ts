@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import {
   KnowledgeCatalog,
   KnowledgeEntrySchema,
-  extractKnowledge,
+  extractKnowledgeEntry,
+  renderKnowledgeEvidence,
 } from '../src/index.js';
 
 const entry = {
@@ -37,12 +38,35 @@ test('validates a KnowledgeEntry and searches it deterministically', () => {
   assert.match(catalog.render(evidence.hits[0]!), /authoritative source/);
 });
 
+test('Chinese queries use lightweight bigram matching', () => {
+  const catalog = new KnowledgeCatalog([KnowledgeEntrySchema.parse({
+    ...entry,
+    id: 'chinese',
+    title: '数据源真相',
+    summary: '确认权威数据源和时间口径。',
+    content: { public: '检查数据源、时间点和对账。' },
+    tags: ['数据架构'],
+  })]);
+
+  const evidence = catalog.search({ query: '数据源' });
+  assert.equal(evidence.hits[0]?.id, 'chinese');
+});
+
 test('restricted content is not rendered in public mode', () => {
   const catalog = new KnowledgeCatalog([KnowledgeEntrySchema.parse(entry)]);
   const doc = catalog.find('position-source')!;
 
   assert.equal(catalog.render(doc, 'public').includes('Internal-only'), false);
   assert.equal(catalog.render(doc, 'full').includes('Internal-only'), true);
+});
+
+test('knowledge rendering preserves source provenance', () => {
+  const catalog = new KnowledgeCatalog([KnowledgeEntrySchema.parse(entry)]);
+  const evidence = catalog.search({ query: 'position' });
+
+  const rendered = renderKnowledgeEvidence(evidence);
+  assert.match(rendered, /Architecture Guide/);
+  assert.match(rendered, /https:\/\/example.com\/guide/);
 });
 
 test('extraction output is validated at the boundary', async () => {
@@ -52,11 +76,22 @@ test('extraction output is validated at the boundary', async () => {
     },
   };
 
-  const result = await extractKnowledge(
+  const result = await extractKnowledgeEntry(
     extractor,
     { text: 'raw document' },
-    KnowledgeEntrySchema,
   );
 
   assert.equal(result.id, 'position-source');
+});
+
+test('invalid extractor output cannot enter the catalog', async () => {
+  const extractor = {
+    async extract() {
+      return { id: '', title: 'bad' };
+    },
+  };
+
+  await assert.rejects(
+    () => extractKnowledgeEntry(extractor, { text: 'raw document' }),
+  );
 });

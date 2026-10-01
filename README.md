@@ -1,185 +1,255 @@
 # common-agent-lib
 
-几个可以独立复用的 AI Agent 公共库。目标不是再造一个 Agent Framework，而是把多个项目里反复出现、边界清楚的基础模式抽出来。
+几个独立复用的 AI Agent 公共库。目标不是再造一个 Agent Framework，而是把几个项目里反复出现、边界清楚的基础模式抽出来。
 
-当前有三个独立 package：
+当前有三个 package：
 
-| Package | 解决什么问题 | 依赖 |
-| --- | --- | --- |
-| `@saga/copilot-agent-runtime` | 服务端使用 GitHub Copilot SDK，统一处理 client lifecycle、session、turn、streaming、timeout、abort | `@github/copilot-sdk` |
-| `@saga/agent-knowledge` | Knowledge 的通用表示、Zod schema、来源/可信度、抽取结果校验、catalog、轻量检索和安全渲染 | `zod` |
-| `@saga/markdown-workflow` | 用 Markdown 表示 Workflow，解析成 AST，静态校验，并根据确定性 facts 计算 Journey 状态 | 无运行时依赖 |
+| Package | 解决什么问题 | 运行时依赖 | 不能负责什么 |
+| --- | --- | --- | --- |
+| `@saga/copilot-agent-runtime` | 服务端使用 GitHub Copilot SDK，统一处理 client、session、turn、streaming、timeout、abort | `@github/copilot-sdk` | Team / Member / Business State / Approval / Policy / Skill |
+| `@saga/agent-knowledge` | Knowledge 的表示、来源、Schema、抽取契约、Catalog、确定性检索和安全渲染 | `zod` | LLM、Vector DB、Graph RAG、Learner Model、业务权限 |
+| `@saga/markdown-workflow` | 用 Markdown 表示 Workflow，解析 AST、校验结构、根据 facts 计算状态、执行 route transition | 无 | 业务 action、审批策略、权限、持久化 |
 
-三个 package **互不依赖**。业务项目可以只装自己需要的那个。
+三个 package **互不依赖**。任何项目都可以只使用其中一个。
 
-## 1. Copilot Agent Runtime
+## 这几个项目里真正重复的模式
 
-来自：
+### 1. Server-side Agent Runtime
 
-- `saga/copilot-server-agent`
-- `saga/team-member-copilot-agent`
-- `saga/agentic-data-architect`
-
-共同模式：
+`saga/copilot-server-agent`、`saga/team-member-copilot-agent`、`saga/agentic-data-architect` 都出现了相同的边界：
 
 ```text
 Application Service
       ↓
-CopilotAgentRuntime
+Copilot runtime adapter
       ↓
 CopilotClient
       ↓
 CopilotSession
       ↓
-runTurn()
+turn
       ↓
-assistant delta / message / events
+delta / message / event
 ```
 
-公共库负责：
+最容易重复、又最适合公共化的是：
 
-- CopilotClient 单例/懒启动和 stop
+- CopilotClient 生命周期
 - create / resume / delete session
-- 一个 session 同时只运行一个 turn
-- assistant delta / message 事件监听
-- turn timeout 后显式 abort
-- abort 后等待 session.idle，避免“业务已经失败但 Agent 还在跑”
-- active turn 查询
+- 同一个业务 lockKey 同时只允许一个 turn
+- assistant delta / message / event 监听
+- timeout 后显式 abort
+- abort / timeout 后等待 `session.idle`
+- active turn 记录
+- stop / error 状态
 
-公共库**不负责**：
+业务代码仍然负责谁在运行、为什么运行、结果保存在哪里。
 
-- Member / Team / Conversation
-- Execution / Approval / Policy
-- Skill / Knowledge
-- 数据库持久化
-- 业务权限
+### 2. Knowledge
 
-## 2. Agent Knowledge
-
-来自：
-
-- `saga/ai-interview-questions` 的 `KnowledgeNode → KnowledgeDocument → retrieval`
-- `saga/agentic-data-architect` 的 `ArchitectureKnowledge + source/confidence/timeSensitivity`
-- `saga/team-member-copilot-agent` 的 filesystem knowledge provider
-
-共同模式：
+四个项目里的 Knowledge 形态不同，但共同骨架很稳定：
 
 ```text
-Source / Document
-      ↓
-Extractor（LLM 或规则，由应用注入）
-      ↓
+Raw document / source
+        ↓
+Extractor
+        ↓
 Schema validation
-      ↓
+        ↓
 KnowledgeEntry
-      ↓
+        ↓
 Catalog / Index
-      ↓
+        ↓
 retrieve(query)
-      ↓
-KnowledgeEvidence
-      ↓
-prompt/context rendering
+        ↓
+KnowledgeHit / KnowledgeEvidence
+        ↓
+prompt / UI / next action
 ```
 
-几个关键边界：
+其中：
 
-1. Knowledge 是可复用知识，不等于当前任务 Evidence。
-2. Source / provenance 是 Knowledge 的一等字段。
-3. Schema 在进入 catalog 前校验。
-4. 检索结果应该带 source reference，回答才能说明依据。
-5. 需要隐藏答案、内部字段等场景时，公共模型支持 `public` / `restricted` 内容分层；真正的权限边界仍由应用决定。
-6. Extraction 只定义契约，不在公共库里绑任何 LLM。
+- `ai-interview-questions`：KnowledgeNode、KnowledgeDocument、metadata、lexical retrieval、graph expansion、答案安全投影。
+- `agentic-data-architect`：source type、source confidence、knowledge confidence、time sensitivity、reviewedAt 和可复用架构知识 catalog。
+- `team-member-copilot-agent`：filesystem knowledge、Team / Member scope、document limits 和 citation。
+- `common-agent-lib`：只保留跨项目都成立的结构，不把金融、面试、Team、Learner 等字段硬塞进公共 Schema。
 
-Graph RAG、Learner Model、金融业务字段、WorkflowId 等仍属于具体项目，不进入公共库。
+一个很重要的边界：
 
-## 3. Markdown Workflow
+> Knowledge 是“可复用知识”；当前任务查到的事实仍然应该由具体应用自己的 Evidence / business state 管理。
 
-来自：
+### 3. Markdown Workflow
 
-- `saga/copilot-server-agent` 的 Skill Flow / flow lint
-- `saga/agentic-data-architect` 的 `@flow / @task / @gate / @review / @end / @stop` + Journey runtime
-
-共同模式：
+`saga/copilot-server-agent` 和 `saga/agentic-data-architect` 都证明了一件事：
 
 ```text
 SKILL.md
-  ↓
-parseWorkflowMarkdown()
-  ↓
+   ↓
+parse Markdown
+   ↓
 Workflow AST
-  ↓
-validateWorkflow()
-  ↓
-application-specific facts
-  ↓
-buildWorkflowState()
-  ↓
-UI / API / next action
+   ↓
+validate
+   ↓
+application facts
+   ↓
+Journey / current state
+   ↓
+next node / UI / API
 ```
 
-公共库只理解 Workflow 结构，不理解业务条件。
+公共库因此只负责通用结构：
 
-例如：
+- `@flow`
+- `@task`
+- `@gate`
+- `@review`
+- `@end`
+- `@stop`
+- route
+- title / objective / visible / completeWhen
+- AST
+- structural validation
+- facts → current Journey state
+- current node + outcome → next node
 
-```markdown
-## @flow data-review
+**不**把 `Policy`、`Approval`、`Command`、MCP 权限、业务 Action 执行规则放进公共 Workflow package。那部分是 `copilot-server-agent` 的业务/安全运行时，不适合变成公共依赖。
 
-start -> intake
+## 为什么不做一个“大一统 Agent Framework”
 
-## @task intake
-title: 明确目标
-completeWhen: goal
-- success -> inspect
+这几个模式的生命周期完全不同：
 
-## @gate inspect-gate
-- pass -> done
-- retry -> inspect
+```text
+Copilot Runtime
+  依赖具体 Agent SDK
 
-## @end done
+Knowledge
+  依赖 schema / data model
+
+Markdown Workflow
+  只依赖 Markdown + deterministic facts
 ```
 
-应用自己提供：
+把它们绑在一起，会导致：
 
-```ts
-(condition, facts) => boolean
+- 任何项目安装一个 package 就带上不需要的依赖
+- Knowledge 修改影响 Agent Runtime
+- Workflow 修改影响 Copilot 生命周期
+- 以后切换 Agent SDK / Knowledge backend 时难以拆开
+
+所以这里刻意保持：
+
+```text
+copilot-agent-runtime   ← independent
+agent-knowledge         ← independent
+markdown-workflow       ← independent
 ```
 
-这样 Workflow DSL 与具体业务状态解耦。
+## 与四个项目的对应
 
-## 与现有四个项目的对应
-
-| 项目 | Copilot Runtime | Knowledge | Markdown Workflow |
+| 项目 | Runtime | Knowledge | Workflow |
 | --- | --- | --- | --- |
-| copilot-server-agent | 主模式 | 少量 Skill/运行上下文 | 有 Skill Flow / lint |
-| ai-interview-questions | Copilot conversation / Agent runtime | 最成熟：schema + projection + lexical/metadata/graph retrieval | Skills，但不是公共 Workflow runtime 的主要来源 |
-| team-member-copilot-agent | 主模式：MemberRuntime → CopilotSession | filesystem knowledge / scoped knowledge | Skill 作为 SDK 输入 |
-| agentic-data-architect | Copilot session | Architecture Knowledge catalog | 最完整：Markdown parser + Journey state + lint |
+| `copilot-server-agent` | Copilot SDK server runtime 最完整 | Skill / execution context | 最完整的 parser / validator / analyzer；安全属性不全部抽取 |
+| `ai-interview-questions` | 自己的 AI provider / conversation abstraction | 最丰富：structured knowledge + projection + retrieval + graph | Skills 有工作方法，但不是本公共 Workflow runtime 的主要来源 |
+| `team-member-copilot-agent` | Member runtime → Copilot session | filesystem / scoped knowledge / citation | Skill 作为 Copilot SDK 输入 |
+| `agentic-data-architect` | Copilot session | source / confidence / timeSensitivity + deterministic catalog | Markdown Workflow + Journey state + lint |
 
-## 暂时不要抽进来
+## 使用原则
 
-这些虽然也能在项目里看到，但现在还不够通用：
+### Copilot Runtime
 
-- Agent Authorization / Policy
-- Audit / Evidence
-- MCP registry
-- Team / Member / Conversation
-- Business State
-- Human Task / Approval
-- Learner model
-- Graph RAG
-- Evaluation framework
+业务项目负责：
 
-它们都有明显的业务或安全语义，过早抽公共库反而会产生依赖和耦合。
+```text
+Member / Agent
+Conversation
+Business Execution
+Authorization
+Persistence
+Audit
+```
 
-## 后续迁移顺序
+公共 Runtime 只负责：
 
-建议先让新的项目直接使用这三个 package。
+```text
+SDK lifecycle
+Session
+Turn
+Streaming
+Timeout
+Abort
+Concurrency lock
+```
 
-成熟后再逐个从四个现有项目里删除重复实现：
+### Knowledge
 
-1. Copilot SDK service / turn runner
-2. Knowledge schema / catalog / extraction boundary
-3. Markdown Workflow parser / validator / Journey runtime
+业务项目负责：
 
-不要第一天就把四个项目全部改成依赖 common-agent-lib。先把公共契约稳定下来。
+```text
+业务字段
+业务 scope
+权限
+Evidence
+Learner state
+Graph semantics
+Vector / Search backend
+```
+
+公共 Knowledge 负责：
+
+```text
+schema
+provenance
+extraction contract
+catalog
+deterministic baseline retrieval
+safe rendering
+```
+
+### Workflow
+
+业务项目负责：
+
+```text
+condition evaluator
+business action
+persistence
+approval
+authorization
+external side effect
+```
+
+公共 Workflow 负责：
+
+```text
+Markdown → AST
+AST validation
+state projection
+route transition
+```
+
+## 推荐迁移顺序
+
+不要一次性重构四个项目。
+
+1. 新项目优先直接使用三个 package。
+2. 在实际项目中验证 API。
+3. 再把已有重复实现逐个替换掉。
+4. 最后删除项目自己的重复 runtime / parser / knowledge helper。
+
+当前最自然的迁移顺序：
+
+```text
+1. Copilot SDK turn runtime
+2. Knowledge schema / catalog
+3. Markdown Workflow parser / validator / state runtime
+```
+
+## 开发
+
+```bash
+npm install
+npm run typecheck
+npm test
+npm run build
+```

@@ -8,7 +8,7 @@ export const KnowledgeTimeSensitivitySchema = z.enum([
   'contextual',
   'time-sensitive',
 ]);
-export type KnowledgeTimeSensitivity = z.infer<typeof KnowledgeTimeSensitivitySchema>;
+export type KnowledgeTimeSensitivity = z.infer<typeof KnowledgeTimeSensitivity>;
 
 export const KnowledgeSourceSchema = z.object({
   id: z.string().min(1),
@@ -51,8 +51,11 @@ export const KnowledgeBankSchema = z.array(KnowledgeEntrySchema);
 export type KnowledgeBank = z.infer<typeof KnowledgeBankSchema>;
 
 export interface KnowledgeExtractionInput {
+  /** 要抽取的原始文本/文档内容。 */
   text: string;
+  /** 文档来源；建议应用始终传入，用于后续 provenance。 */
   source?: KnowledgeSource;
+  /** 领域应用自己的附加上下文，不进入公共 Schema。 */
   context?: Record<string, unknown>;
 }
 
@@ -63,6 +66,9 @@ export interface KnowledgeExtractor<T = unknown> {
 /**
  * Extraction 只定义契约，不绑定 LLM。
  * 调用方可以用 Copilot、其它模型或规则脚本实现 extract。
+ *
+ * schema 是真正的边界：模型返回的对象只有通过 schema.parse()
+ * 才能进入后面的 KnowledgeEntry / Catalog。
  */
 export async function extractKnowledge<T>(
   extractor: KnowledgeExtractor<unknown>,
@@ -71,6 +77,14 @@ export async function extractKnowledge<T>(
 ): Promise<T> {
   const raw = await extractor.extract(input);
   return schema.parse(raw);
+}
+
+/** 直接抽取一个公共 KnowledgeEntry 的便捷封装。 */
+export async function extractKnowledgeEntry(
+  extractor: KnowledgeExtractor<unknown>,
+  input: KnowledgeExtractionInput,
+): Promise<KnowledgeEntry> {
+  return extractKnowledge(extractor, input, KnowledgeEntrySchema);
 }
 
 export interface KnowledgeDocument {
@@ -179,9 +193,7 @@ export class KnowledgeCatalog {
         const queryText = query.query.trim().toLocaleLowerCase();
         const lower = document.text.toLocaleLowerCase();
         const exactPhrase = queryText.length > 0 && lower.includes(queryText);
-        const tagHit = document.tags.some((tag) =>
-          terms.includes(tag.toLocaleLowerCase()),
-        );
+        const tagHit = document.tags.some((tag) => terms.includes(tag.toLocaleLowerCase()));
 
         const score = lexical + (exactPhrase ? 1.5 : 0) + (tagHit ? 0.5 : 0);
         return { document, score };
@@ -216,11 +228,19 @@ export class KnowledgeCatalog {
 }
 
 function tokenize(value: string): string[] {
-  return value
-    .toLocaleLowerCase()
+  const normalized = value.toLocaleLowerCase();
+  const wordTokens = normalized
     .split(/[^\p{L}\p{N}]+/u)
     .map((token) => token.trim())
     .filter((token) => token.length >= 2);
+
+  const cjkChars = [...normalized].filter((char) => /[\u3400-\u9fff]/u.test(char));
+  const cjkTokens: string[] = [];
+  for (let index = 0; index < cjkChars.length - 1; index += 1) {
+    cjkTokens.push(cjkChars[index] + cjkChars[index + 1]);
+  }
+
+  return [...new Set([...wordTokens, ...cjkTokens])];
 }
 
 export function formatKnowledgeSources(sources: KnowledgeSource[]): string[] {
@@ -229,4 +249,35 @@ export function formatKnowledgeSources(sources: KnowledgeSource[]): string[] {
     const uri = source.uri ? ' ' + source.uri : '';
     return (source.title + publisher + uri).trim();
   });
+}
+
+/**
+ * 给 Agent 或 UI 生成带来源的知识片段。
+ * 这不是 Evidence renderer；它只是明确告诉使用方“这是 Knowledge，以及来源是什么”。
+ */
+export function renderKnowledgeEvidence(
+  evidence: KnowledgeEvidence,
+  mode: KnowledgeRenderMode = 'public',
+): string {
+  if (!evidence.hits.length) return '';
+
+  return [
+    '## Knowledge',
+    ...evidence.hits.map((hit) => {
+      const sourceLines = formatKnowledgeSources(hit.sources);
+      return [
+        '### ' + hit.title,
+        renderHitContent(hit, mode),
+        sourceLines.length ? 'Sources:\n' + sourceLines.map((line) => '- ' + line).join('\n') : '',
+      ].filter(Boolean).join('\n');
+    }),
+  ].join('\n\n');
+}
+
+function renderHitContent(
+  hit: KnowledgeHit,
+  mode: KnowledgeRenderMode,
+): string {
+  if (mode === 'public') return hit.content;
+  return hit.content;
 }
