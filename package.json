@@ -1,0 +1,22 @@
+{
+  "name": "common-agent-lib",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Small, independent common libraries for server-side AI agent applications.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -ws",
+    "test": "npm run test -ws",
+    "typecheck": "npm run typecheck -ws"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
