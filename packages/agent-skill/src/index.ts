@@ -29,7 +29,7 @@ export interface SkillManifestWithSource extends SkillManifest {
 
 /** 从 Markdown 中取出 frontmatter；正文由调用方继续处理。 */
 function splitFrontmatter(markdown: string): { frontmatter: string; body: string } {
-  const match = /^---[ \\t]*\\r?\\n([\\s\\S]*?)\\r?\\n---[ \\t]*(?:\\r?\\n|$)/.exec(markdown);
+  const match = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(markdown);
   if (!match) throw new Error('SKILL.md 缺少有效的 frontmatter。');
   return { frontmatter: match[1] ?? '', body: markdown.slice(match[0].length) };
 }
@@ -81,7 +81,7 @@ export function assertWorkflowSkill(manifest: SkillManifest): void {
 }
 
 export function hasWorkflowDefinition(markdown: string): boolean {
-  return /^##\\s+@flow\\s+/m.test(markdown);
+  return /^##\s+@flow\s+/m.test(markdown);
 }
 
 /** capability 不应偷偷定义 @flow；workflow 必须定义 @flow。 */
