@@ -1,0 +1,22 @@
+{
+  "name": "@saga/agent-structured-output",
+  "version": "0.1.0",
+  "description": "Provider-neutral structured output parsing and Zod validation for AI agents.",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  }
+}
