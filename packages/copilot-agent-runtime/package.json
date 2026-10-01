@@ -1,0 +1,25 @@
+{
+  "name": "@saga/copilot-agent-runtime",
+  "version": "0.1.0",
+  "description": "Small server-side runtime adapter for GitHub Copilot SDK.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^1.0.15"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
