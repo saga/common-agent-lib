@@ -55,7 +55,7 @@ export class CopilotAgentRuntime {
   private starting: Promise<CopilotClient> | null = null;
   private readonly locks = new Map<string, Promise<void>>();
   private readonly activeTurns = new Map<string, CopilotSession>();
-  private lastError: string | null = null;
+  private lastErrorMessage: string | null = null;
   private readonly abortIdleGraceMs: number;
   private readonly createClient: () => CopilotClient;
 
@@ -72,12 +72,12 @@ export class CopilotAgentRuntime {
       const client = this.createClient();
       await client.start();
       this.client = client;
-      this.lastError = null;
+      this.lastErrorMessage = null;
       return client;
     })()
       .catch((error) => {
         this.starting = null;
-        this.lastError = error instanceof Error ? error.message : String(error);
+        this.lastErrorMessage = error instanceof Error ? error.message : String(error);
         throw error;
       })
       .then((client) => {
@@ -101,12 +101,12 @@ export class CopilotAgentRuntime {
   status(): 'idle' | 'starting' | 'ready' | 'error' {
     if (this.client) return 'ready';
     if (this.starting) return 'starting';
-    if (this.lastError) return 'error';
+    if (this.lastErrorMessage) return 'error';
     return 'idle';
   }
 
   lastError(): string | null {
-    return this.lastError;
+    return this.lastErrorMessage;
   }
 
   activeTurnCount(): number {
@@ -125,7 +125,7 @@ export class CopilotAgentRuntime {
     config?: CopilotResumeSessionConfig,
   ): Promise<CopilotSessionResult> {
     const client = await this.start();
-    return client.resumeSession(sessionId, config);
+    return client.resumeSession(sessionId, config ?? {});
   }
 
   async deleteSession(sessionId: string): Promise<void> {
