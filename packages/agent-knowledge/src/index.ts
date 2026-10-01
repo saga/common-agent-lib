@@ -8,7 +8,7 @@ export const KnowledgeTimeSensitivitySchema = z.enum([
   'contextual',
   'time-sensitive',
 ]);
-export type KnowledgeTimeSensitivity = z.infer<typeof KnowledgeTimeSensitivity>;
+export type KnowledgeTimeSensitivity = z.infer<typeof KnowledgeTimeSensitivitySchema>;
 
 export const KnowledgeSourceSchema = z.object({
   id: z.string().min(1),
