@@ -1,0 +1,26 @@
+{
+  "name": "@saga/agent-contracts",
+  "version": "0.1.0",
+  "description": "Provider-neutral schemas and contracts for server-side AI agent applications.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx test/contracts.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "tsx": "^4.23.13"
+  }
+}
