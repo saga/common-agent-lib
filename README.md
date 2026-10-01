@@ -2,16 +2,56 @@
 
 几个独立复用的 AI Agent 公共库。目标不是再造一个 Agent Framework，而是把几个项目里反复出现、边界清楚的基础模式抽出来。
 
-当前有三个 package：
+当前 package：
 
-| Package | 解决什么问题 | 运行时依赖 | 不能负责什么 |
-| --- | --- | --- | --- |
-| `@saga/copilot-agent-runtime` | 服务端使用 GitHub Copilot SDK，统一处理 client、session、turn、streaming、timeout、abort | `@github/copilot-sdk` | Team / Member / Business State / Approval / Policy / Skill |
-| `@saga/agent-knowledge` | Knowledge 的表示、来源、Schema、抽取契约、Catalog、确定性检索和安全渲染 | `zod` | LLM、Vector DB、Graph RAG、Learner Model、业务权限 |
-| `@saga/markdown-workflow` | 用 Markdown 表示 Workflow，解析 AST、校验结构、根据 facts 计算状态、执行 route transition | 无 | 业务 action、审批策略、权限、持久化 |
+| Package | 解决什么问题 | 依赖 |
+| --- | --- | --- |
+| `@saga/copilot-agent-runtime` | Copilot SDK server-side client / session / turn / streaming / timeout / abort / concurrency | `@github/copilot-sdk` |
+| `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
+| `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
+| `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
+| `@saga/agent-structured-output` | Provider-neutral 的结构化输出解析和最终 Schema 校验 | `zod` |
+| `@saga/agent-eval` | Eval case、observation、code/model/human grader 和结果汇总 | 无 |
 
-三个 package **互不依赖**。任何项目都可以只使用其中一个。
+这些 package **互不依赖**。应用按需安装；不存在一个必须同时安装的“大一统 Agent Framework”。
 
+## 为什么新增三个 package
+
+四个项目的横向检查显示，除了 Runtime / Knowledge / Workflow，还反复出现：
+
+```text
+LLM / Tool / Agent
+      ↓
+structured output schema
+      ↓
+runtime validation
+      ↓
+business state
+
+real task set
+      ↓
+agent execution
+      ↓
+observation / trace / outcome
+      ↓
+code + model + human graders
+
+SKILL.md
+      ↓
+metadata / discovery
+      ↓
+capability or workflow
+```
+
+这三个边界都足够稳定，而且不需要知道具体 Agent SDK。
+
+## 明确不再继续抽的模式
+
+- Context engineering：抽取原则和小工具即可，暂时不做通用 Context Runtime。各应用的 context source、checkpoint、budget 和 compaction 策略不同。
+- Human-in-the-loop / interrupt：模式很通用，但 checkpoint、审批对象、授权和持久化都与业务强相关，暂不做通用执行引擎。
+- Tracing / Audit：统一事件字段可以以后接 OpenTelemetry；不自己再造 tracing backend，也不把 runtime trace 当业务审计。
+- Tool registry / dynamic tool search：工具发现方式正在快速变化，先保留 Tool contract / naming / schema 规范，不做新的通用 registry。
+- Multi-agent handoff / agents-as-tools：这是编排模式，不是公共业务对象；保留在具体 runtime / application 层。
 ## 这几个项目里真正重复的模式
 
 ### 1. Server-side Agent Runtime
