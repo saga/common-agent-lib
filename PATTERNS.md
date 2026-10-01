@@ -7,7 +7,31 @@
 - `saga/team-member-copilot-agent`
 - `saga/agentic-data-architect`
 
-它不是另一个框架设计文档，而是说明哪些重复代码已经值得抽成公共库。
+它不是另一个 Agent Framework 设计文档，而是说明哪些重复模式应该进入公共库，哪些只应该形成 Schema、Interface、SKILL 或设计规范。
+
+## 核心原则：不要把所有模式都做成 Runtime
+
+公共化有五个层级：
+
+```text
+Schema / Contract
+        ↓
+Interface
+        ↓
+SKILL / Spec
+        ↓
+Pattern / Guidance
+        ↓
+Runtime / Implementation
+```
+
+越靠上越应该稳定、provider-neutral；越靠下越应该留给宿主应用或具体 Agent Runtime。
+
+因此：
+
+> 跨框架稳定的数据边界做 Schema；跨实现稳定的能力边界做 Interface；Agent 使用方法做 SKILL；实现细节留给 Runtime。
+
+这也是 `@saga/agent-contracts` 的定位。
 
 ## Pattern 1：Copilot SDK Agent Service Runtime
 
@@ -53,65 +77,19 @@ business result
 - Team
 - Member
 - Conversation
-- Approval
-- Policy
 - Business Execution
-- Audit
 - Agent-specific tools
+- Business persistence
 
-这些都属于宿主应用。
+Policy、Approval、Command、Audit 等可以有 provider-neutral contract，但不应进入这个 Runtime。
 
 ---
 
 ## Pattern 2：Structured Knowledge
 
-### 最成熟的共同结构
+公共层应该稳定的是数据和检索契约，而不是某一种数据库或 RAG 实现。
 
-`ai-interview-questions` 已经形成：
-
-```text
-KnowledgeNode
-Question
-Concept Graph
-       ↓
-KnowledgeDocument
-       ↓
-query planner
-       ↓
-metadata + lexical + graph
-       ↓
-projection / redaction
-       ↓
-prompt context
-```
-
-`agentic-data-architect` 又补足了：
-
-```text
-Source Type
-Publisher
-PublishedAt
-ReviewedAt
-Source Confidence
-Knowledge Confidence
-Time Sensitivity
-       ↓
-Knowledge Entry
-```
-
-`team-member-copilot-agent` 补足：
-
-```text
-Knowledge Base
-  ↓
-Document
-  ↓
-scope / owner
-  ↓
-citation
-```
-
-因此公共层应该只保留：
+### 公共 Schema
 
 ```text
 KnowledgeEntry
@@ -132,9 +110,30 @@ KnowledgeSource
  └─ URI
 ```
 
-### 抽取
+### Retrieval Contract
 
-抽取不要绑定模型：
+`@saga/agent-contracts` 提供：
+
+```text
+KnowledgeSearchRequest
+KnowledgeHit
+KnowledgeSearchResult
+KnowledgeProvider
+```
+
+之后业务项目可以替换：
+
+- BM25
+- embedding
+- vector DB
+- graph retrieval
+- Snowflake
+- PostgreSQL
+- hybrid search
+
+而不用改变 Agent 与检索层之间的契约。
+
+抽取过程仍由 application extractor 决定：
 
 ```text
 raw text
@@ -149,47 +148,6 @@ Zod schema
   ↓
 KnowledgeEntry
 ```
-
-公共库只负责：
-
-1. 定义输入契约
-2. 调用 extractor
-3. validate structured result
-4. 返回可信的 KnowledgeEntry
-
-### 使用
-
-公共 baseline：
-
-```ts
-const catalog = new KnowledgeCatalog(entries);
-
-const evidence = catalog.search({
-  query: 'point-in-time position source',
-  tags: ['finance'],
-  limit: 5,
-});
-```
-
-返回：
-
-```text
-KnowledgeHit
-  ├─ content
-  ├─ score
-  ├─ metadata
-  └─ sources
-```
-
-之后业务项目可以替换：
-
-- BM25
-- embedding
-- vector DB
-- graph retrieval
-- hybrid search
-
-而不用改 KnowledgeEntry。
 
 ---
 
@@ -278,57 +236,9 @@ Route
 
 ---
 
-## 一个统一的宿主架构
-
-三个 package 可以这样组合，但不是相互依赖：
-
-```text
-                    Application
-                       │
-          ┌────────────┼────────────┐
-          │            │            │
-          ▼            ▼            ▼
- Copilot Agent     Knowledge     Markdown Workflow
- Runtime            Catalog          Runtime
-          │            │            │
-          ▼            ▼            ▼
-     Copilot SDK   Search/Data   Business Facts
-          │            │            │
-          └────────────┼────────────┘
-                       ▼
-                  Agent Service
-```
-
-这三个公共库都可以单独替换或删除。
-
----
-
-## 哪些暂时不要抽
-
-从四个项目也能看到很多“看起来通用、实际上语义很重”的模块：
-
-- Authorization / Policy
-- Data Entitlement
-- Approval
-- Command
-- Audit
-- Evidence
-- Team / Member
-- Learner Model
-- Graph RAG
-- Evaluation
-- MCP Registry
-- Business State
-
-这些目前都不应该进入 common-agent-lib。
-
-原因不是做不到，而是这些模块已经携带具体业务边界。公共化以后容易出现一个“大而全”的 Agent Framework，反而失去这个仓库最重要的独立性。
-
 ## Pattern 4：Schema-first Structured Output
 
 四个项目里凡是把 LLM 输出写进业务状态，都出现了同一个原则：先得到结构化结果，再做 Schema 验证，最后才允许进入业务状态。
-
-典型边界：
 
 ```text
 LLM / Provider
@@ -342,11 +252,76 @@ domain validation
 persisted business state
 ```
 
-`agentic-data-architect` 的 `AgentAnswerSchema`、AI Interview 的题目/变体校验，以及 Team Member 的各种运行时 Schema 都属于这一类。
+`agent-structured-output` 提供 provider-neutral 的最终 Schema 门。OpenAI / LangChain 等能直接返回 parsed object 时，不需要强制经过 JSON 字符串解析。
 
-现在公共库提供最后的 provider-neutral 校验层；OpenAI / LangChain 等能直接返回 parsed object 时，不需要强制经过 JSON 字符串解析。
+---
 
-## Pattern 5：Evaluation-first Agent
+## Pattern 5：Provider-neutral Agent Contracts
+
+四个项目中已经反复出现一些稳定的“名词和边界”。它们不值得各自实现一套 Runtime，但值得统一 Schema / Interface。
+
+这些契约集中在 `@saga/agent-contracts`：
+
+```text
+AgentDefinition
+SessionReference
+ToolDefinition / ToolResult
+ToolProvider
+KnowledgeSearchRequest / KnowledgeSearchResult
+KnowledgeProvider
+ContextReference
+AgentInterrupt / InterruptResult
+ApprovalRequest / ApprovalDecision
+PolicyRequest / PolicyDecision
+AgentCommand / CommandResult
+Evidence
+AgentEvent
+```
+
+### 为什么不是更多 Runtime
+
+例如：
+
+```text
+PolicyRequest
+      ↓
+PolicyDecision
+```
+
+可以由 OPA、Cedar、公司内部 Policy Service 或其它系统完成。
+
+同样：
+
+```text
+AgentCommand
+      ↓
+CommandExecutor
+```
+
+只规定调用边界，不规定数据库、交易系统或外部 API 怎么执行。
+
+### 一个统一的宿主关系
+
+```text
+                         Application
+                              │
+                    @saga/agent-contracts
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+       Copilot            LangChain          OpenAI Agents
+       Runtime             Runtime               Runtime
+          │                   │                   │
+          └───────────────────┼───────────────────┘
+                              │
+                     Enterprise Systems
+```
+
+Common Lib 不试图成为第四个 Agent Runtime。
+
+---
+
+## Pattern 6：Evaluation-first Agent
 
 AI Agent 和普通函数最大的不同，是同一个任务可能有多条正确路径，而且工具调用、延迟、token、失败和中间轨迹本身都影响质量。因此 Eval 不应该只测最终字符串。
 
@@ -371,11 +346,11 @@ Case Result
 
 `agent-eval` 不定义评分方法，也不把不同业务硬合成一个总分。
 
-这个方向与 Anthropic 当前的 Agent eval 实践一致：代码、模型和人工 grader 可以组合，而且多轮 agent 需要同时观察轨迹、最终结果和环境状态。见 Anthropic 的 [Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)。
+---
 
-## Pattern 6：Context Engineering
+## Pattern 7：Context Engineering
 
-这是值得复刻的**设计模式**，目前不值得再造一个通用 Context Runtime。
+这是值得复刻的设计模式，目前不做通用 Context Runtime。
 
 四个项目已经反复出现：
 
@@ -385,13 +360,17 @@ Case Result
 - 上下文有预算，需要截断、压缩或 just-in-time retrieval。
 - 忽略的历史必须显式告诉 Agent，不能让“没看到”被误认为“没发生”。
 
-`team-member-copilot-agent` 的 checkpoint + bounded room history、`agentic-data-architect` 的 evidence/knowledge 分层和 `ai-interview-questions` 的学习上下文，都属于这个模式。
+但是现在已经可以定义 provider-neutral `ContextReference`，用于表达：
 
-Anthropic 现在明确推荐 just-in-time context：先保存轻量引用，运行时按需要读取数据，而不是把所有资料预先塞进上下文；LangChain 也已经把 context editing 作为 middleware；OpenAI Agents SDK 则明确区分 local `RunContext` 与 LLM-visible conversation context。这个模式应进入各项目架构规范，但暂时不要做成强绑定的 common package。
+```text
+message / file / document / knowledge / artifact / tool-result / workflow-state
+```
 
-## Pattern 7：Human-in-the-loop / Interrupt
+它只表示“哪里有上下文”，不负责加载、压缩、截断或持久化。
 
-这四个项目已经出现人工确认、Stop、等待输入、审批和恢复等不同形式。
+---
+
+## Pattern 8：Human-in-the-loop / Interrupt
 
 通用语义是：
 
@@ -407,11 +386,113 @@ human decision
 resume
 ```
 
-OpenAI Agents SDK 使用 `RunState` 保存可恢复的中断状态；LangGraph 使用 persistence + `interrupt()`；Claude Managed Agents 也把 session 与等待工具确认分开。
+现在不做通用 HITL Runtime，但可以定义：
 
-但 approval object、authorization、business command 和 checkpoint store 都是业务边界，所以 common-agent-lib 当前只记录这个 pattern，不做通用 HITL runtime。
+```text
+AgentInterrupt
+InterruptResult
+```
 
-## Pattern 8：Tool Contract，而不是 Tool Registry
+这样 LangGraph interrupt、OpenAI RunState interruption、Copilot waiting state、业务 approval 等都可以适配到同一数据边界。
+
+Common Lib 不决定：
+
+- 谁可以批准
+- 谁可以恢复
+- checkpoint 存在哪里
+- authorization 如何判断
+
+---
+
+## Pattern 9：Approval / Policy / Command 的 Contract-first 设计
+
+这些能力不应该进入 common runtime，但其跨应用的数据边界已经足够稳定。
+
+### Approval
+
+```text
+ApprovalRequest
+       ↓
+Application Policy / Authorization
+       ↓
+ApprovalDecision
+```
+
+### Policy
+
+```text
+PolicyRequest
+       ↓
+Policy Provider
+       ↓
+PolicyDecision
+```
+
+### Command
+
+```text
+AgentCommand
+       ↓
+Approval / Policy
+       ↓
+CommandExecutor
+       ↓
+CommandResult
+```
+
+因此 Common Lib 定义 Schema / Interface，但不实现：
+
+- authorization
+- data entitlement
+- policy engine
+- approval service
+- command executor
+
+这尤其适合金融服务场景：Agent 可以提出 Command，但不能因为 LLM 自己判断“应该执行”就越过企业授权边界。
+
+---
+
+## Pattern 10：Evidence / Provenance
+
+Evidence 是另一个值得公共化的数据边界。
+
+```text
+Agent answer
+     │
+     ├── output
+     └── evidence[]
+              │
+              ├── document
+              ├── database
+              ├── API
+              ├── tool
+              ├── agent
+              └── human
+```
+
+`Evidence` 只描述来源和 provenance，不负责判断证据是否足以支持业务结论。后者仍然是 application evaluator / domain logic。
+
+---
+
+## Pattern 11：Observability 与 Business Audit 分开
+
+```text
+Agent trace
+  = 谁调用了什么、什么时候调用、运行多久、是否失败
+
+Business audit
+  = 谁批准、依据什么、访问了什么数据、执行了什么业务动作、最终采用什么决定
+```
+
+Common Lib 可以提供 provider-neutral `AgentEvent`，方便映射到 OpenTelemetry、LangSmith、OpenAI tracing 或应用事件流。
+
+但 `AgentEvent` **不等于 Regulatory Audit Evidence**。
+
+Business audit 仍然属于应用自己的审计模型。
+
+---
+
+## Pattern 12：Tool Contract，而不是 Tool Registry
 
 行业实践的共同点不是“做一个巨大的 Tool Registry”，而是：
 
@@ -422,27 +503,13 @@ OpenAI Agents SDK 使用 `RunState` 保存可恢复的中断状态；LangGraph �
 - 需要时按服务 / 资源做命名空间。
 - Tool 调用前后可以有 guardrail / validation。
 
-Anthropic 对 tool ergonomics 的研究尤其强调：工具名称、参数命名、描述、返回内容和 evaluation 都会直接影响 agent tool-use；它还在持续推进 Tool Search / programmatic tool calling 来减少大量工具定义占用上下文。
+因此 Common Lib 提供 `ToolDefinition` 和 `ToolProvider` contract，但不实现 Registry。
 
-这类规则应该进入各应用的 Tool/MCP 开发规范，而不是现在再造一个 registry。
+MCP、REST、内部 API、脚本和 runtime-native tools 都可以适配到这个 contract。
 
-## Pattern 9：Observability 与 Business Audit 分开
+---
 
-OpenAI Agents SDK、LangChain/LangSmith、Copilot runtime 都把 trace / event 作为运行观察手段。
-
-公共设计上应该固定：
-
-```text
-Agent trace
-  = 谁调用了什么、什么时候调用、运行多久、是否失败
-
-Business audit
-  = 谁批准、依据什么、访问了什么数据、执行了什么业务动作、最终采用什么决定
-```
-
-Trace 可以接 OpenTelemetry / LangSmith / OpenAI tracing；Business audit 不应该直接等同于 trace。
-
-## Pattern 10：Progressive Disclosure / Capability Loading
+## Pattern 13：Progressive Disclosure / Capability Loading
 
 Agent Skills 与现在的四个项目已经共同说明：不能把所有能力正文、所有工具和所有知识一次性塞进 context。
 
@@ -458,18 +525,62 @@ load only when relevant
 read supporting resources / run scripts
 ```
 
-Anthropic Agent Skills 已把这种 progressive disclosure 做成正式架构；Anthropic 还提供 Tool Search 用于在大量工具中按需发现工具。当前 common-agent-lib 的 `agent-skill` package 只负责 Skill manifest/discovery，不负责动态加载执行。
+`agent-skill` 负责 Skill manifest/discovery；`agent-contracts` 负责必要的 capability / tool / context 数据边界；具体动态加载和执行仍属于 runtime。
+
+---
+
+## 哪些仍然不要抽
+
+即使现在有 contract，也不要继续扩张成公共业务框架：
+
+- Team / Member
+- Conversation domain model
+- Learner Model
+- Graph RAG implementation
+- MCP Registry
+- Data Entitlement implementation
+- Authorization implementation
+- Policy Engine
+- Approval Service
+- Command Executor implementation
+- Business State
+- Regulatory Audit system
+- Agent-specific workflow evaluator
+
+原则是：
+
+> **Schema 可以通用，不代表业务语义也应该通用；Interface 可以通用，不代表实现应该进入 common-agent-lib。**
+
+---
 
 ## 与 LangChain / OpenAI / Anthropic 的对照
 
 | 行业模式 | LangChain | OpenAI Agents | Anthropic | common-agent-lib |
 | --- | --- | --- | --- | --- |
-| Structured Output | `response_format` + Provider/Tool Strategy | Zod / structured output | provider structured output / tool use | `agent-structured-output` |
-| Context engineering | Middleware / context editing / LangGraph state | RunContext + session + input filter / compaction | just-in-time context / Skills | 设计规范，暂不单独做 runtime |
-| HITL | LangGraph interrupt + persistence | RunState + interruptions | session/tool confirmation | 暂不做通用 runtime |
-| Skill / progressive disclosure | middleware / tool ecosystem | agent/tool composition | Agent Skills | `agent-skill` |
-| Eval | LangSmith ecosystem | tracing + eval integrations | code/model/human graders | `agent-eval` |
-| Tool guardrails | middleware | input/output tool guardrails | hooks / tool permissions | 留在应用/runtime |
-| Multi-agent | subagents/subgraphs | handoffs / agents-as-tools | subagents / Task | 留在应用/runtime |
+| Agent Runtime | LangGraph / Agents | Agents SDK | Agent SDK / Managed Agents | Copilot Runtime |
+| Agent Definition | Agent / Graph config | Agent definition | Agent configuration | `agent-contracts` |
+| Session | persistence / state | Sessions / RunState | Sessions | Runtime + `SessionReference` |
+| Structured Output | ProviderStrategy / ToolStrategy | Zod / structured output | structured output / tool use | `agent-structured-output` |
+| Skill | ecosystem / middleware | tool/agent composition | Agent Skills | `agent-skill` |
+| Workflow | LangGraph | orchestration | Workflows | `markdown-workflow` |
+| Knowledge | Retriever / Store | file/search/tool | Skills + retrieval | `agent-knowledge` + contracts |
+| Context | middleware / context editing | RunContext / compaction | JIT context | `ContextReference` + guidance |
+| HITL | interrupt + persistence | interruptions + RunState | confirmation / session | `AgentInterrupt` contract |
+| Approval | app-specific | app-specific | permission / confirmation | `ApprovalRequest/Decision` contract |
+| Policy | middleware / app | guardrails / app | hooks / permissions | `PolicyRequest/Decision` contract |
+| Command | tool/application | tool/application | tool/application | `AgentCommand/Result` contract |
+| Evidence | app / retrieval metadata | app / tracing | app / context | `Evidence` |
+| Eval | LangSmith ecosystem | tracing/evals | code/model/human graders | `agent-eval` |
+| Tool governance | middleware | guardrails | hooks / permissions | contract + application/runtime |
+| Multi-agent | subgraphs / subagents | handoffs / agents-as-tools | subagents / Task | application/runtime |
+| Tracing | LangSmith / OTel | built-in tracing | hooks / managed events | OTel/vendor + `AgentEvent` |
 
-结论：**复刻概念，不复刻框架内部实现。** Common library 只抽取跨框架都成立、而且边界足够稳定的纯模式。
+## 最终原则
+
+**复刻概念，不复刻框架内部实现。**
+
+进一步说：
+
+> **跨框架稳定的数据边界做 Schema；跨实现稳定的能力边界做 Interface；Agent 使用方法做 SKILL；实现细节留给 Runtime。**
+
+Common library 的目标不是成为另一个 LangChain，而是让 Copilot、LangChain、OpenAI、Anthropic 和业务 Agent Runtime 可以共享稳定的契约，同时保持各自的实现自由度。
