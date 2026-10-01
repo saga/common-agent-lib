@@ -111,6 +111,7 @@ export interface KnowledgeHit {
   title: string;
   kind: string;
   content: string;
+  restrictedContent?: string;
   score: number;
   tags: string[];
   metadata: Record<string, unknown>;
@@ -206,6 +207,7 @@ export class KnowledgeCatalog {
         title: document.title,
         kind: document.kind,
         content: document.text,
+        ...(document.restrictedText ? { restrictedContent: document.restrictedText } : {}),
         score,
         tags: document.tags,
         metadata: document.metadata,
@@ -279,5 +281,7 @@ function renderHitContent(
   mode: KnowledgeRenderMode,
 ): string {
   if (mode === 'public') return hit.content;
-  return hit.content;
+  return hit.restrictedContent
+    ? hit.content + '\\n' + hit.restrictedContent
+    : hit.content;
 }
