@@ -60,6 +60,14 @@ test('restricted content is not rendered in public mode', () => {
   assert.equal(catalog.render(doc, 'full').includes('Internal-only'), true);
 });
 
+test('full knowledge rendering includes restricted content when requested', () => {
+  const catalog = new KnowledgeCatalog([KnowledgeEntrySchema.parse(entry)]);
+  const evidence = catalog.search({ query: 'position' });
+
+  const rendered = renderKnowledgeEvidence(evidence, 'full');
+  assert.match(rendered, /Internal-only answer details/);
+});
+
 test('knowledge rendering preserves source provenance', () => {
   const catalog = new KnowledgeCatalog([KnowledgeEntrySchema.parse(entry)]);
   const evidence = catalog.search({ query: 'position' });
