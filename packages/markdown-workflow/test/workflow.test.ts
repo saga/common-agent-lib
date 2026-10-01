@@ -32,7 +32,7 @@ completeWhen: goal
 title: 检查资料
 completeWhen: evidence-ready
 
-- success -> done
+- success -> review-gate
 - retry -> intake
 
 ## @gate review-gate
