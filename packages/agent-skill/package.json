@@ -1,0 +1,23 @@
+{
+  "name": "@saga/agent-skill",
+  "version": "0.1.0",
+  "description": "Framework-neutral Agent Skill manifest parsing, validation, and discovery.",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1",
+    "zod": "^4.3.6"
+  }
+}
