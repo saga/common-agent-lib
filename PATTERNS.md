@@ -529,6 +529,59 @@ read supporting resources / run scripts
 
 ---
 
+
+---
+
+## Pattern 14：Durable Agent Memory
+
+当前项目里已经出现一个必须区分的概念：
+
+```text
+Transcript / Work Records
+        ↓
+Working Memory
+        ↓
+Archive
+```
+
+三者不是一回事：
+
+- Transcript 是完整原始记录，应该可分页、可检索、可审计。
+- Working Memory 是当前 turn 给模型看的有界窗口。
+- Archive 是旧记录的摘要和引用，不能替代原始记录。
+
+Common Lib 现在用 `@saga/agent-memory` 定义 MemoryRecord、MemoryArchive、分页契约和窗口/归档候选选择。存储和摘要生成继续由 application 决定。
+
+## Pattern 15：Declarative Rule Engine
+
+很多“if/else → 建议/分类/状态”的逻辑已经开始在应用里重复。最适合抽成规则的是：
+
+```text
+facts
+  ↓
+rules
+  ↓
+matched outputs
+```
+
+`@saga/agent-rules` 提供最小的声明式条件、优先级、启停和模板能力。它不执行副作用，也不决定权限。
+
+典型宿主规则：
+
+```text
+Finding → Recommendation
+Current-State → Gap
+Validation facts → Ready / Blocked
+Journey facts → Complete / Current
+```
+
+## Pattern 16：Generic State Machine
+
+Workflow runtime 与 Agent turn lifecycle 都包含稳定的状态转移模式。现在用 `@saga/agent-state-machine` 提供最小的 state / event / transition 能力。
+
+它不替宿主保存业务状态，也不执行状态进入时的副作用。
+
+不要把它再升级成第二个 Workflow Engine；`@saga/markdown-workflow` 仍然负责 Markdown → Workflow Definition → Journey State。
 ## 哪些仍然不要抽
 
 即使现在有 contract，也不要继续扩张成公共业务框架：
