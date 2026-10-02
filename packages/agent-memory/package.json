@@ -1,0 +1,25 @@
+{
+  "name": "@saga/agent-memory",
+  "version": "0.1.0",
+  "description": "Provider-neutral agent memory contract, pagination, working-memory windowing and archive policy helpers.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
