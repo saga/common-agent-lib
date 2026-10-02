@@ -12,6 +12,9 @@
 | `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
 | `@saga/agent-structured-output` | Provider-neutral 的结构化输出解析和最终 Schema 校验 | `zod` |
 | `@saga/agent-eval` | Eval case、observation、code/model/human grader 和结果汇总 | 无 |
+| `@saga/agent-memory` | 持久记忆契约、分页、工作记忆窗口和归档候选 | `zod` |
+| `@saga/agent-rules` | 小型声明式确定性规则评估器 | `zod` |
+| `@saga/agent-state-machine` | 小型确定性状态转移运行时 | 无 |
 
 这些 package **互不依赖**。应用按需安装；不存在一个必须同时安装的“大一统 Agent Framework”。
 
