@@ -1,0 +1,22 @@
+{
+  "name": "@saga/agent-state-machine",
+  "version": "0.1.0",
+  "description": "Small deterministic state machine for agent workflow and lifecycle transitions.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
