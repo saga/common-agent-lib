@@ -40,7 +40,7 @@ export type WorkflowChange =
   | { type: 'update-node'; nodeId: string; patch: Partial<Omit<WorkflowNode, 'id' | 'routes'>> }
   | { type: 'remove-node'; nodeId: string }
   | { type: 'add-route'; nodeId: string; route: WorkflowRoute }
-  | { type: 'update-route'; nodeId: string; outcome: string; patch: Partial<Omit<WorkflowRoute, 'outcome'>> }
+  | { type: 'update-route'; nodeId: string; outcome: string; patch: { target?: string; condition?: string | null } }
   | { type: 'remove-route'; nodeId: string; outcome: string };
 
 export interface WorkflowAnalysisIssue {
@@ -486,6 +486,7 @@ export function applyWorkflowChanges(
         );
         if (index < 0) throw new Error(node.id + ' 不存在 outcome=' + change.outcome);
         const updated = { ...node.routes[index], ...change.patch };
+        if (change.patch.condition === null) delete updated.condition;
         if (node.routes.some((route, routeIndex) =>
           routeIndex !== index && route.outcome.toLowerCase() === updated.outcome.toLowerCase()
         )) {
@@ -576,7 +577,7 @@ export function diffWorkflowDefinitions(
           outcome: oldRoute.outcome,
           patch: {
             target: newRoute.target,
-            condition: newRoute.condition,
+            condition: newRoute.condition ?? null,
           },
         });
       }
