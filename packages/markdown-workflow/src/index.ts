@@ -358,7 +358,7 @@ export function validateWorkflow(
     } else if (node.routes.length === 0) {
       issues.push({
         code: 'node-without-route',
-        line: node.line ?? 1
+        line: node.line ?? 1,
         nodeId: node.id,
         message: node.id + ' 没有定义 route。',
       });
