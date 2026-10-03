@@ -110,7 +110,7 @@ test('resolves only declared transitions', () => {
 
 
 test('supports actor, conditional routes, and data dependencies', () => {
-  const result = parseAndValidateWorkflow(`## @flow demo
+  const result = parseWorkflowMarkdown(`## @flow demo
 
 start -> intake
 
@@ -120,7 +120,7 @@ requires: request
 produces: normalized-request
 completeWhen: goal
 - success -> review if goal
-- failure -> stop
+- fallback -> review
 
 ## @review review
 actor: human
