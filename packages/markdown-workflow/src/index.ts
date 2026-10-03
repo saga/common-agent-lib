@@ -401,7 +401,7 @@ export function validateWorkflow(
       if (!reachable.has(node.id)) {
         issues.push({
           code: 'unreachable-node',
-          line: node.line ?? 1
+          line: node.line ?? 1,
           nodeId: node.id,
           message: '节点不可从 start 到达：' + node.id,
         });
