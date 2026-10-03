@@ -110,6 +110,37 @@ next node
 
 不会执行 SQL、调用 MCP、发邮件、审批或修改业务数据。
 
+## Editor Patch / Analysis
+
+公共 Workflow 还提供一套与 UI 无关的语义编辑操作。
+
+```ts
+const next = applyWorkflowChanges(definition, [
+  { type: 'update-node', nodeId: 'inspect', patch: { title: '检查资料' } },
+  { type: 'add-route', nodeId: 'inspect', route: { outcome: 'retry', target: 'intake' } },
+]);
+```
+
+UI 和 AI 可以使用同一套 `WorkflowChange`，再调用 `validateWorkflow()` 保存。这样 React Flow、其它编辑器或 CLI 不需要各自实现一套 Workflow 修改规则。
+
+`diffWorkflowDefinitions(before, after)` 可以把两张 Definition 转成 Patch，适合做 AI 修改预览、Undo/Redo 和变更记录。
+
+`analyzeWorkflowDefinition(definition)` 只做静态提醒，例如条件分支没有 fallback、多个条件可能同时命中、requires 没有对应 produces。它不会执行业务逻辑。
+
+节点可以声明轻量的工作成果依赖：
+
+```markdown
+requires: current-state, evidence
+produces: target
+```
+
+它不是表达式语言，也不是变量运行时。
+
+## Run Event / Human Wait
+
+公共 contract 还定义了 `WorkflowPendingInteraction` 和 `WorkflowRunEvent`，用于表达 Workflow 暂停等待人工、节点完成/失败、Workflow 完成/停止等运行事件。公共库只定义数据边界，不负责 checkpoint、审批或持久化。
+
+React Flow、ELK、节点坐标、viewport 等画布实现不属于这个 package。
 ## 为什么故意保持这么小
 
 一个 Markdown Workflow 文件经常同时要被：
