@@ -485,7 +485,14 @@ export function applyWorkflowChanges(
           (route) => route.outcome.toLowerCase() === change.outcome.toLowerCase(),
         );
         if (index < 0) throw new Error(node.id + ' 不存在 outcome=' + change.outcome);
-        const updated = { ...node.routes[index], ...change.patch };
+        const currentRoute = node.routes[index]!;
+        const updated: WorkflowRoute = {
+          ...currentRoute,
+          ...(change.patch.target !== undefined ? { target: change.patch.target } : {}),
+          ...(change.patch.condition !== undefined && change.patch.condition !== null
+            ? { condition: change.patch.condition }
+            : {}),
+        };
         if (change.patch.condition === null) delete updated.condition;
         if (node.routes.some((route, routeIndex) =>
           routeIndex !== index && route.outcome.toLowerCase() === updated.outcome.toLowerCase()
