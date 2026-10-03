@@ -136,3 +136,52 @@ produces: approved-request
   assert.deepEqual(result.definition?.nodes[0]?.produces, ['normalized-request']);
   assert.equal(result.definition?.nodes[0]?.routes[0]?.condition, 'goal');
 });
+
+
+test('applies and diffs typed workflow changes', () => {
+  const result = parseAndValidateWorkflow(markdown);
+  const before = result.definition!;
+  const after = applyWorkflowChanges(before, [
+    { type: 'update-node', nodeId: 'intake', patch: { title: '接收并澄清目标' } },
+    {
+      type: 'add-node',
+      node: {
+        id: 'human-check',
+        type: 'review',
+        title: '人工确认',
+        visible: true,
+        completion: 'agent',
+        actor: 'human',
+        body: '',
+        attrs: {},
+        routes: [{ outcome: 'approved', target: 'inspect' }],
+      },
+    },
+    { type: 'update-route', nodeId: 'intake', outcome: 'success', patch: { target: 'human-check' } },
+    { type: 'remove-route', nodeId: 'inspect', outcome: 'retry' },
+    { type: 'add-route', nodeId: 'inspect', route: { outcome: 'failure', target: 'intake' } },
+  ]);
+  const diff = diffWorkflowDefinitions(before, after);
+  assert.ok(diff.length >= 4);
+  const replayed = applyWorkflowChanges(before, diff);
+  assert.deepEqual(replayed, after);
+});
+
+test('workflow analysis warns about ambiguous routing and unmet outputs', () => {
+  const result = parseAndValidateWorkflow(`## @flow demo
+
+start -> a
+
+## @task a
+requires: missing-input
+- yes -> done if goal
+- no -> done if current-state
+
+## @end done
+`);
+  assert.equal(result.issues.length, 0);
+  const analysis = analyzeWorkflowDefinition(result.definition!);
+  assert.ok(analysis.some((item) => item.code === 'multiple-conditional-routes'));
+  assert.ok(analysis.some((item) => item.code === 'conditional-route-without-fallback'));
+  assert.ok(analysis.some((item) => item.code === 'missing-required-producer'));
+});
