@@ -107,3 +107,32 @@ test('resolves only declared transitions', () => {
   assert.equal(runtime.transition('inspect', 'retry')?.id, 'intake');
   assert.equal(runtime.transition('inspect', 'unknown'), undefined);
 });
+
+
+test('supports actor, conditional routes, and data dependencies', () => {
+  const result = parseAndValidateWorkflow(`## @flow demo
+
+start -> intake
+
+## @task intake
+actor: system
+requires: request
+produces: normalized-request
+completeWhen: goal
+- success -> review if goal
+- failure -> stop
+
+## @review review
+actor: human
+requires: normalized-request
+produces: approved-request
+- approved -> done
+
+## @end done
+`);
+  assert.equal(result.issues.length, 0);
+  assert.equal(result.definition?.nodes[0]?.actor, 'system');
+  assert.deepEqual(result.definition?.nodes[0]?.requires, ['request']);
+  assert.deepEqual(result.definition?.nodes[0]?.produces, ['normalized-request']);
+  assert.equal(result.definition?.nodes[0]?.routes[0]?.condition, 'goal');
+});
