@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  applyWorkflowChanges,
+  analyzeWorkflowDefinition,
   buildWorkflowState,
+  diffWorkflowDefinitions,
   parseAndValidateWorkflow,
   parseWorkflowMarkdown,
   WorkflowRuntime,
+  type WorkflowRunEvent,
 } from '../src/index.js';
 
 const markdown = `---
