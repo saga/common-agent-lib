@@ -571,8 +571,9 @@ export class WorkflowRuntime<TFacts = unknown> {
     const completed = new Set(execution.completedNodeIds);
     if (target.id !== node.id) completed.add(node.id);
     const waiting = target.actor === 'human' && target.type !== 'end';
+    const { pendingInteraction: _pendingInteraction, ...executionWithoutPending } = execution;
     return {
-      ...execution,
+      ...executionWithoutPending,
       currentNodeId: target.id,
       completedNodeIds: [...completed],
       status: target.type === 'end' ? 'completed' : waiting ? 'waiting' : 'active',
