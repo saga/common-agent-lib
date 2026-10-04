@@ -629,7 +629,10 @@ export function applyWorkflowChanges(definitionInput: WorkflowDefinition, change
       case 'replace-definition': definition = cloneWorkflowDefinition(change.definition); break;
       case 'add-node':
         if (definition.nodes.some((node) => node.id === change.node.id)) throw new Error('不能新增重复 Workflow node：' + change.node.id);
-        definition.nodes.push(cloneWorkflowDefinition({ id: definition.id, start: definition.start, nodes: [change.node] }).nodes[0]!);
+        definition.nodes.push({
+          ...change.node,
+          routes: change.node.routes.map((route) => ({ ...route })),
+        });
         break;
       case 'update-node': {
         const node = definition.nodes.find((item) => item.id === change.nodeId);
