@@ -234,9 +234,9 @@ export function parseWorkflowMarkdown(markdown: string): ParsedWorkflow {
     current = undefined;
   };
 
-  const headingPattern = /^##\\s+@(flow|task|review|end)\\s+([A-Za-z0-9._:-]+)\\s*$/i;
-  const routePattern = /^(?:[-*]\\s+)?([A-Za-z0-9._:-]+)\\s*->\\s*([A-Za-z0-9._:-]+)\\s*$/;
-  const attrPattern = /^([A-Za-z][A-Za-z0-9_-]*)\\s*:\\s*(.*?)\\s*$/;
+  const headingPattern = /^##\s+@(flow|task|review|end)\s+([A-Za-z0-9._:-]+)\s*$/i;
+  const routePattern = /^(?:[-*]\s+)?([A-Za-z0-9._:-]+)\s*->\s*([A-Za-z0-9._:-]+)\s*$/;
+  const attrPattern = /^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*?)\s*$/;
 
   for (let index = 0; index < lines.length; index += 1) {
     const lineNumber = index + 1;
