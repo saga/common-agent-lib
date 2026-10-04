@@ -582,6 +582,45 @@ Workflow runtime 与 Agent turn lifecycle 都包含稳定的状态转移模式�
 它不替宿主保存业务状态，也不执行状态进入时的副作用。
 
 不要把它再升级成第二个 Workflow Engine；`@saga/markdown-workflow` 仍然负责 Markdown → Workflow Definition → Journey State。
+
+## Pattern 17：Long-running Agent 需要把“运行进度”和“工作成果”分开
+
+agentic-data-architect 的实际长任务运行暴露出一个常见问题：工具和模型可以持续工作很久，但用户仍然感觉“没有结果”。
+
+需要区分三层：
+
+runtime status
+  = 还在运行吗？
+
+progress event
+  = 当前在做什么？
+
+checkpoint
+  = 到这里已经得到什么？
+
+长任务不应该靠固定时间输出“还在处理中”解决。更合适的是在形成有实质成果的阶段后产生一个紧凑 checkpoint，然后继续 Agent。
+
+AgentCheckpoint 只保留：阶段标题、阶段小结、已确认事实、Evidence 引用、未确认事项、下一步。
+
+公共库只提供 Schema。checkpoint 什么时候生成、保存在哪里、如何展示、如何和业务 Evidence 关联，仍由应用决定。
+
+不要每个 tool call 都生成 checkpoint，也不要为了“有进度”生成没有新信息的报告，更不要把 checkpoint 变成第二套 Workflow / Task system。
+
+## Pattern 18：执行超时和等待人工输入不是同一个时间预算
+
+agentic-data-architect 的实际运行还验证了一条重要边界：
+
+Agent execution
+        ↓
+有限执行时间
+
+ask_user / human input
+        ↓
+独立等待时间
+
+用户思考的时间不是 Agent 计算的时间。因此宿主至少应该区分 execution timeout、user-input wait、permission wait。
+
+公共库目前不实现通用 HITL runtime。具体 timeout timer、pending interaction、resume 和 persistence 仍由宿主负责。
 ## 哪些仍然不要抽
 
 即使现在有 contract，也不要继续扩张成公共业务框架：
