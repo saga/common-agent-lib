@@ -6,7 +6,7 @@
 
 | Package | 解决什么问题 | 依赖 |
 | --- | --- | --- |
-| `@saga/copilot-agent-runtime` | Copilot SDK server-side client / session / turn / streaming / timeout / abort / concurrency | `@github/copilot-sdk` |
+| `@saga/copilot-agent-runtime` | Copilot SDK server-side client / session / turn / streaming / reasoning / timeout / abort / concurrency | `@github/copilot-sdk` |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
 | `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
 | `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
@@ -50,7 +50,7 @@ capability or workflow
 
 ## 明确不再继续抽的模式
 
-- Context engineering：抽取原则和小工具即可，暂时不做通用 Context Runtime。各应用的 context source、checkpoint、budget 和 compaction 策略不同。
+- Context engineering：抽取原则和小工具即可，暂时不做通用 Context Runtime。各应用的 context source、checkpoint scheduling、budget 和 compaction 策略不同；公共层只提供 ContextReference / AgentCheckpoint 等稳定 contract。
 - Human-in-the-loop / interrupt：模式很通用，但 checkpoint、审批对象、授权和持久化都与业务强相关，暂不做通用执行引擎。
 - Tracing / Audit：统一事件字段可以以后接 OpenTelemetry；不自己再造 tracing backend，也不把 runtime trace 当业务审计。
 - Tool registry / dynamic tool search：工具发现方式正在快速变化，先保留 Tool contract / naming / schema 规范，不做新的通用 registry。
