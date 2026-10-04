@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  AgentCheckpointSchema,
   AgentCommandSchema,
   AgentDefinitionSchema,
   AgentInterruptSchema,
@@ -16,6 +17,11 @@ import {
 
 const actor = { id: 'user-1', type: 'human' };
 
+assert.equal(AgentCheckpointSchema.parse({
+  title: 'Position source',
+  summary: 'Confirmed the main input.',
+  evidenceIds: ['e1'],
+}).evidenceIds.length, 1);
 assert.equal(AgentDefinitionSchema.parse({ id: 'a', name: 'Researcher' }).id, 'a');
 assert.equal(ToolDefinitionSchema.parse({ name: 'search', description: 'Search', inputSchema: {} }).name, 'search');
 assert.equal(KnowledgeSearchRequestSchema.parse({ query: 'positions' }).limit, 10);
