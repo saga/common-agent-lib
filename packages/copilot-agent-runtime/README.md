@@ -11,7 +11,7 @@
 - CopilotClient lifecycle
 - create / resume / delete session
 - 一个 session 的 turn 串行化
-- streaming delta / message / event
+- streaming delta / message / reasoning delta / event
 - model override
 - sendAndWait timeout
 - timeout / cancel 后显式 abort
@@ -50,3 +50,5 @@ console.log(result.content);
 ~~~
 
 应用自己的 execution、审计、权限和状态机继续放在包外面。
+
+`reasoning delta` 只是运行时事件；是否展示给用户、是否保存由应用决定。不要把它当成业务结论、Memory 或审计证据。
