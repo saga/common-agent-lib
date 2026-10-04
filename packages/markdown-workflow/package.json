@@ -1,6 +1,6 @@
 {
   "name": "@saga/markdown-workflow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Independent Markdown workflow parser, validator and deterministic state runtime.",
   "type": "module",
   "main": "./dist/index.js",
