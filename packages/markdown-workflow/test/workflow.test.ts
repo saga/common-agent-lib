@@ -2,13 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   applyWorkflowChanges,
-  analyzeWorkflowDefinition,
   buildWorkflowState,
   diffWorkflowDefinitions,
   parseAndValidateWorkflow,
   parseWorkflowMarkdown,
   WorkflowRuntime,
-  type WorkflowRunEvent,
+  type WorkflowExecution,
 } from '../src/index.js';
 
 const markdown = `---
@@ -34,73 +33,114 @@ completeWhen: goal
 ## @task inspect
 
 title: 检查资料
-completeWhen: evidence-ready
 
-- success -> review-gate
+- success -> review
 - retry -> intake
 
-## @gate review-gate
+## @review review
 
-title: 人工检查
-completeWhen: gate-passed
+title: 人工确认
 
-- pass -> done
+- approved -> done
 - retry -> inspect
 
 ## @end done
 
 title: 完成
-visible: false
 `;
 
-test('parses and validates a Markdown workflow', () => {
+test('parses the minimal Markdown workflow', () => {
   const result = parseAndValidateWorkflow(markdown);
   assert.equal(result.issues.length, 0);
   assert.ok(result.definition);
   assert.equal(result.definition.id, 'demo');
   assert.equal(result.definition.start, 'intake');
   assert.equal(result.definition.nodes.length, 4);
+  assert.equal(result.definition.nodes.find((node) => node.id === 'review')?.actor, 'human');
 });
 
-test('returns structural errors before runtime use', () => {
-  const parsed = parseWorkflowMarkdown(`## @flow broken
+test('rejects removed DSL fields instead of silently accepting them', () => {
+  const result = parseWorkflowMarkdown(`## @flow demo
 
-start -> missing
+start -> intake
 
 ## @task intake
-- success -> missing
-`);
-  assert.ok(parsed.definition);
+completion: agent
+tools: read,url
+- success -> done
 
+## @end done
+`);
+  assert.ok(result.issues.some((issue) => issue.code === 'unknown-attribute'));
+});
+
+test('validates duplicate outcomes, unreachable nodes and dead-end cycles', () => {
   const result = parseAndValidateWorkflow(`## @flow broken
 
-start -> missing
+start -> a
 
-## @task intake
-- success -> missing
+## @task a
+- success -> b
+- SUCCESS -> c
+
+## @task b
+- retry -> b
+
+## @task c
+- success -> done
+
+## @task unreachable
+- success -> done
+
+## @end done
 `);
-  assert.ok(result.issues.some((issue) => issue.code === 'missing-start-target'));
+  assert.ok(result.issues.some((issue) => issue.code === 'duplicate-outcome'));
+  assert.ok(result.issues.some((issue) => issue.code === 'unreachable-node'));
+  assert.ok(result.issues.some((issue) => issue.code === 'cannot-reach-end'));
 });
 
-test('builds state from deterministic facts, not agent self-report', () => {
+test('deterministic completion uses host facts and follows the first route', () => {
   const result = parseAndValidateWorkflow(markdown);
   assert.ok(result.definition);
 
   const state = buildWorkflowState(
     result.definition!,
-    { goal: true, evidenceReady: false },
-    (condition, facts) => {
-      if (condition === 'goal') return facts.goal;
-      if (condition === 'evidence-ready') return facts.evidenceReady;
-      return false;
-    },
+    { goal: true },
+    (condition, facts) => condition === 'goal' && facts.goal === true,
   );
 
-  assert.deepEqual(state.completedNodeIds, ['intake']);
-  assert.equal(state.currentNodeId, 'inspect');
+  assert.deepEqual(state.execution.completedNodeIds, ['intake']);
+  assert.equal(state.execution.currentNodeId, 'inspect');
+  assert.equal(state.stages.find((stage) => stage.id === 'inspect')?.status, 'current');
 });
 
-test('resolves only declared transitions', () => {
+test('human review becomes waiting and cannot be auto-completed', () => {
+  const result = parseAndValidateWorkflow(markdown);
+  assert.ok(result.definition);
+
+  const state = buildWorkflowState(
+    result.definition!,
+    { goal: true },
+    (condition, facts) => condition === 'goal' && facts.goal === true,
+  );
+
+  const execution: WorkflowExecution = {
+    ...state.execution,
+    currentNodeId: 'review',
+    completedNodeIds: ['intake', 'inspect'],
+    status: 'waiting',
+  };
+
+  const next = new WorkflowRuntime(result.definition!).state(
+    { goal: true },
+    execution,
+  );
+
+  assert.equal(next.execution.status, 'waiting');
+  assert.equal(next.execution.currentNodeId, 'review');
+});
+
+test('retry is a normal declared route, not a special node type', () => {
   const result = parseAndValidateWorkflow(markdown);
   const runtime = new WorkflowRuntime(result.definition!);
 
@@ -108,80 +148,49 @@ test('resolves only declared transitions', () => {
   assert.equal(runtime.transition('inspect', 'unknown'), undefined);
 });
 
+test('applyTransition updates execution without performing external work', () => {
+  const result = parseAndValidateWorkflow(markdown);
+  const runtime = new WorkflowRuntime(result.definition!);
+  const execution = runtime.applyTransition(
+    {
+      workflowId: 'demo',
+      currentNodeId: 'inspect',
+      completedNodeIds: ['intake'],
+      status: 'active',
+    },
+    'inspect',
+    'retry',
+  );
 
-test('supports actor, conditional routes, and data dependencies', () => {
-  const result = parseWorkflowMarkdown(`## @flow demo
-
-start -> intake
-
-## @task intake
-actor: system
-requires: request
-produces: normalized-request
-completeWhen: goal
-- success -> review if goal
-- fallback -> review
-
-## @review review
-actor: human
-requires: normalized-request
-produces: approved-request
-- approved -> done
-
-## @end done
-`);
-  assert.equal(result.issues.length, 0);
-  assert.equal(result.definition?.nodes[0]?.actor, 'system');
-  assert.deepEqual(result.definition?.nodes[0]?.requires, ['request']);
-  assert.deepEqual(result.definition?.nodes[0]?.produces, ['normalized-request']);
-  assert.equal(result.definition?.nodes[0]?.routes[0]?.condition, 'goal');
+  assert.equal(execution.currentNodeId, 'intake');
+  assert.deepEqual(execution.completedNodeIds, ['intake', 'inspect']);
+  assert.equal(execution.status, 'active');
 });
-
 
 test('applies and diffs typed workflow changes', () => {
   const result = parseAndValidateWorkflow(markdown);
   const before = result.definition!;
   const after = applyWorkflowChanges(before, [
-    { type: 'update-node', nodeId: 'intake', patch: { title: '接收并澄清目标' } },
     {
       type: 'add-node',
       node: {
         id: 'human-check',
         type: 'review',
         title: '人工确认',
-        visible: true,
-        completion: 'agent',
         actor: 'human',
         body: '',
-        attrs: {},
         routes: [{ outcome: 'approved', target: 'inspect' }],
       },
     },
-    { type: 'update-route', nodeId: 'intake', outcome: 'success', patch: { target: 'human-check' } },
-    { type: 'remove-route', nodeId: 'inspect', outcome: 'retry' },
-    { type: 'add-route', nodeId: 'inspect', route: { outcome: 'failure', target: 'intake' } },
+    {
+      type: 'update-route',
+      nodeId: 'intake',
+      outcome: 'success',
+      patch: { target: 'human-check' },
+    },
   ]);
   const diff = diffWorkflowDefinitions(before, after);
-  assert.ok(diff.length >= 4);
+  assert.ok(diff.length >= 2);
   const replayed = applyWorkflowChanges(before, diff);
   assert.deepEqual(replayed, after);
-});
-
-test('workflow analysis warns about ambiguous routing and unmet outputs', () => {
-  const result = parseAndValidateWorkflow(`## @flow demo
-
-start -> a
-
-## @task a
-requires: missing-input
-- yes -> done if goal
-- no -> done if current-state
-
-## @end done
-`);
-  assert.equal(result.issues.length, 0);
-  const analysis = analyzeWorkflowDefinition(result.definition!);
-  assert.ok(analysis.some((item) => item.code === 'multiple-conditional-routes'));
-  assert.ok(analysis.some((item) => item.code === 'conditional-route-without-fallback'));
-  assert.ok(analysis.some((item) => item.code === 'missing-required-producer'));
 });
