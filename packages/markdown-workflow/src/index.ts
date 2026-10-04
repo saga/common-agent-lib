@@ -166,7 +166,7 @@ export type CompletionEvaluator<TFacts> = (
 ) => boolean;
 
 function stripFrontmatter(markdown: string): string {
-  const match = markdown.match(/^---[ \\t]*\\n[\\s\\S]*?\\n---[ \\t]*\\n/);
+  const match = markdown.match(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n/);
   if (!match) return markdown;
   return markdown.slice(match[0].length);
 }
@@ -198,7 +198,7 @@ const KNOWN_ATTRIBUTES = new Set(['title', 'objective', 'actor', 'completeWhen']
  * 解析器只保留 Workflow runtime 真正需要的字段。
  */
 export function parseWorkflowMarkdown(markdown: string): ParsedWorkflow {
-  const lines = stripFrontmatter(markdown).split(/\\r?\\n/);
+  const lines = stripFrontmatter(markdown).split(/\r?\n/);
   const issues: WorkflowIssue[] = [];
   const nodes: WorkflowNode[] = [];
   let workflowId: string | undefined;
