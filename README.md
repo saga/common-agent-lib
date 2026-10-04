@@ -55,6 +55,7 @@ capability or workflow
 - Tracing / Audit：统一事件字段可以以后接 OpenTelemetry；不自己再造 tracing backend，也不把 runtime trace 当业务审计。
 - Tool registry / dynamic tool search：工具发现方式正在快速变化，先保留 Tool contract / naming / schema 规范，不做新的通用 registry。
 - Multi-agent handoff / agents-as-tools：这是编排模式，不是公共业务对象；保留在具体 runtime / application 层。
+- Workflow orchestration engine：不要因为出现多个 Workflow 就建立 Registry、通用编排器或 BPMN engine。当前只需要 Skill 内的高层路线 + 一个小型 parser/runtime。
 ## 这几个项目里真正重复的模式
 
 ### 1. Server-side Agent Runtime
@@ -123,40 +124,47 @@ prompt / UI / next action
 
 ### 3. Markdown Workflow
 
-`saga/copilot-server-agent` 和 `saga/agentic-data-architect` 都证明了一件事：
+`saga/copilot-server-agent` 和 `saga/agentic-data-architect` 的实际使用说明了一件事：
 
 ```text
 SKILL.md
    ↓
 parse Markdown
    ↓
-Workflow AST
+Workflow Definition
    ↓
-validate
+structural validation
    ↓
-application facts
+application facts + evaluator
    ↓
-Journey / current state
+Workflow state
    ↓
-next node / UI / API
+declared outcome → next node
 ```
 
-公共库因此只负责通用结构：
+公共库现在只负责已经验证过的最小结构：
 
 - `@flow`
 - `@task`
-- `@gate`
 - `@review`
 - `@end`
-- `@stop`
-- route
-- title / objective / visible / completeWhen
-- AST
-- structural validation
-- facts → current Journey state
+- `outcome -> target`
+- title / objective / actor / completeWhen
+- AST / structural validation
+- facts → current Workflow state
 - current node + outcome → next node
+- 语义 edit / diff
 
-**不**把 `Policy`、`Approval`、`Command`、MCP 权限、业务 Action 执行规则放进公共 Workflow package。那部分是 `copilot-server-agent` 的业务/安全运行时，不适合变成公共依赖。
+这里有几个明确的经验：
+
+1. Workflow 固定的是高层工作阶段，不固定 Agent 在阶段内部的具体调查动作。
+2. `completeWhen` 只是条件名称；业务含义由宿主 evaluator 提供。
+3. `success`、`failed`、`retry`、`approved` 都是普通 outcome。retry 就是一条真实 Edge。
+4. 人工等待只需要 `actor: human`；不需要再造 approval node 或 stop node。
+5. execution 才是运行状态唯一来源，UI stage 只是 projection。
+6. Workflow parser 不负责 Tool、MCP、权限、审批、SQL、外部副作用。
+
+**不**把 `Policy`、`Approval`、`Command`、MCP 权限、业务 Action 执行规则放进公共 Workflow package。
 
 ## 为什么不做一个“大一统 Agent Framework”
 
@@ -196,6 +204,21 @@ markdown-workflow       ← independent
 | `ai-interview-questions` | 自己的 AI provider / conversation abstraction | 最丰富：structured knowledge + projection + retrieval + graph | Skills 有工作方法，但不是本公共 Workflow runtime 的主要来源 |
 | `team-member-copilot-agent` | Member runtime → Copilot session | filesystem / scoped knowledge / citation | Skill 作为 Copilot SDK 输入 |
 | `agentic-data-architect` | Copilot session | source / confidence / timeSensitivity + deterministic catalog | Markdown Workflow + Journey state + lint |
+
+## 最近验证出的 Workflow 原则
+
+```text
+固定的是：
+  工作阶段 / 人工确认 / 合法 outcome
+
+不固定的是：
+  Agent 在阶段内部怎么调查
+  用什么 Tool / Skill
+  何时回头
+  业务事实如何判断
+```
+
+因此公共库的目标不是“描述所有 Agent 行为”，而是提供一个足够稳定的导航骨架。复杂性应留在宿主应用中，而不是继续向 Markdown DSL 堆字段。
 
 ## 使用原则
 
