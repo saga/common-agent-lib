@@ -1,17 +1,32 @@
 # @saga/markdown-workflow
 
-一个独立的 Markdown Workflow parser / validator / state runtime。
+一个很小的 Markdown Workflow parser / validator / state runtime。
 
-设计来源：
+这个 package 来自 `saga/copilot-server-agent` 和 `saga/agentic-data-architect` 的实际使用经验，但只保留已经证明有长期价值的部分：
 
-- `saga/copilot-server-agent`：Skill Flow、AST、validator、analyzer 的分层
-- `saga/agentic-data-architect`：轻量 Markdown Workflow + deterministic Journey state
+```text
+SKILL.md
+   ↓
+Markdown parser
+   ↓
+Workflow Definition
+   ↓
+structural validation
+   ↓
+host facts + evaluator
+   ↓
+Workflow state
+   ↓
+declared outcome → next node
+```
 
-公共 package 只取两者共同的结构，不绑定某个 Agent SDK，也不绑定业务权限。
+它不是 Agent Framework，也不是 BPMN engine。
 
-## 支持的语法
+## DSL
 
-```markdown
+当前只支持四种 block：
+
+~~~markdown
 ## @flow data-review
 
 start -> intake
@@ -24,144 +39,109 @@ completeWhen: goal
 
 - success -> inspect
 
-## @gate inspect
+## @task inspect
 
 title: 检查资料
-completeWhen: evidence-ready
-
-- pass -> done
+- success -> review
 - retry -> intake
 
-## @review approval
+## @review review
 
 title: 人工确认
 - approved -> done
-- changes-requested -> inspect
+- retry -> inspect
 
 ## @end done
 
 title: 完成
-visible: false
-```
+~~~
 
-支持的 node 类型只有：
+### Node
 
-- `task`
-- `gate`
-- `review`
-- `end`
-- `stop`
+节点只保留这些真正有运行意义的字段：
 
-公共包暂时不支持 `@command`。涉及业务副作用、审批策略、工具权限的节点应由宿主应用自行扩展，避免把安全模型塞进公共库。
+- `title`
+- `objective`
+- `actor`
+- `completeWhen`
 
-## API
+`@task` 默认由 Agent 执行，`@review` 默认等待人工；只有 `actor: human` 才会进入人工等待状态。
 
-### Parse
+### Route
 
-```ts
-const parsed = parseWorkflowMarkdown(markdown);
-```
+Route 只有：
 
-只负责把 Markdown 变成 AST，并返回语法问题。
+~~~text
+outcome -> target
+~~~
 
-### Validate
+`success`、`failed`、`retry`、`approved` 都只是 outcome 字符串。
 
-```ts
-const issues = validateWorkflow(parsed.definition!);
-```
+特别是 `retry` 不需要特殊 node、group 或 DSL 关键字。它就是一条真实的 Workflow Edge。
 
-检查：
+公共 runtime 不解释 outcome 的业务含义，也不根据 outcome 自动执行任何副作用。
 
-- @flow / start
-- duplicate node
-- route target
-- non-terminal node 是否有 route
-- 是否存在可达 end
+### completeWhen
 
-### State
+`completeWhen` 只是一个条件名字，不是表达式语言。
 
-```ts
-const state = buildWorkflowState(
-  definition,
-  facts,
-  (condition, facts, node) => evaluateCondition(condition, facts, node),
-);
-```
+宿主应用通过 `CompletionEvaluator` 决定这些名字如何映射到自己的 facts。
 
-公共 runtime 不知道 `goal`、`evidence-ready`、`current-state` 是什么意思。
+公共包不知道 `goal` 是什么，也不应该知道。
 
-这些由宿主应用传入 evaluator。
+## State
 
-### Transition
+执行状态只有一个来源：`WorkflowExecution`。
 
-```ts
-const next = runtime.transition('inspect', 'pass');
-```
+`WorkflowState` 在 execution 之上只提供 UI/展示用的 `stages`，不再复制 current/completed/unlocked。
 
-它只负责：
+有 `completeWhen` 的当前节点会在 evaluator 返回 true 时自动推进，并沿该节点的第一个 route 进入下一步。没有 `completeWhen` 的节点不会被公共包猜测完成。
 
-```text
-current node + outcome
-       ↓
-declared route
-       ↓
-next node
-```
+## Parse / Validate
 
-不会执行 SQL、调用 MCP、发邮件、审批或修改业务数据。
+`parseAndValidateWorkflow()` 做的是结构检查，而不是业务检查。
 
-## Editor Patch / Analysis
+检查包括：
 
-公共 Workflow 还提供一套与 UI 无关的语义编辑操作。
+- `@flow` 和 `start -> node`
+- 重复 node / outcome
+- route target 不存在
+- 非 `@end` 节点没有出口
+- `@end` 仍然定义出口
+- 不可从 start 到达的节点
+- 无法走到 `@end` 的节点
+- 不支持的 node / attribute
 
-```ts
-const next = applyWorkflowChanges(definition, [
-  { type: 'update-node', nodeId: 'inspect', patch: { title: '检查资料' } },
-  { type: 'add-route', nodeId: 'inspect', route: { outcome: 'retry', target: 'intake' } },
-]);
-```
+## Transition
 
-UI 和 AI 可以使用同一套 `WorkflowChange`，再调用 `validateWorkflow()` 保存。这样 React Flow、其它编辑器或 CLI 不需要各自实现一套 Workflow 修改规则。
+`WorkflowRuntime.transition()` 和 `applyTransition()` 只处理声明过的 route。
 
-`diffWorkflowDefinitions(before, after)` 可以把两张 Definition 转成 Patch，适合做 AI 修改预览、Undo/Redo 和变更记录。
+它不会调用 SQL、MCP、API，不做权限判断，不执行 approval/policy，也不代表 Agent 推理。
 
-`analyzeWorkflowDefinition(definition)` 只做静态提醒，例如条件分支没有 fallback、多个条件可能同时命中、requires 没有对应 produces。它不会执行业务逻辑。
+## Workflow 编辑
 
-节点可以声明轻量的工作成果依赖：
+`WorkflowChange` 和 `diffWorkflowDefinitions()` 用于人工编辑、AI 修改预览、Undo/Redo 和变更记录。
 
-```markdown
-requires: current-state, evidence
-produces: target
-```
+Patch 只处理 Workflow Definition，不处理画布坐标。
 
-它不是表达式语言，也不是变量运行时。
+## 为什么不继续加功能
 
-## Run Event / Human Wait
+最近在真实项目里验证后，下面这些能力被明确排除在公共 DSL 之外：
 
-公共 contract 还定义了 `WorkflowPendingInteraction` 和 `WorkflowRunEvent`，用于表达 Workflow 暂停等待人工、节点完成/失败、Workflow 完成/停止等运行事件。公共库只定义数据边界，不负责 checkpoint、审批或持久化。
+- `completion`：由 `completeWhen` 是否存在即可判断。
+- `visible`：这是 UI 状态，不是 Workflow 语义。
+- `tools`：工具由 Agent/runtime capability 决定，不应该在 Workflow 中声明一个假的工具权限模型。
+- `requires / produces`：业务产物由宿主应用维护，不进入核心 Workflow。
+- route `condition`：会把简单 outcome route 变成第二套规则系统。
+- `@gate`：没有独立 runtime 语义时就是另一个名字的 task。
+- `@stop`：停止运行属于 execution/control，不需要额外终点类型。
+- `system` actor：没有稳定的公共执行语义。
+- Workflow Registry：多个独立 Skill 已经足够。
 
-React Flow、ELK、节点坐标、viewport 等画布实现不属于这个 package。
-## 为什么故意保持这么小
+## 与宿主应用的边界
 
-一个 Markdown Workflow 文件经常同时要被：
+宿主应用负责 facts/evaluator、business state、Tool/MCP、authorization、approval、persistence、audit 和外部副作用。
 
-- 人阅读
-- Git review
-- Agent 阅读
-- runtime 解析
+公共 package 负责 Markdown、AST、结构校验、state projection、声明式 route transition 和语义 edit/diff。
 
-因此公共层应该只解决结构问题。
-
-业务项目自己决定：
-
-```text
-condition evaluator
-business action
-approval
-authorization
-persistence
-retry / compensation
-audit
-external side effect
-```
-
+画布布局、X6、React Flow、ELK 等不属于这个 package。
