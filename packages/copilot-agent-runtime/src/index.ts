@@ -14,6 +14,8 @@ export type CopilotSessionResult =
 
 export interface CopilotTurnHandlers {
   onDelta?: (delta: string) => void;
+  /** 可选的用户可见 reasoning 增量；是否展示/持久化由宿主应用决定。 */
+  onReasoningDelta?: (delta: string) => void;
   onMessage?: (content: string) => void;
   onEvent?: (event: unknown) => void;
 }
@@ -163,6 +165,11 @@ export class CopilotAgentRuntime {
         if (full) input.handlers?.onMessage?.(full);
       });
 
+      const offReasoning = session.on('assistant.reasoning_delta', (event) => {
+        const delta = (event as unknown as { data?: { deltaContent?: string } }).data?.deltaContent;
+        if (delta) input.handlers?.onReasoningDelta?.(delta);
+      });
+
       const offAll = session.on((event) => {
         input.handlers?.onEvent?.(event);
       });
@@ -192,6 +199,7 @@ export class CopilotAgentRuntime {
       } finally {
         offDelta();
         offMessage();
+        offReasoning();
         offAll();
         this.activeTurns.delete(input.turnId);
       }
