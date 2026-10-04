@@ -183,6 +183,17 @@ export const EvidenceSchema = z.object({
 });
 export type Evidence = z.infer<typeof EvidenceSchema>;
 
+/** A compact, user-readable intermediate result from a meaningful agent work stage. */
+export const AgentCheckpointSchema = z.object({
+  title: z.string().min(1).max(120),
+  summary: z.string().min(1).max(1200),
+  confirmed: z.array(z.string().min(1).max(500)).max(8).default([]),
+  evidenceIds: z.array(z.string().min(1).max(120)).max(20).default([]),
+  unknowns: z.array(z.string().min(1).max(500)).max(8).default([]),
+  nextStep: z.string().min(1).max(500).optional(),
+});
+export type AgentCheckpoint = z.infer<typeof AgentCheckpointSchema>;
+
 /** Provider-neutral agent event. Business audit remains a separate application concern. */
 export const AgentEventSchema = z.object({
   id: z.string(),
