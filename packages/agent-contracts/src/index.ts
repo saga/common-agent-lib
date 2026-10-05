@@ -183,6 +183,48 @@ export const EvidenceSchema = z.object({
 });
 export type Evidence = z.infer<typeof EvidenceSchema>;
 
+/** Claim status used when an agent conclusion can be checked against explicit evidence. */
+export const ClaimStatusSchema = z.enum(['verified', 'supported', 'inferred', 'unknown', 'contradicted']);
+export type ClaimStatus = z.infer<typeof ClaimStatusSchema>;
+
+/** A claim stores evidence references rather than embedding the complete evidence objects. */
+export const ClaimSchema = z.object({
+  id: z.string(),
+  claim: z.string().min(1),
+  status: ClaimStatusSchema,
+  evidenceIds: z.array(z.string()),
+});
+export type Claim = z.infer<typeof ClaimSchema>;
+
+/**
+ * Prevents an agent from promoting a claim to a stronger status than its evidence supports.
+ *
+ * verified is deterministic/application-owned and therefore cannot be granted by the model.
+ * A supported claim needs evidence with distinct origins; two records from the same source do
+ * not become independent merely because their ids are different.
+ */
+export function calibrateClaimStatus(
+  evidence: number | readonly Evidence[],
+  claimed: ClaimStatus,
+): ClaimStatus {
+  const evidenceCount = typeof evidence === 'number' ? evidence : evidence.length;
+  if (evidenceCount === 0) return 'unknown';
+  if (claimed === 'verified') return 'inferred';
+  if (claimed === 'contradicted') return 'contradicted';
+  if (claimed !== 'supported') return claimed;
+
+  const independentOrigins = typeof evidence === 'number'
+    ? evidenceCount
+    : new Set(evidence.map((item) => {
+        const metadata = item.metadata ?? {};
+        const sourceHash = typeof metadata.sourceHash === 'string' ? metadata.sourceHash : undefined;
+        return sourceHash
+          ? 'hash:' + sourceHash
+          : item.source ?? item.uri ?? 'evidence:' + item.id;
+      })).size;
+
+  return independentOrigins >= 2 ? 'supported' : 'inferred';
+}
 /** A compact, user-readable intermediate result from a meaningful agent work stage. */
 export const AgentCheckpointSchema = z.object({
   title: z.string().min(1).max(120),
