@@ -19,6 +19,7 @@ It intentionally does **not** provide an agent runtime, policy engine, approval 
 - Policy request/decision
 - Business command/result
 - Evidence/provenance
+- Claim + evidence-backed status calibration
 - Stage checkpoint
 - Agent event
 
@@ -44,6 +45,7 @@ In particular:
 - `ApprovalDecision` is a contract; authorization is application-owned.
 - `AgentCommand` is a contract; execution is application-owned.
 - `AgentEvent` is an interoperability event; regulatory/business audit remains application-owned.
+- `Claim` stores references to evidence; `calibrateClaimStatus` prevents model output from granting a stronger evidence status than the available evidence supports.
 - `AgentCheckpoint` is a compact intermediate work product; it does not own persistence, workflow orchestration, or final-report semantics.
 - `ToolProvider` is a provider interface; there is no common tool registry.
 - `KnowledgeProvider` is a retrieval interface; storage and ranking remain provider-specific.
