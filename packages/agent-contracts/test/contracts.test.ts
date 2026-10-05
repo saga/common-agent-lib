@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   AgentCheckpointSchema,
+  ClaimSchema,
+  calibrateClaimStatus,
   AgentCommandSchema,
   AgentDefinitionSchema,
   AgentInterruptSchema,
@@ -33,6 +35,18 @@ assert.equal(PolicyRequestSchema.parse({ actor, action: 'read' }).action, 'read'
 assert.equal(PolicyDecisionSchema.parse({ decision: 'allow' }).decision, 'allow');
 assert.equal(AgentCommandSchema.parse({ id: 'c1', type: 'query', payload: {}, requestedBy: actor }).type, 'query');
 assert.equal(EvidenceSchema.parse({ id: 'e1', type: 'document' }).type, 'document');
+assert.equal(ClaimSchema.parse({ id: 'c1', claim: 'Position source is system A', status: 'inferred', evidenceIds: ['e1'] }).status, 'inferred');
+assert.equal(calibrateClaimStatus([], 'supported'), 'unknown');
+assert.equal(calibrateClaimStatus([{ id: 'e1', type: 'document', source: 'doc-a' }], 'supported'), 'inferred');
+assert.equal(calibrateClaimStatus([
+  { id: 'e1', type: 'document', source: 'doc-a' },
+  { id: 'e2', type: 'document', source: 'doc-b' },
+], 'supported'), 'supported');
+assert.equal(calibrateClaimStatus([
+  { id: 'e1', type: 'document', source: 'doc-a' },
+  { id: 'e2', type: 'document', source: 'doc-a' },
+], 'supported'), 'inferred');
+assert.equal(calibrateClaimStatus([{ id: 'e1', type: 'document' }], 'verified'), 'inferred');
 assert.equal(AgentEventSchema.parse({ id: 'ev1', type: 'tool.called', timestamp: '2026-10-01T00:00:00Z' }).type, 'tool.called');
 
 console.log('agent-contracts tests passed');
