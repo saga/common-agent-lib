@@ -621,6 +621,70 @@ ask_user / human input
 用户思考的时间不是 Agent 计算的时间。因此宿主至少应该区分 execution timeout、user-input wait、permission wait。
 
 公共库目前不实现通用 HITL runtime。具体 timeout timer、pending interaction、resume 和 persistence 仍由宿主负责。
+## Pattern 19：Agent 不能自己给 Claim 授予更高可信度
+
+agentic-data-architect 的结构化结果处理暴露出一个容易被忽略的边界：LLM 输出的 status 只是“模型声称的状态”，不能直接进入业务状态。
+
+更稳妥的链路是：
+
+~~~text
+LLM claim
+  ↓
+Schema validation
+  ↓
+evidence reference 校验
+  ↓
+status calibration
+  ↓
+application state
+~~~
+
+公共 `@saga/agent-contracts` 现在提供 `Claim`、`ClaimStatus` 和 `calibrateClaimStatus`。其中：
+
+- 没有 Evidence → `unknown`
+- Agent 声称 `verified` → 至少先降为 `inferred`
+- `supported` 需要至少两个不同证据来源；同一个 source / URI / sourceHash 的两条记录不算独立支持
+- `contradicted` 不因为 Evidence 数量变化而被覆盖
+
+公共库只负责这条安全边界，不负责判断业务领域里“什么证据才足够”。`verified` 仍必须由 deterministic / application-owned 校验产生。
+
+## Pattern 20：Copilot Runtime 应返回“本轮增量 Usage”，而不是让每个应用自己读 session metrics
+
+`agentic-data-architect` 为显示每一轮 token / AI credit，不得不读取 session 累计 `usage.getMetrics()`，再做 before/after 差值，并按 model 聚合。这部分没有业务语义，完全属于 Copilot Runtime。
+
+因此 `@saga/copilot-agent-runtime` 现在提供：
+
+~~~text
+getCopilotSessionUsageMetrics()
+diffCopilotUsageMetrics()
+CopilotTurnResult.usage
+~~~
+
+这样应用只关心：
+
+~~~text
+本轮用了多少 input/output token
+本轮 Premium Request Cost / AIU 变化
+各模型分别用了多少
+~~~
+
+Session 累计 usage 仍由 Copilot SDK 自己定义；Common Runtime 不把 AI credit 转成货币，也不建立跨 provider 的 cost model。
+
+## Pattern 21：Resumable Session 不存在时，Runtime 可以做“恢复或新建”的技术兜底
+
+Copilot Session ID 可以长期保存在业务状态，但 SDK session 可能因为过期、删除或本地运行目录变化而不存在。`agentic-data-architect` 已有明确的 `resume → 确认 session 不存在 → create` 策略。
+
+这个判断不涉及业务语义，因此属于 `@saga/copilot-agent-runtime`：
+
+~~~text
+stored session id
+      ↓
+resumeSession
+      ├─ exists → reuse
+      └─ missing → createSession
+~~~
+
+但是“新建的 SDK session 是否可以继续沿用原业务 Conversation / Investigation / Member 状态”仍然由宿主决定，不能由 Runtime 自动假定。
 ## 哪些仍然不要抽
 
 即使现在有 contract，也不要继续扩张成公共业务框架：
