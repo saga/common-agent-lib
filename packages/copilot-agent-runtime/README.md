@@ -17,6 +17,8 @@
 - timeout / cancel 后显式 abort
 - 等待 session.idle
 - 当前 active turn 数量
+- 可选返回本轮增量 Usage（tokens / AIU / Premium Request Cost / model breakdown）
+- resumable session 不存在时的 resume-or-create 恢复策略
 
 ## 使用
 
@@ -50,5 +52,7 @@ console.log(result.content);
 ~~~
 
 应用自己的 execution、审计、权限和状态机继续放在包外面。
+
+`CopilotTurnResult.usage` 是当前逻辑 turn 相对 session 累计 usage 的增量；runtime 不把 AI credit 转成货币，也不定义跨 provider 成本口径。Session 恢复时，如果 SDK session 已不存在，runtime 只负责技术性地创建新 session；新 session 能不能继续沿用原业务状态，仍由应用判断。
 
 `reasoning delta` 只是运行时事件；是否展示给用户、是否保存由应用决定。不要把它当成业务结论、Memory 或审计证据。
