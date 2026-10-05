@@ -6,7 +6,7 @@
 
 | Package | 解决什么问题 | 依赖 |
 | --- | --- | --- |
-| `@saga/copilot-agent-runtime` | Copilot SDK server-side client / session / turn / streaming / reasoning / timeout / abort / concurrency | `@github/copilot-sdk` |
+| `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery | `@github/copilot-sdk` |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
 | `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
 | `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
