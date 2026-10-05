@@ -39,6 +39,10 @@ assert.equal(ClaimSchema.parse({ id: 'c1', claim: 'Position source is system A',
 assert.equal(calibrateClaimStatus([], 'supported'), 'unknown');
 assert.equal(calibrateClaimStatus([{ id: 'e1', type: 'document', source: 'doc-a' }], 'supported'), 'inferred');
 assert.equal(calibrateClaimStatus([
+  { id: 'e1', type: 'document' },
+  { id: 'e2', type: 'document' },
+], 'supported'), 'inferred');
+assert.equal(calibrateClaimStatus([
   { id: 'e1', type: 'document', source: 'doc-a' },
   { id: 'e2', type: 'document', source: 'doc-b' },
 ], 'supported'), 'supported');
