@@ -215,13 +215,19 @@ export function calibrateClaimStatus(
 
   const independentOrigins = typeof evidence === 'number'
     ? evidenceCount
-    : new Set(evidence.map((item) => {
-        const metadata = item.metadata ?? {};
-        const sourceHash = typeof metadata.sourceHash === 'string' ? metadata.sourceHash : undefined;
-        return sourceHash
-          ? 'hash:' + sourceHash
-          : item.source ?? item.uri ?? 'evidence:' + item.id;
-      })).size;
+    : new Set(evidence
+        .map((item) => {
+          const metadata = item.metadata ?? {};
+          const sourceHash = typeof metadata.sourceHash === 'string' ? metadata.sourceHash : undefined;
+          return sourceHash
+            ? 'hash:' + sourceHash
+            : item.source
+              ? 'source:' + item.source
+              : item.uri
+                ? 'uri:' + item.uri
+                : undefined;
+        })
+        .filter((origin): origin is string => Boolean(origin))).size;
 
   return independentOrigins >= 2 ? 'supported' : 'inferred';
 }
