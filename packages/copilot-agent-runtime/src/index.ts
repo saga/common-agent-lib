@@ -12,6 +12,117 @@ export type CopilotResumeSessionConfig =
 export type CopilotSessionResult =
   Awaited<ReturnType<CopilotClient['createSession']>>;
 
+/** Per-model usage collected for one logical turn from Copilot session metrics. */
+export interface CopilotModelUsageDelta {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalNanoAiu?: number;
+}
+
+/** Difference between two cumulative Copilot session usage snapshots. */
+export interface CopilotUsageDelta {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  totalNanoAiu?: number;
+  totalPremiumRequestCost?: number;
+  models?: Record<string, CopilotModelUsageDelta>;
+}
+
+const COPILOT_SESSION_NOT_FOUND = /session not found|no such session|unknown session|does not exist|has been deleted/i;
+
+/** Copilot SDK sometimes returns a plain Error for a missing resumable session. */
+export function isCopilotSessionNotFound(error: unknown): boolean {
+  return error instanceof Error && COPILOT_SESSION_NOT_FOUND.test(error.message);
+}
+
+/** Read cumulative usage without making session.usage a hard compile-time dependency on SDK typings. */
+export async function getCopilotSessionUsageMetrics(
+  session: CopilotSession,
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    const usage = (session as unknown as { usage?: { getMetrics?: () => Promise<unknown> } }).usage;
+    if (!usage?.getMetrics) return undefined;
+    const metrics = await usage.getMetrics();
+    return metrics && typeof metrics === 'object' ? metrics as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function numericDelta(after: unknown, before: unknown): number | undefined {
+  if (typeof after !== 'number' || !Number.isFinite(after)) return undefined;
+  if (typeof before !== 'number' || !Number.isFinite(before)) return undefined;
+  return Math.max(0, after - before);
+}
+
+/** Convert cumulative Copilot usage metrics into the incremental usage of one turn. */
+export function diffCopilotUsageMetrics(
+  after: Record<string, unknown> | undefined,
+  before: Record<string, unknown> | undefined,
+): CopilotUsageDelta | undefined {
+  if (!after) return undefined;
+  const result: CopilotUsageDelta = {};
+  for (const field of ['totalNanoAiu', 'totalPremiumRequestCost', 'inputTokens', 'outputTokens', 'totalTokens'] as const) {
+    const value = numericDelta(after[field], before?.[field]);
+    if (value !== undefined) result[field] = value;
+  }
+
+  const afterModels = after.modelMetrics;
+  const beforeModels = before?.modelMetrics;
+  if (afterModels && typeof afterModels === 'object') {
+    const models: Record<string, CopilotModelUsageDelta> = {};
+    for (const [model, raw] of Object.entries(afterModels as Record<string, unknown>)) {
+      const afterModel = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+      const beforeModel = beforeModels && typeof beforeModels === 'object'
+        ? (beforeModels as Record<string, unknown>)[model]
+        : undefined;
+      const beforeModelObject = beforeModel && typeof beforeModel === 'object'
+        ? beforeModel as Record<string, unknown>
+        : {};
+      const afterUsage = afterModel.usage && typeof afterModel.usage === 'object'
+        ? afterModel.usage as Record<string, unknown>
+        : {};
+      const beforeUsage = beforeModelObject.usage && typeof beforeModelObject.usage === 'object'
+        ? beforeModelObject.usage as Record<string, unknown>
+        : {};
+      const modelDiff: CopilotModelUsageDelta = {};
+      for (const field of ['inputTokens', 'outputTokens'] as const) {
+        const value = numericDelta(afterUsage[field], beforeUsage[field]);
+        if (value !== undefined) modelDiff[field] = value;
+      }
+      const aiu = numericDelta(afterModel.totalNanoAiu, beforeModelObject.totalNanoAiu);
+      if (aiu !== undefined) modelDiff.totalNanoAiu = aiu;
+      if (Object.keys(modelDiff).length) models[model] = modelDiff;
+    }
+    if (Object.keys(models).length) result.models = models;
+  }
+
+  return Object.keys(result).length ? result : undefined;
+}
+
+/**
+ * Resume an existing session when possible and transparently create a new one when the
+ * persisted SDK session has disappeared. The application still owns whether the new session
+ * is semantically safe to use for its business state.
+ */
+export async function resumeOrCreateCopilotSession(
+  client: CopilotClient,
+  sessionId: string,
+  config: CopilotCreateSessionConfig,
+): Promise<CopilotSessionResult> {
+  try {
+    return await client.resumeSession(sessionId, config as CopilotResumeSessionConfig);
+  } catch (error) {
+    if (isCopilotSessionNotFound(error)) return client.createSession(config);
+    try {
+      if ((await client.getSessionMetadata(sessionId)) === undefined) return client.createSession(config);
+    } catch {
+      // Preserve the original resume error when metadata lookup also fails.
+    }
+    throw error;
+  }
+}
 export interface CopilotTurnHandlers {
   onDelta?: (delta: string) => void;
   /** 可选的用户可见 reasoning 增量；是否展示/持久化由宿主应用决定。 */
@@ -39,6 +150,8 @@ export interface CopilotTurnResult {
   content: string;
   chars: number;
   timedOut: boolean;
+  /** Incremental token / Copilot AI-credit usage for this logical turn when SDK metrics are available. */
+  usage?: CopilotUsageDelta;
 }
 
 export interface CopilotAgentRuntimeOptions {
@@ -175,6 +288,7 @@ export class CopilotAgentRuntime {
       });
 
       try {
+        const usageBefore = await getCopilotSessionUsageMetrics(session);
         if (input.model) await session.setModel(input.model);
 
         const finalEvent = await session.sendAndWait(
@@ -188,8 +302,10 @@ export class CopilotAgentRuntime {
         const finalContent =
           (finalEvent as unknown as { data?: { content?: string } } | undefined)?.data?.content;
         if (finalContent) content = finalContent;
+        const usageAfter = await getCopilotSessionUsageMetrics(session);
+        const usage = diffCopilotUsageMetrics(usageAfter, usageBefore);
 
-        return { content, chars, timedOut };
+        return { content, chars, timedOut, ...(usage ? { usage } : {}) };
       } catch (error) {
         if (input.timeoutMs && isCopilotWaitTimeout(error)) {
           timedOut = true;
