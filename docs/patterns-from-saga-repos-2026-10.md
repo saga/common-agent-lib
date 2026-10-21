@@ -8,7 +8,7 @@
 |---|---|---|
 | Copilot SDK client / session / turn 生命周期、超时、取消、并发、usage delta、恢复 | npm package：@saga/copilot-agent-runtime | 代码和生命周期边界重复，适合稳定实现 |\n| CodeBuddy/WorkBuddy SDK query 调用、安全默认值、结构化输出、usage 与 timeout/abort | npm package：@saga/codebuddy-agent-runtime | 本机服务中已经存在一组领域无关的 SDK 适配逻辑 |
 | Agent / tool / knowledge / approval / evidence / event 的跨框架结构 | npm package：@saga/agent-contracts | Schema 和协议比业务实现稳定 |
-| Trace / trajectory 的关联字段 | 扩展 @saga/agent-contracts 的 AgentTraceContext / AgentEvent | 多个应用已有相似事件 envelope，但存储后端和审计语义不同 |
+| Agent trace recorder、span、脱敏、载荷限额、查询和本地持久化 | npm package：@saga/agent-tracing；事件 Schema 复用 @saga/agent-contracts | 跨项目重复的是完整记录能力；存储可替换，业务审计仍留给应用 |
 | Structured output 校验、Knowledge provenance、Markdown Workflow、Evaluation、Memory、Rules、State machine | 继续使用现有独立 package | 已有最小、互相独立的实现；不应重新造一份 |
 | Ant Design + Ant Design X 的 Agent 对话 UI 模式 | Skill | 应用 UI、样式与业务流程不同，直接做公共组件会引入过度耦合 |
 | WorkBuddy 的项目协作、Skill / memory 使用方式 | Skill | 是 Agent 的工作方法，不是运行时库 |
@@ -32,7 +32,7 @@
 
 - [architecture-diagram-studio trace ledger](https://github.com/saga/architecture-diagram-studio/blob/main/v1/server/trace-ledger.ts) 使用 traceId / turnId / parentEventId / sequence / category / status / duration / provider / model，将流式运行事件关联为可检索记录。
 - [copilot-server-agent execution events](https://github.com/saga/copilot-server-agent/blob/main/server/src/execution/events.ts) 明确区分运行时可观测性与业务执行审计。
-- 公共层现在提供 AgentTraceContext 与扩展后的 AgentEvent schema。应用仍然负责顺序分配、持久化、脱敏、大小限制、查询、保留策略、权限和业务 audit。
+- 公共层通过 AgentTraceContext / AgentEvent 定义事件契约；@saga/agent-tracing 负责生成事件、trace-local sequence、脱敏、大小限制、span、SQLite store 和查询。应用仍负责 retention policy、访问权限、备份、防篡改与业务 audit。
 - 轨迹应记可验证的状态变化和工具生命周期，不应默认保存完整隐藏推理、整段 prompt、secret 或无限长的 token delta。
 - Trace 可以帮助排查问题，但不能单独证明“谁被授权、谁批准、批准时看见什么、外部系统是否执行成功”。这些需要应用自己的业务事件和证据链。
 
@@ -42,6 +42,10 @@
 - [architecture-diagram-studio v2](https://github.com/saga/architecture-diagram-studio/tree/main/v2) 使用 antd 做企业级配置与布局，Ant Design X 做聊天区；核心 diagram canvas 和 domain model 仍然是应用专用实现。
 - 可复用的是“antd 管应用界面 + X 管对话交互”的分层、provider context、稳定的消息状态和流式错误处理；不是一个新的通用 UI package。
 - 不要把 chat 的 loading/completed 当成业务执行完成；也不要因为一次模型响应没有调用 tool 就默认失败。
+
+### Agent trace package
+
+architecture-diagram-studio 的 SQLite ledger 说明，轨迹不只是一个事件 interface：还需要 trace-local sequence、索引查询、敏感字段脱敏、超限 payload 的明确截断标记和跨进程持久化。这些通用能力已抽取到 [@saga/agent-tracing](https://github.com/saga/common-agent-lib/tree/main/packages/agent-tracing)。它提供 SQLite 实现，也允许应用实现自己的 AgentTraceStore。该 package 不承担 UI、不连接指定 vendor，也不把轨迹当成监管审计证据。
 
 ### WorkBuddy、Skill 与工作记忆
 
