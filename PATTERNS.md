@@ -893,3 +893,22 @@ vocal-saga 的 contextGraph.ts、voiceContext.ts 和 literary.ts 显示，上下
 不要照搬 Context Language Models 的自主 Context 文件更新作为初版能力。Context item 的权限、证据可信度和时间边界必须由应用提供，通用组装器不能自行提升候选信息的可信度，也不能把未来章节知识塞进当前提示词。
 
 详细边界与迁移顺序见 [docs/context-assembly-design.md](docs/context-assembly-design.md)。
+
+
+---
+
+## Pattern 31：Context Assembly 只组装宿主筛选后的候选项
+
+在长文档、对话和知识型 Agent 中，Memory、Retrieval 与 Prompt 构造经常被混在一个函数里，导致无法解释某条资料为何进入模型输入，也无法可靠控制预算。
+
+@saga/agent-context 只处理 Context composition：
+- 宿主提供候选项、来源引用、必需标记和优先级。
+- 确定性选择：必需项优先保留；可选项按 section + item priority 排序，同优先级按输入顺序稳定决策。
+- 显式的 dedupeKey 才触发去重；保留获胜项和丢弃项的来源元数据。
+- 对最终渲染文本计量，包含 section header 和 separator。默认是 UTF-16 字符数；token budget 必须由宿主注入模型相应的计数器。
+- 必需上下文本身超预算时，不静默裁掉指令或源文；返回完整必需内容以及 overflow issue，并省略可选项。
+- 输出 included/omitted 清单、原因、预算使用量与来源引用，可用于 tracing 或调试。
+
+它不执行检索、数据库读写、模型摘要或事实核验，也不能改变 candidate / confirmed 状态、数据权限或章节知识边界。vocal-saga 的 Context Graph、人物声音记忆和防剧透过滤仍由应用控制。
+
+来源与详细 API：[packages/agent-context/README.md](packages/agent-context/README.md)。

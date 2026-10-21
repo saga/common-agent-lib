@@ -111,3 +111,16 @@ The referenced Context Language Models project explores letting a model update i
 - Equal-priority items use stable tie-breaking for reproducible prompts.
 - The result reports both included and excluded items; truncation is not presented as complete context.
 - The package does not store memory, issue model calls, manage sessions, authorize data or mutate application state.
+
+
+## Implemented deterministic assembler
+
+The workspace now contains @saga/agent-context. The first implementation formalizes these invariants:
+
+- Required items are never silently removed. When required content exceeds budget, the assembler retains it, omits optional content and reports the overflow.
+- Optional candidates are considered by required flag, effective priority, then stable input order; final rendering remains in source order.
+- The budget measures the complete output, including section headers and separators.
+- Cross-source deduplication requires explicit dedupeKey; duplicated item IDs are rejected.
+- Included and omitted records retain source references. The assembler does not infer trust, change memory status, retrieve data or apply temporal boundaries.
+
+The package uses a synchronous length estimator for reproducibility. Default units are JavaScript UTF-16 code units; model token accounting is injected by the host.
