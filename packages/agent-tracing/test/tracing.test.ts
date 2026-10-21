@@ -74,4 +74,8 @@ test('runSpan records success and failure durations without swallowing operation
   assert.equal(events[1].status, 'succeeded');
   assert.equal(events[3].status, 'failed');
   assert.ok((events[3].durationMs ?? -1) >= 0);
+  assert.equal(events[1].traceId, events[0].traceId);
+  assert.equal(events[3].traceId, events[2].traceId);
+  assert.equal(events[1].parentEventId, events[0].id);
+  assert.equal(events[3].parentEventId, events[2].id);
 });
