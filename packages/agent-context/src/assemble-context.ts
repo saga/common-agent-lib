@@ -223,9 +223,10 @@ export function assembleContext(input: AssembleContextInput): ContextAssemblyRes
     if (!isContextItemArray(section.items)) {
       throw new ContextAssemblyInputError('Context section ' + section.id + ' must have an items array.');
     }
+    const sectionItems: readonly ContextItem[] = section.items;
     const sectionPriority = validPriority(section.priority, 'Section ' + section.id);
 
-    section.items.forEach((item, itemIndex) => {
+    sectionItems.forEach((item, itemIndex) => {
       if (!item || typeof item.id !== 'string' || !item.id.trim()) {
         throw new ContextAssemblyInputError('Every context item needs a non-empty id.');
       }
