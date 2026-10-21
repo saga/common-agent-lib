@@ -138,6 +138,7 @@ function filterEvents(events: AgentEvent[], query: TraceQuery): AgentEvent[] {
     .filter((event) => !types || types.has(event.type))
     .filter((event) => !query.since || event.timestamp >= query.since)
     .filter((event) => !query.until || event.timestamp <= query.until)
+    .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || (left.sequence ?? 0) - (right.sequence ?? 0))
     .slice(-limit)
     .map((event) => ({ ...event }));
 }
