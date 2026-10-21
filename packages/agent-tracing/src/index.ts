@@ -206,28 +206,30 @@ export class SqliteTraceStore implements AgentTraceStore {
           (id, timestamp, session_id, agent_id, correlation_id, trace_id, turn_id, parent_event_id,
            sequence, category, type, status, duration_ms, provider, model, payload_complete,
            actor_json, data_json, metadata_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        persisted.id,
-        persisted.timestamp,
-        persisted.sessionId ?? null,
-        persisted.agentId ?? null,
-        persisted.correlationId ?? null,
-        persisted.traceId,
-        persisted.turnId ?? null,
-        persisted.parentEventId ?? null,
-        persisted.sequence,
-        persisted.category ?? null,
-        persisted.type,
-        persisted.status ?? null,
-        persisted.durationMs ?? null,
-        persisted.provider ?? null,
-        persisted.model ?? null,
-        persisted.payloadComplete === false ? 0 : 1,
-        persisted.actor === undefined ? null : JSON.stringify(persisted.actor),
-        serialize(persisted.data),
-        serialize(persisted.metadata),
-      );
+        VALUES ($id, $timestamp, $session_id, $agent_id, $correlation_id, $trace_id, $turn_id, $parent_event_id,
+           $sequence, $category, $type, $status, $duration_ms, $provider, $model, $payload_complete,
+           $actor_json, $data_json, $metadata_json)
+      `).run({
+        $id: persisted.id,
+        $timestamp: persisted.timestamp,
+        $session_id: persisted.sessionId ?? null,
+        $agent_id: persisted.agentId ?? null,
+        $correlation_id: persisted.correlationId ?? null,
+        $trace_id: persisted.traceId ?? '',
+        $turn_id: persisted.turnId ?? null,
+        $parent_event_id: persisted.parentEventId ?? null,
+        $sequence: persisted.sequence ?? 0,
+        $category: persisted.category ?? null,
+        $type: persisted.type,
+        $status: persisted.status ?? null,
+        $duration_ms: persisted.durationMs ?? null,
+        $provider: persisted.provider ?? null,
+        $model: persisted.model ?? null,
+        $payload_complete: persisted.payloadComplete === false ? 0 : 1,
+        $actor_json: persisted.actor === undefined ? null : JSON.stringify(persisted.actor),
+        $data_json: serialize(persisted.data),
+        $metadata_json: serialize(persisted.metadata),
+      });
       this.database.exec('COMMIT');
       return persisted;
     } catch (error) {
