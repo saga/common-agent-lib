@@ -729,7 +729,7 @@ resumeSession
 | Eval | LangSmith ecosystem | tracing/evals | code/model/human graders | `agent-eval` |
 | Tool governance | middleware | guardrails | hooks / permissions | contract + application/runtime |
 | Multi-agent | subgraphs / subagents | handoffs / agents-as-tools | subagents / Task | application/runtime |
-| Tracing | LangSmith / OTel | built-in tracing | hooks / managed events | OTel/vendor + `AgentEvent` |
+| Tracing | LangSmith / OTel | built-in tracing | hooks / managed events | @saga/agent-tracing + OTel/vendor |
 
 ## 最终原则
 
@@ -748,7 +748,7 @@ Common library 的目标不是成为另一个 LangChain，而是让 Copilot、La
 
 近期的 architecture-diagram-studio trace ledger 和 copilot-server-agent execution events 重复出现一组字段：correlationId、traceId、turnId、parentEventId、sequence、category、status、durationMs、provider、model。
 
-公共化结果：@saga/agent-contracts 提供 AgentTraceContext 与增强后的 AgentEvent。事件编号、顺序分配、脱敏、容量限制、持久化、查询和 retention 仍由应用负责。
+公共化结果：@saga/agent-contracts 提供 AgentTraceContext / AgentEvent 契约；@saga/agent-tracing 进一步提供事件生成、trace-local sequence、脱敏、payload 限额、span helper、可替换 store 接口与 SQLite 存储。业务审计、授权证据、访问控制和 retention policy 仍由应用负责。
 
 实践要点：
 
@@ -833,3 +833,33 @@ architecture-diagram-studio 的 Copilot 工具围绕 Diagram Document 做增删�
 - [WorkBuddy/CodeBuddy SDK 快速开始](https://cloud.tencent.cn/document/product/1831/137023)
 - [TypeScript SDK 参考](https://cloud.tencent.cn/document/product/1831/137028)
 - [本机 Agent Service 的实现](https://github.com/devweekly/vocal-saga/tree/main/local-agent-service/src/agents)
+
+
+---
+
+## Pattern 28：Agent tracing 适合独立 package，但不应该变成新的 LangSmith
+
+Trace 是多个应用重复出现的横向能力：事件关联、sequence、span 开始/结束、脱敏、载荷限制、持久化和查询稳定可复用；Trace UI、业务 action、policy、approval、授权和监管审计不属于这层。
+
+@saga/agent-tracing 的边界：
+- 统一使用 AgentEvent contract，并生成稳定的 event ID、时间戳和 trace context。
+- 为一次逻辑 trace 顺序分配 sequence，并让 span helper 记录 started / completed / failed 和耗时。
+- 在持久化前递归脱敏敏感字段；超过大小限制的 payload 必须明确标记不完整，不能伪装成完整证据。
+- 提供内存 store、内置 SQLite store 和可替换的 AgentTraceStore 接口。
+- 按 trace、turn、session、event type、category 和时间段查询，事件按时间正序返回。
+
+明确不负责：
+- LangSmith / OpenTelemetry collector、托管 dashboard、告警和远程 trace 导出。
+- 多租户权限、保留/删除策略、备份与防篡改。
+- 证明 Actor 具有权限、Approval 已发生或业务副作用成功。
+- 自动收集隐藏推理或默认保存完整 prompt / tool payload。
+
+简单用法：
+
+```ts
+const context = tracing.createContext({ sessionId: 'conversation-1' });
+await tracing.runSpan({ ...context, category: 'tool', name: 'search' }, () => search());
+const events = await tracing.query({ traceId: context.traceId });
+```
+
+Tracing store 写入失败默认会向调用方传播。要求“事件必须落盘才能继续”的应用可以保持严格行为；仅把它当遥测的应用可以在自己的边界明确选择 best-effort 策略，不能由通用库默默吞掉错误。
