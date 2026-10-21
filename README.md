@@ -9,6 +9,7 @@
 | `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery | `@github/copilot-sdk` |
 | `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
 | `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
+| **@saga/document-core** | 文档统一契约、预算分批、逻辑分页、翻译结果校验 | 无 |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
 | `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
 | `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
@@ -52,7 +53,7 @@ capability or workflow
 
 ## 明确不再继续抽的模式
 
-- Context engineering：抽取原则和小工具即可，暂时不做通用 Context Runtime。各应用的 context source、checkpoint scheduling、budget 和 compaction 策略不同；公共层只提供 ContextReference / AgentCheckpoint 等稳定 contract。
+- Context assembly：先保持来源检索、权限边界和领域事实在宿主；轻量确定性组装器的设计见 [Context Assembly proposal](docs/context-assembly-design.md)。当前不实现 CLM 式自主改写 Context 的运行时，也不把 memory、retrieval 和 prompt orchestration 合成一个大框架。
 - Human-in-the-loop / interrupt：模式很通用，但 checkpoint、审批对象、授权和持久化都与业务强相关，暂不做通用执行引擎。
 - Tracing / Audit：使用 @saga/agent-tracing 统一事件记录、脱敏、载荷限额和本地持久化；不自己再造托管 tracing backend，也不把 runtime trace 当业务审计。
 - Tool registry / dynamic tool search：工具发现方式正在快速变化，先保留 Tool contract / naming / schema 规范，不做新的通用 registry。
@@ -363,3 +364,14 @@ await tracing.close();
 ```
 
 完整 API、存储接口和隐私边界见 packages/agent-tracing/README.md。该包记录运行轨迹，不代替业务执行审计、授权证据或托管可观测性平台。
+
+
+## Document core
+
+**@saga/document-core** 提供浏览器端和服务端可共用的文档片段契约、预算分批、阅读分页以及模型译文结果校验。不包含 EPUB/PDF/DOCX 解析器、模型调用、缓存、数据库或长文档翻译工作流。
+
+API 和边界见 [packages/document-core/README.md](packages/document-core/README.md)。
+
+## Context assembly
+
+vocal-saga 的 Context Graph、文学记忆、上下文选择和 prompt 组装验证了单独 Context Assembly 层的可行性，但其中大量规则属于小说翻译领域。先保留宿主检索和证据/章节边界，把确定性排序、预算和来源清单作为后续候选包；设计与迁移顺序见 [docs/context-assembly-design.md](docs/context-assembly-design.md)。
