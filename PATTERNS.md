@@ -863,3 +863,33 @@ const events = await tracing.query({ traceId: context.traceId });
 ```
 
 Tracing store 写入失败默认会向调用方传播。要求“事件必须落盘才能继续”的应用可以保持严格行为；仅把它当遥测的应用可以在自己的边界明确选择 best-effort 策略，不能由通用库默默吞掉错误。
+
+
+---
+
+## Pattern 29：文档公共化优先抽取统一数据契约和确定性纯逻辑
+
+fanyi-extension 的文档处理已经把多种文件格式统一成稳定的 DocumentSegment，并把文档翻译拆成预算分批、阅读分页、翻译结果校验与格式解析。前面几类适合复用，格式解析器和 UI 不应该为了共享而一起挪走。
+
+@saga/document-core 负责：
+- 统一的 DocumentInput、ParsedDocument、DocumentSegment 契约。
+- 保持顺序的预算分批，可以选择在章节路径或 PDF 页边界切分。
+- 不改变原始片段顺序和 ID 的逻辑分页，并允许宿主自定义页面标签。
+- 将 LLM 输出限制到本批预期 ID，拒绝未知 ID、空文本、格式错误和重复 ID。
+- 明确字符预算不是 token 预算。
+
+应用仍负责 EPUB/PDF/DOCX 等格式解析、稳定 ID 的产生、导出、文档存储、缓存和翻译 Run 生命周期。包不依赖 DOM 或模型 SDK，便于浏览器与 Node 服务共同使用。
+
+## Pattern 30：Context Assembly 是 Memory / Retrieval 之后的一层，不应等同于它们
+
+vocal-saga 的 contextGraph.ts、voiceContext.ts 和 literary.ts 显示，上下文处理至少有三种职责：
+
+1. **Retrieval / domain logic**：从 Context Graph、记忆、章节摘要和相邻原文中找出候选项，并执行来源证据、人物身份及章节知识边界校验。
+2. **Context Assembly**：对已经被宿主允许使用的候选项进行稳定排序、去重、预算分配、渲染，并输出纳入/省略清单。
+3. **Prompt / Runtime**：注入任务指令、翻译模式、结构化输出约束，并发起具体模型调用。
+
+第二层跨项目最有机会复用，第一和第三层的领域规则则留在宿主。候选 @saga/agent-context 应先是一个无数据库、无模型调用的 TypeScript 库，而不是独立网络服务；tokenizer 通过宿主注入，不能把字符数冒充 token 数。
+
+不要照搬 Context Language Models 的自主 Context 文件更新作为初版能力。Context item 的权限、证据可信度和时间边界必须由应用提供，通用组装器不能自行提升候选信息的可信度，也不能把未来章节知识塞进当前提示词。
+
+详细边界与迁移顺序见 [docs/context-assembly-design.md](docs/context-assembly-design.md)。
