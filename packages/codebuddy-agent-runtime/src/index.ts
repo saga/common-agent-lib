@@ -1,5 +1,3 @@
-import type { Query } from '@tencent-ai/agent-sdk';
-
 export type CodeBuddyEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type CodeBuddyThinking =
   | { type: 'disabled' }
@@ -46,7 +44,6 @@ export interface CodeBuddyTaskResult {
   sessionId?: string;
   messageCount: number;
   durationMs: number;
-  timedOut: boolean;
 }
 
 export interface CodeBuddyQueryHandle extends AsyncIterable<unknown> {
@@ -195,7 +192,7 @@ export class CodeBuddyTaskError extends Error {
 
 async function defaultQueryFactory(input: CodeBuddyQueryInput): Promise<CodeBuddyQueryHandle> {
   const sdk = await import('@tencent-ai/agent-sdk');
-  return sdk.query(input as Parameters<typeof sdk.query>[0]) as Query;
+  return sdk.query(input as Parameters<typeof sdk.query>[0]) as unknown as CodeBuddyQueryHandle;
 }
 
 /**
@@ -226,7 +223,6 @@ export class CodeBuddyAgentRuntime {
     let usage: CodeBuddyUsage | undefined;
     let sessionId: string | undefined;
     let messageCount = 0;
-    let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let abortListener: (() => void) | undefined;
 
@@ -263,7 +259,6 @@ export class CodeBuddyAgentRuntime {
     const interruption = new Promise<never>((_resolve, reject) => {
       if (input.timeoutMs !== undefined) {
         timeout = setTimeout(() => {
-          timedOut = true;
           void Promise.resolve(query.interrupt?.()).catch(() => undefined);
           reject(new CodeBuddyTaskError('timeout', 'CodeBuddy task timed out after ' + input.timeoutMs + 'ms'));
         }, input.timeoutMs);
@@ -296,7 +291,6 @@ export class CodeBuddyAgentRuntime {
       ...(sessionId ? { sessionId } : {}),
       messageCount,
       durationMs: Date.now() - startedAt,
-      timedOut,
     };
   }
 }
