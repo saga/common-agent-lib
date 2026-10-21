@@ -131,6 +131,10 @@ function validPriority(value: number | undefined, label: string): number {
   return priority;
 }
 
+function isContextItemArray(value: unknown): value is readonly ContextItem[] {
+  return Array.isArray(value);
+}
+
 function requiredOf(section: ContextSection, item: ContextItem): boolean {
   return section.required === true || item.required === true;
 }
@@ -216,7 +220,7 @@ export function assembleContext(input: AssembleContextInput): ContextAssemblyRes
       throw new ContextAssemblyInputError('Duplicate context section id: ' + section.id);
     }
     sectionIds.add(section.id);
-    if (!Array.isArray(section.items)) {
+    if (!isContextItemArray(section.items)) {
       throw new ContextAssemblyInputError('Context section ' + section.id + ' must have an items array.');
     }
     const sectionPriority = validPriority(section.priority, 'Section ' + section.id);
