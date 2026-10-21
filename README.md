@@ -10,6 +10,7 @@
 | `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
 | `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
 | **@saga/document-core** | 文档统一契约、预算分批、逻辑分页、翻译结果校验 | 无 |
+| `@saga/agent-context` | 确定性 Context 组装、预算控制、来源保留、重复项和省略原因 | 无 |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
 | `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
 | `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
@@ -375,3 +376,10 @@ API 和边界见 [packages/document-core/README.md](packages/document-core/READM
 ## Context assembly
 
 vocal-saga 的 Context Graph、文学记忆、上下文选择和 prompt 组装验证了单独 Context Assembly 层的可行性，但其中大量规则属于小说翻译领域。先保留宿主检索和证据/章节边界，把确定性排序、预算和来源清单作为后续候选包；设计与迁移顺序见 [docs/context-assembly-design.md](docs/context-assembly-design.md)。
+
+
+## Context assembly
+
+@saga/agent-context provides a deterministic composition layer between host-side retrieval and provider-specific prompt/runtime code. It enforces a caller-supplied budget, keeps required context with explicit over-budget reporting, and returns the provenance and omission ledger.
+
+The host application still owns retrieval, authorization, evidence validation, trust status, and temporal boundaries. It is intentionally not an autonomous memory manager or a CLM implementation. See [packages/agent-context/README.md](packages/agent-context/README.md) and [Context Assembly design](docs/context-assembly-design.md).
