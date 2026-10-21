@@ -9,7 +9,9 @@
   "scripts": {
     "build": "npm run build -ws",
     "test": "npm run test -ws",
-    "typecheck": "npm run typecheck -ws"
+    "typecheck": "npm run typecheck -ws",
+    "pretest": "npm run build --workspace=@saga/agent-contracts",
+    "pretypecheck": "npm run build --workspace=@saga/agent-contracts"
   },
   "engines": {
     "node": ">=22.13"
