@@ -6,7 +6,8 @@
 
 | Package | 解决什么问题 | 依赖 |
 | --- | --- | --- |
-| `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery | `@github/copilot-sdk` |\n| `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
+| `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery | `@github/copilot-sdk` |
+| `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
 | `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
 | `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
