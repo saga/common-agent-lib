@@ -7,6 +7,7 @@ import {
   AgentDefinitionSchema,
   AgentInterruptSchema,
   AgentEventSchema,
+  AgentTraceContextSchema,
   ApprovalDecisionSchema,
   ApprovalRequestSchema,
   ContextReferenceSchema,
@@ -52,5 +53,30 @@ assert.equal(calibrateClaimStatus([
 ], 'supported'), 'inferred');
 assert.equal(calibrateClaimStatus([{ id: 'e1', type: 'document' }], 'verified'), 'inferred');
 assert.equal(AgentEventSchema.parse({ id: 'ev1', type: 'tool.called', timestamp: '2026-10-01T00:00:00Z' }).type, 'tool.called');
+assert.equal(AgentTraceContextSchema.parse({ traceId: 'trace-1', turnId: 'turn-2', sequence: 3 }).sequence, 3);
+assert.equal(AgentTraceContextSchema.safeParse({ sequence: -1 }).success, false);
+const traceEvent = AgentEventSchema.parse({
+  id: 'ev2',
+  type: 'tool.completed',
+  timestamp: '2026-10-01T00:00:01Z',
+  sessionId: 'session-1',
+  correlationId: 'request-1',
+  traceId: 'trace-1',
+  turnId: 'turn-2',
+  parentEventId: 'ev1',
+  sequence: 4,
+  category: 'tool',
+  status: 'succeeded',
+  durationMs: 125,
+  provider: 'copilot',
+  model: 'gpt-5',
+  payloadComplete: true,
+  data: { toolName: 'search' },
+});
+assert.equal(traceEvent.traceId, 'trace-1');
+assert.equal(traceEvent.durationMs, 125);
+assert.equal(AgentEventSchema.safeParse({
+  id: 'ev3', type: 'tool.failed', timestamp: '2026-10-01T00:00:01Z', durationMs: -1,
+}).success, false);
 
 console.log('agent-contracts tests passed');
