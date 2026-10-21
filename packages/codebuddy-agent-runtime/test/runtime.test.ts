@@ -144,7 +144,7 @@ test('rejects array schema because SDK StructuredOutput requires object schema',
 test('usage parser ignores missing and zero usage but preserves real token counts', () => {
   assert.equal(parseCodeBuddyUsage({}), undefined);
   assert.equal(parseCodeBuddyUsage({ usage: { input_tokens: 0, output_tokens: 0 } }), undefined);
-  assert.equal(parseCodeBuddyUsage({ usage: { input_tokens: 3, output_tokens: 2 }, total_cost_usd: 0 }), undefined !== undefined ? {} : {
+  assert.deepEqual(parseCodeBuddyUsage({ usage: { input_tokens: 3, output_tokens: 2 }, total_cost_usd: 0 }), {
     inputTokens: 3,
     outputTokens: 2,
     cacheReadTokens: 0,
