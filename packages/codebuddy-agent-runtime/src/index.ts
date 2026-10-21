@@ -262,14 +262,14 @@ export class CodeBuddyAgentRuntime {
           void Promise.resolve(query.interrupt?.()).catch(() => undefined);
           reject(new CodeBuddyTaskError('timeout', 'CodeBuddy task timed out after ' + input.timeoutMs + 'ms'));
         }, input.timeoutMs);
-        timeout.unref?.();
       }
       if (input.signal) {
         abortListener = () => {
           void Promise.resolve(query.interrupt?.()).catch(() => undefined);
           reject(new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted'));
         };
-        input.signal.addEventListener('abort', abortListener, { once: true });
+        if (input.signal.aborted) abortListener();
+        else input.signal.addEventListener('abort', abortListener, { once: true });
       }
     });
 
