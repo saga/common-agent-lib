@@ -6,7 +6,7 @@
 
 | 重复模式 | 当前归宿 | 为什么 |
 |---|---|---|
-| Copilot SDK client / session / turn 生命周期、超时、取消、并发、usage delta、恢复 | npm package：@saga/copilot-agent-runtime | 代码和生命周期边界重复，适合稳定实现 |
+| Copilot SDK client / session / turn 生命周期、超时、取消、并发、usage delta、恢复 | npm package：@saga/copilot-agent-runtime | 代码和生命周期边界重复，适合稳定实现 |\n| CodeBuddy/WorkBuddy SDK query 调用、安全默认值、结构化输出、usage 与 timeout/abort | npm package：@saga/codebuddy-agent-runtime | 本机服务中已经存在一组领域无关的 SDK 适配逻辑 |
 | Agent / tool / knowledge / approval / evidence / event 的跨框架结构 | npm package：@saga/agent-contracts | Schema 和协议比业务实现稳定 |
 | Trace / trajectory 的关联字段 | 扩展 @saga/agent-contracts 的 AgentTraceContext / AgentEvent | 多个应用已有相似事件 envelope，但存储后端和审计语义不同 |
 | Structured output 校验、Knowledge provenance、Markdown Workflow、Evaluation、Memory、Rules、State machine | 继续使用现有独立 package | 已有最小、互相独立的实现；不应重新造一份 |
@@ -47,7 +47,7 @@
 
 - [ai-interview-questions AGENTS.md](https://github.com/saga/ai-interview-questions/blob/main/AGENTS.md) 把稳定原则放在 AGENTS.md，把命令与细节放到 README/docs/Skill。
 - [fanyi-extension](https://github.com/saga/fanyi-extension) 同时使用 WorkBuddy / OpenCode 作为本机模型执行路径，说明 Agent Host 选择和业务流程应通过明确配置控制，而非写死到 prompt。
-- WorkBuddy 使用习惯是宿主环境知识，不应该进入 npm runtime。项目目录、用户级目录和记忆目录可能不同；写入前检查最近更新，避免维护两份已经分叉的记忆。
+- WorkBuddy 的桌面宿主操作习惯是 Skill；但 CodeBuddy Agent SDK 的 query 调用与输出/超时/usage 适配可以做 npm runtime，现已新增 @saga/codebuddy-agent-runtime。项目目录、用户级目录和记忆目录可能不同；写入前检查最近更新，避免维护两份已经分叉的记忆。
 - Skill 中引用的脚本、命令和文件都要核实存在。Skill 只是一份可执行说明，不能替代程序的校验、权限或测试。
 
 ### 本机 Agent Provider 与扩展架构
@@ -93,3 +93,10 @@
 - 文档中的命令应从 package.json / workflow 文件验证，不能凭记忆编写。
 - “代码看起来正确”“执行了测试”“CI 通过”是三个不同的结论。
 - 不在仓库提交真实 Token、私人 trace、对话全文或未经脱敏的本机日志。
+
+
+## CodeBuddy SDK 的进一步抽取
+
+本次把 `devweekly/vocal-saga/local-agent-service/src/agents/workbuddy.ts` 中通用的 SDK 接线提取为 `@saga/codebuddy-agent-runtime`。当前包覆盖 query API、显式 prompt 合并、无隐式 host settings、普通任务禁用工具、StructuredOutput、超时/取消和 usage/session ID 归一化。
+
+暂不抽取该服务的长驻 SDK Session Pool、角色/批次隔离、文学任务 profile 和文档 Run：这些与并发模式、文档任务语义紧密相关，且上游 v2 Session API 仍属不稳定接口。先将可靠的单次 query adapter 做成 package，使用它的应用再用实测决定是否继续抽池化接口。
