@@ -810,3 +810,26 @@ architecture-diagram-studio 的 Copilot 工具围绕 Diagram Document 做增删�
 它比添加更多 prompt 规则更可靠：安全和一致性来自应用边界，而不是模型自我约束。
 
 来源：[architecture-diagram-studio Copilot Runtime](https://github.com/saga/architecture-diagram-studio/blob/main/v2/server/copilot/runtime.ts)、[copilot-server-agent tool policy](https://github.com/saga/copilot-server-agent/blob/main/server/src/tool-policy.ts)。
+
+
+---
+
+## Pattern 27：CodeBuddy SDK 的调用边界值得做成 npm package，WorkBuddy 的宿主操作流程仍用 Skill
+
+`devweekly/vocal-saga/local-agent-service` 中 `workbuddy.ts` 已经积累了一组不依赖小说翻译领域的 SDK 适配逻辑：显式 prompt 组合、隔离宿主 setting sources、普通文本任务禁用工具、StructuredOutput 单独白名单、JSON Schema 输出、查询事件消费、超时中断、session ID 观察，以及 usage 归一化。它们有明确的输入/输出和测试边界，因此进入 `@saga/codebuddy-agent-runtime`。
+
+包名选择 CodeBuddy，是为了对应实际依赖 `@tencent-ai/agent-sdk`；WorkBuddy 是用户接触到的产品 / 宿主体验名称。使用示例和 Skill 仍同时使用 WorkBuddy/CodeBuddy 便于检索。
+
+边界：
+
+- npm package：CodeBuddy `query()` 的调用、默认选项、输出抽取、事件回调、usage、timeout/abort。
+- 应用层：业务 Prompt、每个任务使用哪个模型/effort、Zod 最终校验、重试与持久化。
+- 应用暂留：unstable v2 Session 的池化与重用策略、小说任务 profile、Run/Batch scope、SQLite 历史和长文档工作流。它们目前主要由一个应用验证，且上游 Session API 标记为 unstable；不要急着发布为稳定抽象。
+- Skill：WorkBuddy 如何操作代码仓库、维护记忆、运行验证与完成任务。这是宿主操作方法，不是 SDK runtime。
+
+与 `@saga/copilot-agent-runtime` 的关系：两者是不同供应商的独立 adapter，不做统一到最低公分母的巨大接口。公共的事件关联字段放在 `@saga/agent-contracts`，而供应商特有的流、会话和 usage 仍由各自 runtime 处理。
+
+参考：
+- [WorkBuddy/CodeBuddy SDK 快速开始](https://cloud.tencent.cn/document/product/1831/137023)
+- [TypeScript SDK 参考](https://cloud.tencent.cn/document/product/1831/137028)
+- [本机 Agent Service 的实现](https://github.com/devweekly/vocal-saga/tree/main/local-agent-service/src/agents)
