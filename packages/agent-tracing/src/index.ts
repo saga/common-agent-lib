@@ -325,9 +325,13 @@ export class AgentTraceRecorder {
 
   async runSpan<T>(options: TraceSpanOptions, task: () => Promise<T> | T): Promise<T> {
     const { name, category = 'operation', data, ...context } = options;
-    const startedAt = Date.now();
-    await this.record({
+    const spanContext = {
       ...context,
+      traceId: context.traceId ?? context.sessionId ?? context.correlationId ?? randomUUID(),
+    };
+    const startedAt = Date.now();
+    const startedEvent = await this.record({
+      ...spanContext,
       category,
       type: category + '.started',
       status: 'running',
@@ -336,7 +340,8 @@ export class AgentTraceRecorder {
     try {
       const result = await task();
       await this.record({
-        ...context,
+        ...spanContext,
+        parentEventId: startedEvent.id,
         category,
         type: category + '.completed',
         status: 'succeeded',
@@ -347,7 +352,8 @@ export class AgentTraceRecorder {
     } catch (error) {
       try {
         await this.record({
-          ...context,
+          ...spanContext,
+          parentEventId: startedEvent.id,
           category,
           type: category + '.failed',
           status: 'failed',
