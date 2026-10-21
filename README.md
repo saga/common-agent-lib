@@ -6,7 +6,7 @@
 
 | Package | 解决什么问题 | 依赖 |
 | --- | --- | --- |
-| `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery | `@github/copilot-sdk` |
+| `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery | `@github/copilot-sdk` |\n| `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
 | `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
 | `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
@@ -18,7 +18,7 @@
 
 这些 package **互不依赖**。应用按需安装；不存在一个必须同时安装的“大一统 Agent Framework”。
 
-## 为什么新增三个 package
+## 为什么新增这些 package
 
 四个项目的横向检查显示，除了 Runtime / Knowledge / Workflow，还反复出现：
 
@@ -329,3 +329,14 @@ npm run build
 - **仓库分析与证据**：见 [2026-10 模式归纳](docs/patterns-from-saga-repos-2026-10.md)。
 
 公共包只包含跨项目稳定的 contract/runtime。组件选型、工具安装路径、WorkBuddy 记忆目录、UI 交互与具体 app 生命周期都是 Skill 或应用层文档，不做不必要的抽象。
+
+
+## CodeBuddy / WorkBuddy SDK 复用
+
+与 Copilot 一样，CodeBuddy SDK 的调用约定也适合代码复用，因此新增 `@saga/codebuddy-agent-runtime`，不只提供 Skill 文档。它把 `@tencent-ai/agent-sdk` 的 `query()` 接线、prompt 组合、禁止隐式加载宿主配置、默认禁用普通工具、StructuredOutput、timeout/abort 与 per-turn usage 统一起来。
+
+- Copilot SDK：使用 `@saga/copilot-agent-runtime`。
+- CodeBuddy/WorkBuddy SDK：使用 `@saga/codebuddy-agent-runtime`。
+- WorkBuddy 桌面工具、工作记忆目录、仓库协作步骤：使用 `skills/workbuddy-agent-workflow/SKILL.md`。
+
+当前 CodeBuddy SDK 官方仍标记为 Preview，所以 package 封装了可验证的 `query()` 使用路径，但没有把 unstable v2 Session API 包装成稳定承诺。高并发 Session Pool、EPUB/PDF 文档 Run、SQLite 持久化和翻译专用 task profile 先留在 local-agent-service，等多个项目证明契约稳定后再抽取。
