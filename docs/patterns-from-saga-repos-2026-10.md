@@ -1,0 +1,95 @@
+# Saga 仓库的可复用 Agent 实践（2026-10）
+
+本文基于相关仓库当前可见的代码、文档、测试和近期提交整理。目标是把重复经验归入合适的复用层，而不是将所有项目改造成同一套框架。
+
+## 结论摘要
+
+| 重复模式 | 当前归宿 | 为什么 |
+|---|---|---|
+| Copilot SDK client / session / turn 生命周期、超时、取消、并发、usage delta、恢复 | npm package：@saga/copilot-agent-runtime | 代码和生命周期边界重复，适合稳定实现 |
+| Agent / tool / knowledge / approval / evidence / event 的跨框架结构 | npm package：@saga/agent-contracts | Schema 和协议比业务实现稳定 |
+| Trace / trajectory 的关联字段 | 扩展 @saga/agent-contracts 的 AgentTraceContext / AgentEvent | 多个应用已有相似事件 envelope，但存储后端和审计语义不同 |
+| Structured output 校验、Knowledge provenance、Markdown Workflow、Evaluation、Memory、Rules、State machine | 继续使用现有独立 package | 已有最小、互相独立的实现；不应重新造一份 |
+| Ant Design + Ant Design X 的 Agent 对话 UI 模式 | Skill | 应用 UI、样式与业务流程不同，直接做公共组件会引入过度耦合 |
+| WorkBuddy 的项目协作、Skill / memory 使用方式 | Skill | 是 Agent 的工作方法，不是运行时库 |
+| 本机 WorkBuddy / OpenCode Provider 的配置和失败语义 | Skill | 端口、健康检查与任务类型依赖宿主应用 |
+| 本机服务负责耗时文件处理、扩展只负责 UI / 路由 / 轻量调度 | 指南 + 具体应用实现 | 业务文件格式和存储模型不能直接变成通用 runtime |
+| 业务 Action、授权、外部副作用、执行历史、监管审计 | 各应用 | 不能由通用 SDK 或 trace 替代 |
+
+## 重点查看的仓库与可复用观察
+
+### Copilot SDK 与长任务
+
+- [copilot-server-agent](https://github.com/saga/copilot-server-agent)：client/session 与业务 execution 分层；明确区分 runtime trace、业务事件、policy/approval 和 evidence；tool policy 由声明的风险属性和部署许可判定，而非按工具名写死。
+- [team-member-copilot-agent](https://github.com/saga/team-member-copilot-agent)：每个长期 Member 有自己的 session / memory / capability；消息上下文、长期记忆、工作目标与 Execution 是不同的数据对象；恢复与重试是应用状态语义，不是 SDK 的自动行为。
+- [agentic-data-architect](https://github.com/saga/agentic-data-architect)：将业务资料、source confidence、知识置信度与 workflow state 分开；Markdown 工作流只表达阶段和合法路线，业务 evaluator 决定条件是否成立。
+- [architecture-diagram-studio](https://github.com/saga/architecture-diagram-studio)：近期把 Copilot runtime 单独提取；稳定 session 关联 conversation 与配置 revision；只对可恢复的 CLI/IPC 断连做 reconnect，不把认证、quota、模型选择错误伪装成重启问题；领域变更经 Diagram Document 校验后应用。
+- [agent-skills](https://github.com/saga/agent-skills)：可用来快速验证 SDK 的最小 API，但临时实验代码不应自动升级为生产范式；版本、生命周期和错误语义应以当前项目锁定的 SDK 与真实测试为准。
+
+现有的 @saga/copilot-agent-runtime 已覆盖最适合公共化的 SDK 生命周期。不要把 Team、Member、Conversation、业务任务计划、授权或持久化倒灌进 Runtime。
+
+### Trajectory、Trace 与 Evidence
+
+- [architecture-diagram-studio trace ledger](https://github.com/saga/architecture-diagram-studio/blob/main/v1/server/trace-ledger.ts) 使用 traceId / turnId / parentEventId / sequence / category / status / duration / provider / model，将流式运行事件关联为可检索记录。
+- [copilot-server-agent execution events](https://github.com/saga/copilot-server-agent/blob/main/server/src/execution/events.ts) 明确区分运行时可观测性与业务执行审计。
+- 公共层现在提供 AgentTraceContext 与扩展后的 AgentEvent schema。应用仍然负责顺序分配、持久化、脱敏、大小限制、查询、保留策略、权限和业务 audit。
+- 轨迹应记可验证的状态变化和工具生命周期，不应默认保存完整隐藏推理、整段 prompt、secret 或无限长的 token delta。
+- Trace 可以帮助排查问题，但不能单独证明“谁被授权、谁批准、批准时看见什么、外部系统是否执行成功”。这些需要应用自己的业务事件和证据链。
+
+### Ant Design 与 Ant Design X
+
+- [ai-interview-questions CopilotSidebar](https://github.com/saga/ai-interview-questions/blob/main/src/components/copilot/CopilotSidebar.tsx) 使用 Bubble、Sender、Prompts，和 antd 的布局、按钮、Typography 等组合。
+- [architecture-diagram-studio v2](https://github.com/saga/architecture-diagram-studio/tree/main/v2) 使用 antd 做企业级配置与布局，Ant Design X 做聊天区；核心 diagram canvas 和 domain model 仍然是应用专用实现。
+- 可复用的是“antd 管应用界面 + X 管对话交互”的分层、provider context、稳定的消息状态和流式错误处理；不是一个新的通用 UI package。
+- 不要把 chat 的 loading/completed 当成业务执行完成；也不要因为一次模型响应没有调用 tool 就默认失败。
+
+### WorkBuddy、Skill 与工作记忆
+
+- [ai-interview-questions AGENTS.md](https://github.com/saga/ai-interview-questions/blob/main/AGENTS.md) 把稳定原则放在 AGENTS.md，把命令与细节放到 README/docs/Skill。
+- [fanyi-extension](https://github.com/saga/fanyi-extension) 同时使用 WorkBuddy / OpenCode 作为本机模型执行路径，说明 Agent Host 选择和业务流程应通过明确配置控制，而非写死到 prompt。
+- WorkBuddy 使用习惯是宿主环境知识，不应该进入 npm runtime。项目目录、用户级目录和记忆目录可能不同；写入前检查最近更新，避免维护两份已经分叉的记忆。
+- Skill 中引用的脚本、命令和文件都要核实存在。Skill 只是一份可执行说明，不能替代程序的校验、权限或测试。
+
+### 本机 Agent Provider 与扩展架构
+
+[fanyi-extension README](https://github.com/saga/fanyi-extension/blob/main/README.md) 和 [architecture](https://github.com/saga/fanyi-extension/blob/main/ARCHITECTURE.md) 呈现了三条执行路由：直连 Provider、远程 Vocal Saga、本机 WorkBuddy / OpenCode。
+
+可复用原则：
+
+1. 本机 provider、model、URL、token 与文档翻译设置独立保存。
+2. 用户显式选择本机 Provider 后，调用失败应明确报告或保留现有结果，不应静默切换到远程调用。
+3. health/model probe 应与真实任务执行区分；服务未启动时尽量提前、清楚地反馈。
+4. 浏览器侧做界面、消息路由、轻量调度；大文件解析、文档状态、缓存和耗时工作放在本机服务。
+5. loopback 地址不等于完整安全边界；仍要校验请求、限制路径、设置超时，并在适用时启用 token。
+
+## 建议的代码复用边界
+
+### 适合 npm package
+
+- 对外 API 小、依赖少、可纯函数测试的 schema / contract。
+- SDK 生命周期复杂且跨服务反复重复的 Copilot runtime。
+- 确定性解析、校验和状态转换器。
+- Evaluation case、observation、grader 与汇总。
+
+### 更适合 Skill
+
+- Ant Design X 的组件选择与 streaming UI 实施检查表。
+- WorkBuddy / coding agent 的仓库阅读、记忆与验证工作流。
+- Local Agent Provider 配置、健康检查、路由和失败语义。
+- 特定 Agent SDK 升级时要核对的行为清单。
+
+### 应留在应用中
+
+- SQLite / PostgreSQL trace ledger 的实现。
+- LangSmith、OpenTelemetry、CloudWatch 等后端的接线和 retention。
+- Team、Member、Conversation、业务 Execution 与恢复策略。
+- Policy、authorization、审批、工具副作用与监管审计。
+- 图编辑器、翻译 Reader、访谈练习等领域 UI。
+
+## 验证原则
+
+- Schema 改动要增加正向和反向断言，包括无效字段、边界值和向后兼容的最小事件。
+- 测试必须真正能在错误实现下失败；有条件时使用 mutation testing，而不只是增加测试数量。
+- 文档中的命令应从 package.json / workflow 文件验证，不能凭记忆编写。
+- “代码看起来正确”“执行了测试”“CI 通过”是三个不同的结论。
+- 不在仓库提交真实 Token、私人 trace、对话全文或未经脱敏的本机日志。

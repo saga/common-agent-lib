@@ -740,3 +740,73 @@ resumeSession
 > **跨框架稳定的数据边界做 Schema；跨实现稳定的能力边界做 Interface；Agent 使用方法做 SKILL；实现细节留给 Runtime。**
 
 Common library 的目标不是成为另一个 LangChain，而是让 Copilot、LangChain、OpenAI、Anthropic 和业务 Agent Runtime 可以共享稳定的契约，同时保持各自的实现自由度。
+
+
+---
+
+## Pattern 22：Trace envelope 要能把一次请求串起来，但不承载审计真相
+
+近期的 architecture-diagram-studio trace ledger 和 copilot-server-agent execution events 重复出现一组字段：correlationId、traceId、turnId、parentEventId、sequence、category、status、durationMs、provider、model。
+
+公共化结果：@saga/agent-contracts 提供 AgentTraceContext 与增强后的 AgentEvent。事件编号、顺序分配、脱敏、容量限制、持久化、查询和 retention 仍由应用负责。
+
+实践要点：
+
+- traceId 关联一个逻辑请求；turnId 区分请求内的 Agent/模型轮次；parentEventId 可把 tool/child event 组织成树；sequence 由事件写入端生成，不能让模型决定。
+- 事件记录 turn.started、model.requested、tool.started、tool.completed、tool.failed、policy.decided、state.changed、turn.completed 等可验证的运行事实。事件名是应用约定，不由公共包锁死。
+- 日志体先递归脱敏，再做大小限制；大正文、附件、长增量不应无上限塞进事件表。保留引用、哈希、长度和有限预览，按需到授权存储读取。
+- reasoning delta 是某些 Runtime 提供的观测事件，不代表可显示给用户的解释；不要把隐藏推理、完整 prompt 或整段 token delta 默认存入长期日志。
+- LangSmith / OpenTelemetry 是运行时观测；需要回答“谁批准、依据什么、后来执行了什么”的业务审计，应由应用自己的持久化事件和证据对象负责。
+
+来源：[architecture-diagram-studio trace ledger](https://github.com/saga/architecture-diagram-studio/blob/main/v1/server/trace-ledger.ts)、[copilot-server-agent execution events](https://github.com/saga/copilot-server-agent/blob/main/server/src/execution/events.ts)。
+
+## Pattern 23：Ant Design X 适合 Agent 对话面，不替代业务画布和领域状态
+
+ai-interview-questions 与 architecture-diagram-studio/v2 都采用 antd + @ant-design/x。可以共享的是组合方式与交互规则，不是具体业务组件。
+
+- antd 负责表单、布局、弹窗、配置上下文与主题；@ant-design/x 负责 Bubble / Sender / Prompts 等 Agent 对话交互。
+- 保持 ConfigProvider、本地化、XProvider 和 antd App 上下文一致。以项目 lockfile 实际锁定版本为准，不能只因为示例版本相同就忽略升级差异。
+- 聊天 transcript、任务/Execution 状态和领域对象分开建模。消息的 stream 状态只是消息状态；它不能代表工作流成功或外部副作用已成功。
+- 对结构化动作，模型只能通过领域工具提交提议；服务端验证 Schema 和业务不变量后更新领域模型。不要允许模型直接操纵 React Flow / 画布内部状态。
+- 显式覆盖无 tool call 的正常回复、空文本、错误 stop reason、断流、重试和部分流式内容；不能把“模型这轮没调用工具”直接解释为整个请求失败。
+
+来源：[ai-interview-questions CopilotSidebar](https://github.com/saga/ai-interview-questions/blob/main/src/components/copilot/CopilotSidebar.tsx)、[architecture-diagram-studio/v2 UI](https://github.com/saga/architecture-diagram-studio/blob/main/v2/src/App.tsx)。
+
+## Pattern 24：WorkBuddy Skill 是可执行方法，不是项目架构说明的替代品
+
+在 ai-interview-questions、copilot-server-agent 和 fanyi-extension 中，Skill、AGENTS.md、架构文档和工作记忆承担不同职责：
+
+- AGENTS.md：短小、稳定的仓库原则与禁止事项。
+- README / docs：架构、数据流、运行命令、故障语义和决定记录。
+- SKILL.md：可重复的工作程序、检查顺序、操作方法和完成标准。
+- 工作记忆：跨轮次的临时连续性。写入前先核对当前仓库真正维护的目录；不能假定 .workbuddy/ 和 .workbuddy-ai/ 始终同步，也不应默认把本机日志或临时产物提交进 Git。
+
+每个 Skill 引用的脚本、命令和文件必须先验证真实存在；安装前检查用户级与项目级 Skill 是否重复或已分叉。把“我检查了代码”与“运行过测试”分开表述。
+
+来源：[ai-interview-questions AGENTS.md](https://github.com/saga/ai-interview-questions/blob/main/AGENTS.md)、[fanyi-extension local provider docs](https://github.com/saga/fanyi-extension/blob/main/ARCHITECTURE.md)。
+
+## Pattern 25：本机 Provider 要有显式选择与失败语义
+
+fanyi-extension 把浏览器扩展、远程服务、本机 WorkBuddy/OpenCode 服务分开。可复用的重点不是某个本机产品的 SDK，而是 Provider 边界：
+
+- 本机 Provider 的地址、provider、model、token 和文档翻译配置独立保存，避免一个设置意外改动其它流程。
+- 选择本机 Provider 后，模型调用失败就返回明确错误或保留已存在结果；不应静默退回远程模型，否则可能改变数据边界、费用或隐私语义。
+- 先用 health/model endpoint 检测服务可用；不可用时在 UI 明确禁用或说明原因，而不是等长任务失败。
+- 浏览器端负责界面、消息路由和轻量确定性调度；大型文件解析、数据库缓存、耗时文档分析应放在本机服务中。
+- 若做本机 HTTP API，使用 loopback 绑定、可选但明确的 token 门禁、请求大小/路径校验和超时；不要把“localhost”本身当成完整授权。
+
+来源：[fanyi-extension README](https://github.com/saga/fanyi-extension/blob/main/README.md)、[fanyi-extension architecture](https://github.com/saga/fanyi-extension/blob/main/ARCHITECTURE.md)。
+
+## Pattern 26：Agent 对领域模型提出修改，应用验证后提交
+
+architecture-diagram-studio 的 Copilot 工具围绕 Diagram Document 做增删改，再由应用校验并渲染；Agent 不直接编辑画布内部运行态。相同原则适用于 SQL、翻译实体、知识条目和工作流：
+
+1. 向 Agent 提供明确、窄小、可验证的领域工具。
+2. 把 LLM 输出解析成结构化提议；失败时不更新权威状态。
+3. 校验引用、版本、实体 ID、边关系和业务约束。
+4. 应用提交后再返回权威状态；UI 只显示该状态的投影。
+5. 对“没产生改变”“产生部分改变”“验证失败”“工具未调用”分别定义结果语义。
+
+它比添加更多 prompt 规则更可靠：安全和一致性来自应用边界，而不是模型自我约束。
+
+来源：[architecture-diagram-studio Copilot Runtime](https://github.com/saga/architecture-diagram-studio/blob/main/v2/server/copilot/runtime.ts)、[copilot-server-agent tool policy](https://github.com/saga/copilot-server-agent/blob/main/server/src/tool-policy.ts)。

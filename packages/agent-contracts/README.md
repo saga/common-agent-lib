@@ -49,3 +49,16 @@ In particular:
 - `AgentCheckpoint` is a compact intermediate work product; it does not own persistence, workflow orchestration, or final-report semantics.
 - `ToolProvider` is a provider interface; there is no common tool registry.
 - `KnowledgeProvider` is a retrieval interface; storage and ranking remain provider-specific.
+
+
+## Trace / trajectory envelope
+
+`AgentTraceContextSchema` describes optional correlation fields that can cross provider, runtime and application boundaries:
+
+- `correlationId`: request-level correlation when the caller already has one.
+- `traceId`: one logical agent request.
+- `turnId`: one model/tool turn within the request.
+- `parentEventId` and `sequence`: event relationships and persisted ordering.
+- `category`, `status`, `durationMs`, `provider`, and `model`: optional AgentEvent observation metadata.
+
+`AgentEventSchema` deliberately does not define a database, event taxonomy, trace vendor or retention policy. The application must redact and bound `data` before writing it. Runtime trace events are not a substitute for durable business audit records or authorization decisions.

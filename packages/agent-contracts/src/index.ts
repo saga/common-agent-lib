@@ -242,14 +242,39 @@ export const AgentCheckpointSchema = z.object({
 });
 export type AgentCheckpoint = z.infer<typeof AgentCheckpointSchema>;
 
-/** Provider-neutral agent event. Business audit remains a separate application concern. */
+/**
+ * Correlation fields shared by runtime traces and application event streams.
+ *
+ * traceId groups one logical request; turnId identifies one model/tool turn within it.
+ * sequence is assigned by the durable event writer, not by the LLM.
+ */
+export const AgentTraceContextSchema = z.object({
+  correlationId: z.string().optional(),
+  traceId: z.string().optional(),
+  turnId: z.string().optional(),
+  parentEventId: z.string().optional(),
+  sequence: z.number().int().nonnegative().optional(),
+});
+export type AgentTraceContext = z.infer<typeof AgentTraceContextSchema>;
+
+/**
+ * Provider-neutral agent event. This is a runtime-observability envelope, not a business audit record.
+ * Event data should be redacted and size-bounded by the application before persistence.
+ */
 export const AgentEventSchema = z.object({
+  ...AgentTraceContextSchema.shape,
   id: z.string(),
   type: z.string(),
   timestamp: z.string().datetime(),
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
   actor: ActorReferenceSchema.optional(),
+  category: z.string().optional(),
+  status: z.string().optional(),
+  durationMs: z.number().nonnegative().optional(),
+  provider: z.string().optional(),
+  model: z.string().optional(),
+  payloadComplete: z.boolean().optional(),
   data: z.unknown().optional(),
   metadata: z.record(z.string(), z.unknown()).default({}),
 });

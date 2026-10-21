@@ -319,3 +319,13 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+
+## 新增的跨项目实践（2026-10）
+
+- **轨迹关联字段进入 @saga/agent-contracts**：AgentTraceContext / AgentEvent 支持 correlationId、traceId、turnId、parentEventId、sequence，以及类别、状态、耗时、provider/model 等可观测字段。Schema 只规定事件形状，不提供数据库、LangSmith client 或监管审计系统。
+- **Ant Design X UI**：放在 [可复用 Skill](skills/ant-design-x-agent-ui/SKILL.md)，而不是做成 npm UI framework。它指导如何组合 antd 控件、X 聊天组件、流式消息和应用自身的业务状态。
+- **WorkBuddy / 本机 Agent**：操作流程沉淀在 [coding-agent Skill](skills/workbuddy-agent-workflow/SKILL.md)；本机/远程 Provider 的边界沉淀在 [local-agent integration Skill](skills/local-agent-provider-integration/SKILL.md)。
+- **仓库分析与证据**：见 [2026-10 模式归纳](docs/patterns-from-saga-repos-2026-10.md)。
+
+公共包只包含跨项目稳定的 contract/runtime。组件选型、工具安装路径、WorkBuddy 记忆目录、UI 交互与具体 app 生命周期都是 Skill 或应用层文档，不做不必要的抽象。
