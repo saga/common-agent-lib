@@ -6,7 +6,8 @@
 
 | 重复模式 | 当前归宿 | 为什么 |
 |---|---|---|
-| Copilot SDK client / session / turn 生命周期、超时、取消、并发、usage delta、恢复 | npm package：@saga/copilot-agent-runtime | 代码和生命周期边界重复，适合稳定实现 |\n| CodeBuddy/WorkBuddy SDK query 调用、安全默认值、结构化输出、usage 与 timeout/abort | npm package：@saga/codebuddy-agent-runtime | 本机服务中已经存在一组领域无关的 SDK 适配逻辑 |
+| Copilot SDK client / session / turn 生命周期、超时、取消、并发、usage delta、恢复 | npm package：@saga/copilot-agent-runtime | 代码和生命周期边界重复，适合稳定实现 |
+| CodeBuddy/WorkBuddy SDK query 调用、安全默认值、结构化输出、usage 与 timeout/abort | npm package：@saga/codebuddy-agent-runtime | 本机服务中已经存在一组领域无关的 SDK 适配逻辑 |
 | Agent / tool / knowledge / approval / evidence / event 的跨框架结构 | npm package：@saga/agent-contracts | Schema 和协议比业务实现稳定 |
 | Agent trace recorder、span、脱敏、载荷限额、查询和本地持久化 | npm package：@saga/agent-tracing；事件 Schema 复用 @saga/agent-contracts | 跨项目重复的是完整记录能力；存储可替换，业务审计仍留给应用 |
 | Structured output 校验、Knowledge provenance、Markdown Workflow、Evaluation、Memory、Rules、State machine | 继续使用现有独立 package | 已有最小、互相独立的实现；不应重新造一份 |
