@@ -7,6 +7,7 @@
 | Package | 解决什么问题 | 依赖 |
 | --- | --- | --- |
 | `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery | `@github/copilot-sdk` |\n| `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
+| `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
 | `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
 | `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
@@ -16,7 +17,7 @@
 | `@saga/agent-rules` | 小型声明式确定性规则评估器 | `zod` |
 | `@saga/agent-state-machine` | 小型确定性状态转移运行时 | 无 |
 
-这些 package **互不依赖**。应用按需安装；不存在一个必须同时安装的“大一统 Agent Framework”。
+这些 package 可独立安装、按需使用；只有确实需要公共契约的模块才声明单向依赖，例如 agent-tracing 依赖 agent-contracts。不存在一个必须同时安装的“大一统 Agent Framework”。
 
 ## 为什么新增这些 package
 
@@ -52,7 +53,7 @@ capability or workflow
 
 - Context engineering：抽取原则和小工具即可，暂时不做通用 Context Runtime。各应用的 context source、checkpoint scheduling、budget 和 compaction 策略不同；公共层只提供 ContextReference / AgentCheckpoint 等稳定 contract。
 - Human-in-the-loop / interrupt：模式很通用，但 checkpoint、审批对象、授权和持久化都与业务强相关，暂不做通用执行引擎。
-- Tracing / Audit：统一事件字段可以以后接 OpenTelemetry；不自己再造 tracing backend，也不把 runtime trace 当业务审计。
+- Tracing / Audit：使用 @saga/agent-tracing 统一事件记录、脱敏、载荷限额和本地持久化；不自己再造托管 tracing backend，也不把 runtime trace 当业务审计。
 - Tool registry / dynamic tool search：工具发现方式正在快速变化，先保留 Tool contract / naming / schema 规范，不做新的通用 registry。
 - Multi-agent handoff / agents-as-tools：这是编排模式，不是公共业务对象；保留在具体 runtime / application 层。
 - Workflow orchestration engine：不要因为出现多个 Workflow 就建立 Registry、通用编排器或 BPMN engine。当前只需要 Skill 内的高层路线 + 一个小型 parser/runtime。
@@ -340,3 +341,24 @@ npm run build
 - WorkBuddy 桌面工具、工作记忆目录、仓库协作步骤：使用 `skills/workbuddy-agent-workflow/SKILL.md`。
 
 当前 CodeBuddy SDK 官方仍标记为 Preview，所以 package 封装了可验证的 `query()` 使用路径，但没有把 unstable v2 Session API 包装成稳定承诺。高并发 Session Pool、EPUB/PDF 文档 Run、SQLite 持久化和翻译专用 task profile 先留在 local-agent-service，等多个项目证明契约稳定后再抽取。
+
+
+## Agent tracing
+
+@saga/agent-tracing 提供跨 Agent SDK 的 trace recorder、span helper、内存 store 和 SQLite store。不同项目统一事件形状和查询方式，同时保留对 PostgreSQL、LangSmith、OpenTelemetry 或其它后端的适配空间。
+
+```ts
+import { AgentTraceRecorder, SqliteTraceStore } from '@saga/agent-tracing';
+
+const tracing = new AgentTraceRecorder(
+  new SqliteTraceStore({ filename: './data/agent-traces.sqlite' }),
+);
+const context = tracing.createContext({ sessionId: 'conversation-1' });
+await tracing.runSpan({ ...context, category: 'tool', name: 'knowledge.search' }, async () => {
+  return searchKnowledge('portfolio');
+});
+const events = await tracing.query({ traceId: context.traceId });
+await tracing.close();
+```
+
+完整 API、存储接口和隐私边界见 packages/agent-tracing/README.md。该包记录运行轨迹，不代替业务执行审计、授权证据或托管可观测性平台。
