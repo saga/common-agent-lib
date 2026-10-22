@@ -82,7 +82,7 @@ const option = buildCodeBuddyContextWindowOption(modelContextWindow);
 // options: [{ value: '300000', name: '300K' }, { value: '1000000', name: '1M' }]
 const result = await runtime.run({
   prompt: 'Analyze this document',
-  contextWindowModel,
+  contextWindowModel: modelContextWindow,
   contextWindow: 1_000_000, // explicit session/task override only
 });
 ```

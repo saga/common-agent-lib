@@ -287,70 +287,70 @@ export class CodeBuddyAgentRuntime {
       }, Boolean(contextWorkspace));
       const query = await this.queryFactory({ prompt, options });
 
-    let text = '';
-    let structuredOutput: unknown;
-    let usage: CodeBuddyUsage | undefined;
-    let sessionId: string | undefined;
-    let messageCount = 0;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    let abortListener: (() => void) | undefined;
+      let text = '';
+      let structuredOutput: unknown;
+      let usage: CodeBuddyUsage | undefined;
+      let sessionId: string | undefined;
+      let messageCount = 0;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let abortListener: (() => void) | undefined;
 
-    const consumption = (async () => {
-      for await (const item of query) {
-        messageCount += 1;
-        const event = asRecord(item);
-        input.onEvent?.(item);
+      const consumption = (async () => {
+        for await (const item of query) {
+          messageCount += 1;
+          const event = asRecord(item);
+          input.onEvent?.(item);
 
-        const foundSessionId = readSessionId(event);
-        if (foundSessionId && foundSessionId !== sessionId) {
-          sessionId = foundSessionId;
-          input.onSessionId?.(foundSessionId);
-        }
-
-        for (const chunk of extractText(event)) {
-          text += (text ? '\n' : '') + chunk;
-          input.onText?.(chunk);
-        }
-
-        if (event.type === 'result') {
-          if (event.is_error === true || (Array.isArray(event.errors) && event.errors.length > 0)) {
-            throw new Error('CodeBuddy execution failed: ' + String((event.errors as unknown[] | undefined)?.[0] ?? 'unknown error'));
+          const foundSessionId = readSessionId(event);
+          if (foundSessionId && foundSessionId !== sessionId) {
+            sessionId = foundSessionId;
+            input.onSessionId?.(foundSessionId);
           }
-          if (typeof event.subtype === 'string' && event.subtype !== 'success') {
-            throw new Error('CodeBuddy execution failed: ' + event.subtype);
+
+          for (const chunk of extractText(event)) {
+            text += (text ? '\n' : '') + chunk;
+            input.onText?.(chunk);
           }
-          if ('structured_output' in event) structuredOutput = event.structured_output;
-          usage = parseCodeBuddyUsage(event);
+
+          if (event.type === 'result') {
+            if (event.is_error === true || (Array.isArray(event.errors) && event.errors.length > 0)) {
+              throw new Error('CodeBuddy execution failed: ' + String((event.errors as unknown[] | undefined)?.[0] ?? 'unknown error'));
+            }
+            if (typeof event.subtype === 'string' && event.subtype !== 'success') {
+              throw new Error('CodeBuddy execution failed: ' + event.subtype);
+            }
+            if ('structured_output' in event) structuredOutput = event.structured_output;
+            usage = parseCodeBuddyUsage(event);
+          }
         }
-      }
-    })();
+      })();
 
-    const interruption = new Promise<never>((_resolve, reject) => {
-      if (input.timeoutMs !== undefined) {
-        timeout = setTimeout(() => {
-          void Promise.resolve(query.interrupt?.()).catch(() => undefined);
-          reject(new CodeBuddyTaskError('timeout', 'CodeBuddy task timed out after ' + input.timeoutMs + 'ms'));
-        }, input.timeoutMs);
-      }
-      if (input.signal) {
-        abortListener = () => {
-          void Promise.resolve(query.interrupt?.()).catch(() => undefined);
-          reject(new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted'));
-        };
-        if (input.signal.aborted) abortListener();
-        else input.signal.addEventListener('abort', abortListener, { once: true });
-      }
-    });
+      const interruption = new Promise<never>((_resolve, reject) => {
+        if (input.timeoutMs !== undefined) {
+          timeout = setTimeout(() => {
+            void Promise.resolve(query.interrupt?.()).catch(() => undefined);
+            reject(new CodeBuddyTaskError('timeout', 'CodeBuddy task timed out after ' + input.timeoutMs + 'ms'));
+          }, input.timeoutMs);
+        }
+        if (input.signal) {
+          abortListener = () => {
+            void Promise.resolve(query.interrupt?.()).catch(() => undefined);
+            reject(new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted'));
+          };
+          if (input.signal.aborted) abortListener();
+          else input.signal.addEventListener('abort', abortListener, { once: true });
+        }
+      });
 
-    try {
-      await Promise.race([consumption, interruption]);
-    } catch (error) {
-      if (error instanceof CodeBuddyTaskError) throw error;
-      throw new CodeBuddyTaskError('sdk-error', 'CodeBuddy Agent SDK call failed: ' + (error instanceof Error ? error.message : String(error)));
-    } finally {
-      if (timeout) clearTimeout(timeout);
-      if (abortListener && input.signal) input.signal.removeEventListener('abort', abortListener);
-    }
+      try {
+        await Promise.race([consumption, interruption]);
+      } catch (error) {
+        if (error instanceof CodeBuddyTaskError) throw error;
+        throw new CodeBuddyTaskError('sdk-error', 'CodeBuddy Agent SDK call failed: ' + (error instanceof Error ? error.message : String(error)));
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        if (abortListener && input.signal) input.signal.removeEventListener('abort', abortListener);
+      }
 
     const resolvedStructuredOutput = resolveCodeBuddyStructuredOutput(structuredOutput, text);
       return {
