@@ -33,6 +33,7 @@ Keep the probe reproducible and tied to a concrete SDK version. Record the exact
 ## Choosing `query()` versus V2 Session
 
 - Prefer `query()` for isolated tasks with a per-task model, thinking mode, effort, fallback model, structured output, timeout, or cancellation profile. This is the path covered by this package and the current per-task CodeBuddy profiles in `fanyi-extension` / `vocal-saga`.
+- The query path can also continue a known SDK session using `resume`; `@saga/codebuddy-agent-runtime` now exposes this as `resumeSessionId` and opts into `persistSession` by default for such calls. This is SDK session continuity only; it is not a workflow checkpoint or business-state recovery mechanism.
 - Choose a persistent Session only when conversation history or resumable identity is an actual requirement. Audit each required option against `SessionOptions` independently; do not assume parity with `query()`.
 - Do not reuse one mutable Session across unrelated task profiles if a setting cannot be applied or verified per turn. A misleading configuration is worse than the startup cost of a separate query.
 - If the host introduces a Session pool, define the key and concurrency invariant explicitly. Application evidence from document translation shows that one scoped session should have one active turn at a time; reusing the same scope serializes calls, while distinct lanes permit parallel work only when their prompts are self-contained and history isolation is intended.
@@ -59,6 +60,8 @@ At minimum, test:
 
 - `fanyi-extension/.workbuddy-ai/memory/2026-10-18.md`: versioned SDK probe findings for `0.3.274` / `0.3.276` / `0.3.282`.
 - `vocal-saga`: `7045b6d` keeps unsupported query options out of V2 Session config; `0d7e2d8` adds validated context-window config options and isolated settings seeding; `ac8d932` preserves a CodeBuddy session ID in structured request results; `d3f37ea` isolates persistent workflow turns from the shared session pool.
-- `common-agent-lib/packages/codebuddy-agent-runtime`: provider-neutral query adapter, strict context-window metadata validation, temporary settings isolation, timeout/abort request, structured output, and usage/session-ID normalization.
+- `common-agent-lib/packages/codebuddy-agent-runtime`: provider-neutral query adapter, strict context-window metadata validation, temporary settings isolation, timeout/abort request, explicit `resumeSessionId` continuation, structured output, and usage/session-ID normalization.
+- `agentic-data-architect/src/agent/codebuddy.ts`: uses `query()` with `resume: sessionId`, captures a returned session ID, and owns workspace, permissions, Mission/Evidence/Journey state and runtime-switch behavior at the application boundary.
+- `desktop-agent/src/main/agent/codebuddy.ts`: pairs `permissionMode: 'bypassPermissions'` with a host-side `canUseTool` gate and explicit user approval for non-read tools. This is an application-specific interactive tool runtime, not a safe default for the common no-tools query adapter.
 
 The above application repositories supply evidence and regression cases; this document records only cross-project integration rules. Literary translation roles, review policy, chapter orchestration, and application persistence stay outside the common runtime.
