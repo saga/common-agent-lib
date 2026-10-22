@@ -258,6 +258,52 @@ export const AgentTraceContextSchema = z.object({
 export type AgentTraceContext = z.infer<typeof AgentTraceContextSchema>;
 
 /**
+ * Token usage emitted by a single model or normalized across one or more model calls.
+ * Provider-specific billing measurements remain explicit rather than being mislabeled as currency.
+ */
+export const AgentModelTokenUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  totalTokens: z.number().int().nonnegative().optional(),
+  cachedInputTokens: z.number().int().nonnegative().optional(),
+  cacheWriteTokens: z.number().int().nonnegative().optional(),
+  reasoningTokens: z.number().int().nonnegative().optional(),
+  premiumRequestCost: z.number().nonnegative().optional(),
+  totalNanoAiu: z.number().nonnegative().optional(),
+});
+export type AgentModelTokenUsage = z.infer<typeof AgentModelTokenUsageSchema>;
+
+/** Current context occupancy; do not add these values to consumed input/output tokens. */
+export const AgentContextUsageSchema = z.object({
+  currentTokens: z.number().int().nonnegative().optional(),
+  tokenLimit: z.number().int().nonnegative().optional(),
+  messagesLength: z.number().int().nonnegative().optional(),
+  percent: z.number().nonnegative().max(1000).optional(),
+});
+export type AgentContextUsage = z.infer<typeof AgentContextUsageSchema>;
+
+/**
+ * Provider-neutral token usage. providerCost is only comparable when providerCostUnit
+ * matches. Premium-request costs and nano-AIU remain separate reported measurements.
+ */
+export const AgentTokenUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  totalTokens: z.number().int().nonnegative().optional(),
+  cachedInputTokens: z.number().int().nonnegative().optional(),
+  cacheWriteTokens: z.number().int().nonnegative().optional(),
+  reasoningTokens: z.number().int().nonnegative().optional(),
+  modelCalls: z.number().int().nonnegative().optional(),
+  providerCost: z.number().nonnegative().optional(),
+  providerCostUnit: z.string().min(1).max(64).optional(),
+  premiumRequestCost: z.number().nonnegative().optional(),
+  totalNanoAiu: z.number().nonnegative().optional(),
+  source: z.enum(['provider-event', 'session-metrics', 'estimated', 'unknown']).optional(),
+  byModel: z.record(z.string(), AgentModelTokenUsageSchema).optional(),
+});
+export type AgentTokenUsage = z.infer<typeof AgentTokenUsageSchema>;
+
+/**
  * Provider-neutral agent event. This is a runtime-observability envelope, not a business audit record.
  * Event data should be redacted and size-bounded by the application before persistence.
  */
@@ -274,6 +320,8 @@ export const AgentEventSchema = z.object({
   durationMs: z.number().nonnegative().optional(),
   provider: z.string().optional(),
   model: z.string().optional(),
+  usage: AgentTokenUsageSchema.optional(),
+  contextUsage: AgentContextUsageSchema.optional(),
   payloadComplete: z.boolean().optional(),
   data: z.unknown().optional(),
   metadata: z.record(z.string(), z.unknown()).default({}),
