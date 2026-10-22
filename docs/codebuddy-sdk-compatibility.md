@@ -34,12 +34,12 @@ Keep the probe reproducible and tied to a concrete SDK version. Record the exact
 
 This is an audit snapshot, not a guarantee that a semver range has already been verified:
 
-| Repository | Declared range | Lockfile observation in this review | Notes |
+| Repository | Declared version | Lockfile observation in this review | Notes |
 | --- | --- | --- | --- |
-| `common-agent-lib/packages/codebuddy-agent-runtime` | Exact `0.3.276` | No root lockfile was present at the queried path; package dependency is now pinned exactly | Shared adapter baseline. |
-| `vocal-saga/local-agent-service` | `^0.3.276` | `0.3.276` | Current concrete source used to align the shared package baseline. |
-| `agentic-data-architect` | `^0.3.267` | `0.3.274` | Uses `query()` with explicit `resume: sessionId`; its permission/tool policy and Investigation state are application-owned. The older lower bound should not be taken as evidence that every later release is verified. |
-| `desktop-agent` | `^0.3.276` | No root package lockfile was found at the queried path | Uses an interactive host-side `canUseTool` approval gate. That tool-enabled flow does not fit the shared runtime's no-tool default and must not inherit its security policy implicitly. |
+| `common-agent-lib/packages/codebuddy-agent-runtime` | Exact `0.3.276` | No root lockfile was present at the queried path; package dependency is pinned exactly | Shared adapter baseline. |
+| `vocal-saga/local-agent-service` | Exact `0.3.276` | `0.3.276` | Pinned to match the concrete version used for the common adapter baseline. |
+| `agentic-data-architect` | Exact `0.3.274` | `0.3.274` | Pinned to its pre-existing, probe-observed lockfile version. Uses `query()` with explicit `resume: sessionId`; its permission/tool policy and Investigation state remain application-owned. |
+| `desktop-agent` | Exact `0.3.276` | No root package lockfile was found at the queried path | Pinned to the common known baseline, but a lockfile should be added for reproducible installs. Its interactive host-side `canUseTool` approval gate is not compatible with the shared runtime's no-tool default and must not inherit its security policy implicitly. |
 
 The npm registry lists `0.3.284` as a release newer than the current locked `0.3.276`, but this review has not run the declaration / compilation / transport probe on `0.3.284`. Keep the shared package pinned to the tested baseline until that probe and the regression suite are run. For application repos with a different concrete version, read their lockfile; the package.json range is not runtime evidence.
 
