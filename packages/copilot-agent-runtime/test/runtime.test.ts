@@ -79,6 +79,69 @@ test('normalizes provider usage events and aggregates per-model cache/reasoning 
   assert.equal(usage?.models?.['gpt-5']?.cacheWriteTokens, 4);
 });
 
+test('captures per-call token usage and context occupancy, filling unreported fields from session metrics', async () => {
+  const listeners = new Map<string, Set<(event: unknown) => void>>();
+  const emit = (event: { type: string; data?: unknown }) => {
+    for (const handler of listeners.get(event.type) ?? []) handler(event);
+    for (const handler of listeners.get('*') ?? []) handler(event);
+  };
+  const snapshots = [
+    { inputTokens: 1000, outputTokens: 200, totalTokens: 1200, totalNanoAiu: 50, totalPremiumRequestCost: 1 },
+    { inputTokens: 1100, outputTokens: 230, totalTokens: 1330, totalNanoAiu: 80, totalPremiumRequestCost: 1.3 },
+  ];
+  let snapshotIndex = 0;
+  const session = {
+    usage: { getMetrics: async () => snapshots[Math.min(snapshotIndex++, snapshots.length - 1)] },
+    on: (typeOrHandler: string | ((event: unknown) => void), maybeHandler?: (event: unknown) => void) => {
+      const type = typeof typeOrHandler === 'function' ? '*' : typeOrHandler;
+      const handler = typeof typeOrHandler === 'function' ? typeOrHandler : maybeHandler!;
+      const handlers = listeners.get(type) ?? new Set<(event: unknown) => void>();
+      handlers.add(handler);
+      listeners.set(type, handlers);
+      return () => handlers.delete(handler);
+    },
+    sendAndWait: async () => {
+      emit({
+        type: 'assistant.usage',
+        data: {
+          model: 'gpt-5', inputTokens: 90, outputTokens: 20, cacheReadTokens: 30,
+          cacheWriteTokens: 5, reasoningTokens: 7, cost: 0.2, duration: 450,
+        },
+      });
+      emit({
+        type: 'session.usage_info',
+        data: { currentTokens: 2400, tokenLimit: 128000, messagesLength: 18 },
+      });
+      return { type: 'assistant.message', data: { content: 'done' } };
+    },
+    setModel: async () => undefined,
+  } as unknown as CopilotSession;
+
+  const runtime = new CopilotAgentRuntime();
+  const result = await runtime.runTurn({
+    turnId: 'turn-usage',
+    lockKey: 'session-usage',
+    session,
+    prompt: 'hello',
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.content, 'done');
+  assert.equal(result.usage?.source, 'provider-event');
+  assert.equal(result.usage?.inputTokens, 90);
+  assert.equal(result.usage?.outputTokens, 20);
+  assert.equal(result.usage?.totalTokens, 110);
+  assert.equal(result.usage?.cachedInputTokens, 30);
+  assert.equal(result.usage?.cacheWriteTokens, 5);
+  assert.equal(result.usage?.reasoningTokens, 7);
+  assert.equal(result.usage?.totalNanoAiu, 30);
+  assert.equal(result.modelCallUsages?.length, 1);
+  assert.equal(result.modelCallUsages?.[0]?.durationMs, 450);
+  assert.equal(result.contextUsage?.currentTokens, 2400);
+  assert.equal(result.contextUsage?.tokenLimit, 128000);
+  assert.equal(result.contextUsage?.percent, 2);
+});
+
 test('recognizes missing resumable Copilot sessions', () => {
   assert.equal(isCopilotSessionNotFound(new Error('Session not found: 123')), true);
   assert.equal(isCopilotSessionNotFound(new Error('permission denied')), false);
