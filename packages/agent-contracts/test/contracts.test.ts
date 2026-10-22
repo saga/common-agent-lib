@@ -7,6 +7,8 @@ import {
   AgentDefinitionSchema,
   AgentInterruptSchema,
   AgentEventSchema,
+  AgentTokenUsageSchema,
+  AgentContextUsageSchema,
   AgentTraceContextSchema,
   ApprovalDecisionSchema,
   ApprovalRequestSchema,
@@ -70,11 +72,26 @@ const traceEvent = AgentEventSchema.parse({
   durationMs: 125,
   provider: 'copilot',
   model: 'gpt-5',
+  usage: AgentTokenUsageSchema.parse({
+    inputTokens: 120,
+    outputTokens: 30,
+    totalTokens: 150,
+    cachedInputTokens: 20,
+    reasoningTokens: 8,
+    modelCalls: 1,
+    source: 'provider-event',
+    byModel: { 'gpt-5': { inputTokens: 120, outputTokens: 30 } },
+  }),
+  contextUsage: AgentContextUsageSchema.parse({ currentTokens: 900, tokenLimit: 8000, messagesLength: 12, percent: 11 }),
   payloadComplete: true,
   data: { toolName: 'search' },
 });
 assert.equal(traceEvent.traceId, 'trace-1');
 assert.equal(traceEvent.durationMs, 125);
+assert.equal(traceEvent.usage?.totalTokens, 150);
+assert.equal(traceEvent.contextUsage?.percent, 11);
+assert.equal(AgentTokenUsageSchema.safeParse({ inputTokens: -1 }).success, false);
+assert.equal(AgentContextUsageSchema.safeParse({ percent: -1 }).success, false);
 assert.equal(AgentEventSchema.safeParse({
   id: 'ev3', type: 'tool.failed', timestamp: '2026-10-01T00:00:01Z', durationMs: -1,
 }).success, false);
