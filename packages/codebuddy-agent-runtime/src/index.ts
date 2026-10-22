@@ -1,3 +1,24 @@
+import { existsSync, rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import {
+  buildCodeBuddyContextWindowOption,
+  normalizeCodeBuddyContextWindow,
+  type CodeBuddyContextWindowModel,
+} from './context-window.js';
+
+export {
+  buildCodeBuddyContextWindowOption,
+  formatCodeBuddyContextWindow,
+  normalizeCodeBuddyContextWindow,
+  resolveCodeBuddyContextWindow,
+} from './context-window.js';
+export type {
+  CodeBuddyContextWindowModel,
+  CodeBuddyContextWindowOption,
+  NormalizedCodeBuddyContextWindow,
+} from './context-window.js';
+
 export type CodeBuddyEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type CodeBuddyThinking =
   | { type: 'disabled' }
@@ -21,6 +42,13 @@ export interface CodeBuddyTaskInput {
   model?: string;
   fallbackModel?: string;
   cwd?: string;
+  /**
+   * Optional per-invocation context-window tier in tokens. Leave unset to retain the
+   * model's configured default. When set, contextWindowModel is required so this runtime
+   * can validate against supportedLengths and maxInputTokens before applying the override.
+   */
+  contextWindow?: number;
+  contextWindowModel?: CodeBuddyContextWindowModel;
   timeoutMs?: number;
   signal?: AbortSignal;
   thinking?: CodeBuddyThinking;
@@ -69,10 +97,13 @@ export function buildCodeBuddyPrompt(prompt: string, systemPrompt = ''): string 
  * Build conservative defaults for application tasks. SDK filesystem settings are not loaded,
  * normal tasks have no tools, and structured-output tasks may use only StructuredOutput.
  */
-export function buildCodeBuddyOptions(input: Pick<
-  CodeBuddyTaskInput,
-  'model' | 'fallbackModel' | 'cwd' | 'thinking' | 'effort' | 'schema' | 'maxTurns' | 'persistSession' | 'sdkOptions'
->): Record<string, unknown> {
+export function buildCodeBuddyOptions(
+  input: Pick<
+    CodeBuddyTaskInput,
+    'model' | 'fallbackModel' | 'cwd' | 'thinking' | 'effort' | 'schema' | 'maxTurns' | 'persistSession' | 'sdkOptions'
+  >,
+  contextWindowSeeded = false,
+): Record<string, unknown> {
   const hasSchema = Boolean(input.schema);
   const canUseTool = async (toolName: string) => {
     if (hasSchema && toolName === 'StructuredOutput') return { behavior: 'allow' as const };
@@ -84,8 +115,9 @@ export function buildCodeBuddyOptions(input: Pick<
     ...(input.model ? { model: input.model } : {}),
     ...(input.fallbackModel ? { fallbackModel: input.fallbackModel } : {}),
     ...(input.cwd ? { cwd: input.cwd } : {}),
-    // Repositories must opt in explicitly to loading host-level Skills, MCP and settings.
-    settingSources: [],
+    // Only the isolated temporary context-window workspace opts into project settings.
+    // Normal requests keep the previous no-settings/Skills/MCP behavior.
+    settingSources: contextWindowSeeded ? ['project'] : [],
     permissionMode: 'default',
     persistSession: input.persistSession ?? false,
     thinking: input.thinking ?? (hasSchema ? { type: 'adaptive' } : { type: 'disabled' }),
@@ -200,6 +232,35 @@ async function defaultQueryFactory(input: CodeBuddyQueryInput): Promise<CodeBudd
  * It owns prompt/options defaults, event consumption, timeout/abort and usage normalization;
  * application workflow, persistence, authorization and final schema validation remain outside.
  */
+function createContextWindowSeedWorkspace(
+  contextWindow: number,
+  sourceCwd: string,
+): { cwd: string; cleanup: () => void } {
+  const cwd = mkdtempSync(join(tmpdir(), 'saga-codebuddy-context-window-'));
+  try {
+    const configDir = join(cwd, '.codebuddy');
+    mkdirSync(configDir, { recursive: true });
+    // Preserve only project model definitions so the temporary cwd resolves the same model.
+    // models.json may contain credentials, so the temporary copy is owner-readable only.
+    const sourceModels = join(resolve(sourceCwd), '.codebuddy', 'models.json');
+    if (existsSync(sourceModels)) {
+      writeFileSync(join(configDir, 'models.json'), readFileSync(sourceModels), { mode: 0o600 });
+    }
+    writeFileSync(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ contextWindow }, null, 2) + '\n',
+      { encoding: 'utf8', mode: 0o600 },
+    );
+  } catch (error) {
+    rmSync(cwd, { recursive: true, force: true });
+    throw error;
+  }
+  return {
+    cwd,
+    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+  };
+}
+
 export class CodeBuddyAgentRuntime {
   constructor(private readonly queryFactory: CodeBuddyQueryFactory | ((input: CodeBuddyQueryInput) => Promise<CodeBuddyQueryHandle>) = defaultQueryFactory) {}
 
@@ -213,84 +274,104 @@ export class CodeBuddyAgentRuntime {
     }
     if (input.signal?.aborted) throw new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted before it started');
 
-    const startedAt = Date.now();
-    const prompt = buildCodeBuddyPrompt(input.prompt, input.systemPrompt);
-    const options = buildCodeBuddyOptions(input);
-    const query = await this.queryFactory({ prompt, options });
-
-    let text = '';
-    let structuredOutput: unknown;
-    let usage: CodeBuddyUsage | undefined;
-    let sessionId: string | undefined;
-    let messageCount = 0;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    let abortListener: (() => void) | undefined;
-
-    const consumption = (async () => {
-      for await (const item of query) {
-        messageCount += 1;
-        const event = asRecord(item);
-        input.onEvent?.(item);
-
-        const foundSessionId = readSessionId(event);
-        if (foundSessionId && foundSessionId !== sessionId) {
-          sessionId = foundSessionId;
-          input.onSessionId?.(foundSessionId);
-        }
-
-        for (const chunk of extractText(event)) {
-          text += (text ? '\n' : '') + chunk;
-          input.onText?.(chunk);
-        }
-
-        if (event.type === 'result') {
-          if (event.is_error === true || (Array.isArray(event.errors) && event.errors.length > 0)) {
-            throw new Error('CodeBuddy execution failed: ' + String((event.errors as unknown[] | undefined)?.[0] ?? 'unknown error'));
-          }
-          if (typeof event.subtype === 'string' && event.subtype !== 'success') {
-            throw new Error('CodeBuddy execution failed: ' + event.subtype);
-          }
-          if ('structured_output' in event) structuredOutput = event.structured_output;
-          usage = parseCodeBuddyUsage(event);
-        }
+    // CodeBuddy Agent SDK query() does not expose contextWindow as an SDK option.
+    // For explicit opt-in only, use CodeBuddy's documented settings.json seed in an
+    // isolated temporary project directory. The no-override path stays byte-for-byte
+    // equivalent in behavior and never loads host-level settings.
+    let contextWorkspace: { cwd: string; cleanup: () => void } | undefined;
+    if (input.contextWindow !== undefined) {
+      const capability = normalizeCodeBuddyContextWindow(input.contextWindowModel);
+      if (!capability || !capability.supportedLengths.includes(input.contextWindow)) {
+        throw new TypeError('contextWindow is not a supported tier for the selected CodeBuddy model');
       }
-    })();
-
-    const interruption = new Promise<never>((_resolve, reject) => {
-      if (input.timeoutMs !== undefined) {
-        timeout = setTimeout(() => {
-          void Promise.resolve(query.interrupt?.()).catch(() => undefined);
-          reject(new CodeBuddyTaskError('timeout', 'CodeBuddy task timed out after ' + input.timeoutMs + 'ms'));
-        }, input.timeoutMs);
-      }
-      if (input.signal) {
-        abortListener = () => {
-          void Promise.resolve(query.interrupt?.()).catch(() => undefined);
-          reject(new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted'));
-        };
-        if (input.signal.aborted) abortListener();
-        else input.signal.addEventListener('abort', abortListener, { once: true });
-      }
-    });
-
-    try {
-      await Promise.race([consumption, interruption]);
-    } catch (error) {
-      if (error instanceof CodeBuddyTaskError) throw error;
-      throw new CodeBuddyTaskError('sdk-error', 'CodeBuddy Agent SDK call failed: ' + (error instanceof Error ? error.message : String(error)));
-    } finally {
-      if (timeout) clearTimeout(timeout);
-      if (abortListener && input.signal) input.signal.removeEventListener('abort', abortListener);
+      contextWorkspace = createContextWindowSeedWorkspace(input.contextWindow, input.cwd ?? process.cwd());
     }
 
+    try {
+      const startedAt = Date.now();
+      const prompt = buildCodeBuddyPrompt(input.prompt, input.systemPrompt);
+      const options = buildCodeBuddyOptions({
+        ...input,
+        cwd: contextWorkspace?.cwd ?? input.cwd,
+      }, Boolean(contextWorkspace));
+      const query = await this.queryFactory({ prompt, options });
+
+      let text = '';
+      let structuredOutput: unknown;
+      let usage: CodeBuddyUsage | undefined;
+      let sessionId: string | undefined;
+      let messageCount = 0;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let abortListener: (() => void) | undefined;
+
+      const consumption = (async () => {
+        for await (const item of query) {
+          messageCount += 1;
+          const event = asRecord(item);
+          input.onEvent?.(item);
+
+          const foundSessionId = readSessionId(event);
+          if (foundSessionId && foundSessionId !== sessionId) {
+            sessionId = foundSessionId;
+            input.onSessionId?.(foundSessionId);
+          }
+
+          for (const chunk of extractText(event)) {
+            text += (text ? '\n' : '') + chunk;
+            input.onText?.(chunk);
+          }
+
+          if (event.type === 'result') {
+            if (event.is_error === true || (Array.isArray(event.errors) && event.errors.length > 0)) {
+              throw new Error('CodeBuddy execution failed: ' + String((event.errors as unknown[] | undefined)?.[0] ?? 'unknown error'));
+            }
+            if (typeof event.subtype === 'string' && event.subtype !== 'success') {
+              throw new Error('CodeBuddy execution failed: ' + event.subtype);
+            }
+            if ('structured_output' in event) structuredOutput = event.structured_output;
+            usage = parseCodeBuddyUsage(event);
+          }
+        }
+      })();
+
+      const interruption = new Promise<never>((_resolve, reject) => {
+        if (input.timeoutMs !== undefined) {
+          timeout = setTimeout(() => {
+            void Promise.resolve(query.interrupt?.()).catch(() => undefined);
+            reject(new CodeBuddyTaskError('timeout', 'CodeBuddy task timed out after ' + input.timeoutMs + 'ms'));
+          }, input.timeoutMs);
+        }
+        if (input.signal) {
+          abortListener = () => {
+            void Promise.resolve(query.interrupt?.()).catch(() => undefined);
+            reject(new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted'));
+          };
+          if (input.signal.aborted) abortListener();
+          else input.signal.addEventListener('abort', abortListener, { once: true });
+        }
+      });
+
+      try {
+        await Promise.race([consumption, interruption]);
+      } catch (error) {
+        if (error instanceof CodeBuddyTaskError) throw error;
+        throw new CodeBuddyTaskError('sdk-error', 'CodeBuddy Agent SDK call failed: ' + (error instanceof Error ? error.message : String(error)));
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        if (abortListener && input.signal) input.signal.removeEventListener('abort', abortListener);
+      }
+
     const resolvedStructuredOutput = resolveCodeBuddyStructuredOutput(structuredOutput, text);
-    return {
-      text: text.trim(),
-      ...(resolvedStructuredOutput !== undefined ? { structuredOutput: resolvedStructuredOutput } : {}),
-      ...(usage ? { usage } : {}),
-      ...(sessionId ? { sessionId } : {}),
-      messageCount,
-      durationMs: Date.now() - startedAt,
-    };
+      return {
+        text: text.trim(),
+        ...(resolvedStructuredOutput !== undefined ? { structuredOutput: resolvedStructuredOutput } : {}),
+        ...(usage ? { usage } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        messageCount,
+        durationMs: Date.now() - startedAt,
+      };
+    } finally {
+      contextWorkspace?.cleanup();
+    }
   }
 }

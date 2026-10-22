@@ -13,6 +13,7 @@ Reusable TypeScript runtime adapter for the Tencent CodeBuddy Agent SDK used by 
 - Timeout and `AbortSignal` handling that requests interruption.
 - Normalized per-turn usage, session ID callbacks, message/event hooks.
 - An injectable query factory, so tests can run without a CodeBuddy installation or login.
+- Model-aware context-window option discovery and explicit per-call overrides, guarded by `supportedLengths` and `maxInputTokens`.
 
 It does **not** implement book translation, Task/Reviewer roles, application databases, HTTP APIs, provider routing, or business authorization.
 
@@ -66,6 +67,27 @@ if (!result.structuredOutput || typeof result.structuredOutput !== 'object') {
 }
 // Still validate against your application's runtime schema before changing business state.
 ```
+
+## Context-window tiers
+
+The default is unchanged: omit `contextWindow` and the runtime uses the model's configured default tier. A model only exposes a selector when its metadata declares at least two distinct `contextWindow.supportedLengths`, every tier is an integer within `maxInputTokens`, and the physical cap is known. For example:
+
+```ts
+const modelContextWindow = {
+  maxInputTokens: 1_000_000,
+  contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 300_000 },
+};
+
+const option = buildCodeBuddyContextWindowOption(modelContextWindow);
+// options: [{ value: '300000', name: '300K' }, { value: '1000000', name: '1M' }]
+const result = await runtime.run({
+  prompt: 'Analyze this document',
+  contextWindowModel: modelContextWindow,
+  contextWindow: 1_000_000, // explicit session/task override only
+});
+```
+
+The tier values are token counts, not compaction thresholds. `maxInputTokens` remains the physical model limit. If `defaultLength` is absent or invalid, the smallest supported tier is used as the selector's initial value. CodeBuddy's current TypeScript `query()` API does not expose a `contextWindow` parameter, so an explicit choice is applied through an isolated temporary project `.codebuddy/settings.json` seed. The temporary directory is removed after the invocation; only the current project's `.codebuddy/models.json` is copied into it with mode `0600` so model IDs and context tiers still resolve. Host/user settings, project settings, Skills and MCP config are not copied or loaded. Leaving `contextWindow` unset does not create the temporary workspace.
 
 ## Per-task reasoning profile
 

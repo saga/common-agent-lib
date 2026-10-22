@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import {
+  buildCodeBuddyContextWindowOption,
   buildCodeBuddyOptions,
   buildCodeBuddyPrompt,
   CodeBuddyAgentRuntime,
@@ -152,3 +156,55 @@ test('usage parser ignores missing and zero usage but preserves real token count
     totalTokens: 5,
   });
 });
+
+test('explicit context-window selection seeds only temporary project configuration and cleans up', async () => {
+  const sourceCwd = mkdtempSync(path.join(os.tmpdir(), 'codebuddy-source-project-'));
+  const sourceConfigDir = path.join(sourceCwd, '.codebuddy');
+  const modelsJson = JSON.stringify({ models: [{ id: 'custom-model', maxInputTokens: 1_000_000 }] });
+  mkdirSync(sourceConfigDir, { recursive: true });
+  writeFileSync(path.join(sourceConfigDir, 'models.json'), modelsJson, { mode: 0o600 });
+  let seedCwd = '';
+  try {
+    const runtime = new CodeBuddyAgentRuntime(({ options }) => {
+      seedCwd = String(options.cwd || '');
+      assert.deepEqual(options.settingSources, ['project']);
+      assert.deepEqual(JSON.parse(readFileSync(path.join(seedCwd, '.codebuddy', 'settings.json'), 'utf8')), { contextWindow: 1_000_000 });
+      assert.equal(readFileSync(path.join(seedCwd, '.codebuddy', 'models.json'), 'utf8'), modelsJson);
+      return fakeQuery([
+        { type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } },
+        { type: 'result', subtype: 'success' },
+      ]);
+    });
+    const result = await runtime.run({
+      prompt: 'task',
+      cwd: sourceCwd,
+      contextWindow: 1_000_000,
+      contextWindowModel: deepseekFlash,
+    });
+    assert.equal(result.text, 'done');
+    assert.equal(seedCwd.length > 0, true);
+    assert.equal(existsSync(seedCwd), false);
+    assert.equal(readFileSync(path.join(sourceConfigDir, 'models.json'), 'utf8'), modelsJson);
+  } finally {
+    rmSync(sourceCwd, { recursive: true, force: true });
+  }
+});
+
+test('rejects an unsupported context-window tier before starting the SDK query', async () => {
+  let invoked = false;
+  const runtime = new CodeBuddyAgentRuntime(() => {
+    invoked = true;
+    return fakeQuery([]);
+  });
+  await assert.rejects(runtime.run({
+    prompt: 'task',
+    contextWindow: 1_000_000,
+    contextWindowModel: { maxInputTokens: 500_000, contextWindow: { supportedLengths: [250_000, 500_000], defaultLength: 250_000 } },
+  }), /not a supported tier/);
+  assert.equal(invoked, false);
+});
+
+const deepseekFlash = {
+  maxInputTokens: 1_000_000,
+  contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 300_000 },
+};
