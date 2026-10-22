@@ -7,7 +7,7 @@
 | Package | 解决什么问题 | 依赖 |
 | --- | --- | --- |
 | `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery / permission 与 MCP auth 回调契约 | `@github/copilot-sdk` |
-| `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
+| `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、显式 session resume、上下文窗口档位校验、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
 | `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、Token Usage 聚合、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
 | **@saga/document-core** | 文档统一契约、预算分批、逻辑分页、翻译结果校验 | 无 |
 | `@saga/agent-context` | 确定性 Context 组装、预算控制、来源保留、重复项和省略原因 | 无 |
