@@ -12,21 +12,57 @@ export type CopilotResumeSessionConfig =
 export type CopilotSessionResult =
   Awaited<ReturnType<CopilotClient['createSession']>>;
 
-/** Per-model usage collected for one logical turn from Copilot session metrics. */
+/** Per-model usage delta, normalized across Copilot SDK metric/event shapes. */
 export interface CopilotModelUsageDelta {
   inputTokens?: number;
   outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
   totalNanoAiu?: number;
+  totalPremiumRequestCost?: number;
 }
 
-/** Difference between two cumulative Copilot session usage snapshots. */
+/** Incremental usage for one logical turn. Cost fields retain Copilot's units; they are not USD. */
 export interface CopilotUsageDelta {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
   totalNanoAiu?: number;
   totalPremiumRequestCost?: number;
+  modelCalls?: number;
+  source?: "provider-event" | "session-metrics" | "unknown";
   models?: Record<string, CopilotModelUsageDelta>;
+}
+
+/** Provider-reported metrics for one assistant.usage event. */
+export interface CopilotModelCallUsage {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  totalNanoAiu?: number;
+  premiumRequestCost?: number;
+  durationMs?: number;
+  finishReason?: string;
+  reasoningEffort?: string;
+  timeToFirstTokenMs?: number;
+  interTokenLatencyMs?: number;
+}
+
+/** Snapshot of current context-window occupancy, distinct from tokens consumed in a turn. */
+export interface CopilotContextUsage {
+  currentTokens?: number;
+  tokenLimit?: number;
+  messagesLength?: number;
+  percent?: number;
 }
 
 const COPILOT_SESSION_NOT_FOUND = /session not found|no such session|unknown session|does not exist|has been deleted/i;
@@ -62,10 +98,20 @@ export function diffCopilotUsageMetrics(
   before: Record<string, unknown> | undefined,
 ): CopilotUsageDelta | undefined {
   if (!after) return undefined;
-  const result: CopilotUsageDelta = {};
-  for (const field of ['totalNanoAiu', 'totalPremiumRequestCost', 'inputTokens', 'outputTokens', 'totalTokens'] as const) {
-    const value = numericDelta(after[field], before?.[field]);
-    if (value !== undefined) result[field] = value;
+  const result: CopilotUsageDelta = { source: "session-metrics" };
+  const totalFields: Array<[keyof CopilotUsageDelta, string]> = [
+    ["totalNanoAiu", "totalNanoAiu"],
+    ["totalPremiumRequestCost", "totalPremiumRequestCost"],
+    ["inputTokens", "inputTokens"],
+    ["outputTokens", "outputTokens"],
+    ["totalTokens", "totalTokens"],
+    ["cachedInputTokens", "cacheReadTokens"],
+    ["cacheWriteTokens", "cacheWriteTokens"],
+    ["reasoningTokens", "reasoningTokens"],
+  ];
+  for (const [target, source] of totalFields) {
+    const value = numericDelta(after[source], before?.[source]);
+    if (value !== undefined) (result as Record<string, unknown>)[target] = value;
   }
 
   const afterModels = after.modelMetrics;
@@ -87,18 +133,102 @@ export function diffCopilotUsageMetrics(
         ? beforeModelObject.usage as Record<string, unknown>
         : {};
       const modelDiff: CopilotModelUsageDelta = {};
-      for (const field of ['inputTokens', 'outputTokens'] as const) {
-        const value = numericDelta(afterUsage[field], beforeUsage[field]);
-        if (value !== undefined) modelDiff[field] = value;
+      const fields: Array<[keyof CopilotModelUsageDelta, string]> = [
+        ["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"],
+        ["cachedInputTokens", "cacheReadTokens"], ["cacheWriteTokens", "cacheWriteTokens"],
+        ["reasoningTokens", "reasoningTokens"], ["totalPremiumRequestCost", "totalPremiumRequestCost"],
+      ];
+      for (const [target, source] of fields) {
+        const value = numericDelta(afterUsage[source], beforeUsage[source]);
+        if (value !== undefined) (modelDiff as Record<string, unknown>)[target] = value;
       }
       const aiu = numericDelta(afterModel.totalNanoAiu, beforeModelObject.totalNanoAiu);
       if (aiu !== undefined) modelDiff.totalNanoAiu = aiu;
+      if (modelDiff.inputTokens !== undefined && modelDiff.outputTokens !== undefined) {
+        modelDiff.totalTokens = modelDiff.inputTokens + modelDiff.outputTokens;
+      }
       if (Object.keys(modelDiff).length) models[model] = modelDiff;
     }
     if (Object.keys(models).length) result.models = models;
   }
 
+  return Object.keys(result).some((key) => key !== "source") ? result : undefined;
+}
+
+/** Normalize one provider event without estimating absent token counters. */
+export function normalizeCopilotModelCallUsage(value: unknown): CopilotModelCallUsage | undefined {
+  const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const result: CopilotModelCallUsage = {};
+  const fields: Array<[keyof CopilotModelCallUsage, string]> = [
+    ["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"], ["totalTokens", "totalTokens"],
+    ["cachedInputTokens", "cacheReadTokens"], ["cacheWriteTokens", "cacheWriteTokens"],
+    ["reasoningTokens", "reasoningTokens"], ["totalNanoAiu", "totalNanoAiu"],
+    ["premiumRequestCost", "cost"], ["durationMs", "duration"],
+    ["timeToFirstTokenMs", "timeToFirstTokenMs"], ["interTokenLatencyMs", "interTokenLatencyMs"],
+  ];
+  for (const [target, source] of fields) {
+    const amount = data[source];
+    if (typeof amount === "number" && Number.isFinite(amount) && amount >= 0) {
+      (result as Record<string, unknown>)[target] = amount;
+    }
+  }
+  for (const key of ["model", "finishReason", "reasoningEffort"] as const) {
+    const text = data[key];
+    if (typeof text === "string" && text.length) result[key] = text;
+  }
+  if (result.totalTokens === undefined && result.inputTokens !== undefined && result.outputTokens !== undefined) {
+    result.totalTokens = result.inputTokens + result.outputTokens;
+  }
   return Object.keys(result).length ? result : undefined;
+}
+
+/** Aggregate usage events for a turn, retaining per-model counters. */
+export function aggregateCopilotModelCallUsages(usages: readonly CopilotModelCallUsage[]): CopilotUsageDelta | undefined {
+  if (!usages.length) return undefined;
+  const result: CopilotUsageDelta = { source: "provider-event", modelCalls: usages.length };
+  const models: Record<string, CopilotModelUsageDelta> = {};
+  const totalFields = [
+    "inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens", "reasoningTokens", "totalNanoAiu",
+  ] as const;
+  for (const item of usages) {
+    for (const field of totalFields) {
+      const amount = item[field];
+      if (typeof amount === "number" && Number.isFinite(amount)) {
+        const target = result as Record<string, unknown>;
+        target[field] = ((typeof target[field] === "number" ? target[field] : 0) as number) + amount;
+      }
+    }
+    if (typeof item.premiumRequestCost === "number") {
+      result.totalPremiumRequestCost = (result.totalPremiumRequestCost ?? 0) + item.premiumRequestCost;
+    }
+    const model = item.model || "unknown";
+    const aggregate = models[model] ?? (models[model] = {});
+    for (const field of totalFields) {
+      const amount = item[field];
+      if (typeof amount === "number" && Number.isFinite(amount)) {
+        const target = aggregate as Record<string, unknown>;
+        target[field] = ((typeof target[field] === "number" ? target[field] : 0) as number) + amount;
+      }
+    }
+    if (typeof item.premiumRequestCost === "number") {
+      aggregate.totalPremiumRequestCost = (aggregate.totalPremiumRequestCost ?? 0) + item.premiumRequestCost;
+    }
+  }
+  if (Object.keys(models).length) result.models = models;
+  return result;
+}
+
+function mergeUsagePreferProviderEvents(
+  eventUsage: CopilotUsageDelta | undefined,
+  metricUsage: CopilotUsageDelta | undefined,
+): CopilotUsageDelta | undefined {
+  if (!eventUsage) return metricUsage;
+  if (!metricUsage) return eventUsage;
+  const models: Record<string, CopilotModelUsageDelta> = { ...(metricUsage.models ?? {}) };
+  for (const [name, usage] of Object.entries(eventUsage.models ?? {})) {
+    models[name] = { ...(models[name] ?? {}), ...usage };
+  }
+  return { ...metricUsage, ...eventUsage, models, source: "provider-event" };
 }
 
 /**
@@ -147,8 +277,12 @@ export interface CopilotTurnResult {
   content: string;
   chars: number;
   timedOut: boolean;
-  /** Incremental token / Copilot AI-credit usage for this logical turn when SDK metrics are available. */
+  /** Incremental token / Copilot billing metrics for this logical turn when the SDK exposes them. */
   usage?: CopilotUsageDelta;
+  /** One entry per assistant.usage event, including cache/reasoning counters when provided. */
+  modelCallUsages?: CopilotModelCallUsage[];
+  /** Most recent context occupancy snapshot emitted during this turn. */
+  contextUsage?: CopilotContextUsage;
 }
 
 export interface CopilotAgentRuntimeOptions {
@@ -283,6 +417,28 @@ export class CopilotAgentRuntime {
       const offAll = session.on((event) => {
         input.handlers?.onEvent?.(event);
       });
+      const modelCallUsages: CopilotModelCallUsage[] = [];
+      let contextUsage: CopilotContextUsage | undefined;
+      const offUsage = session.on('assistant.usage', (event) => {
+        const data = (event as unknown as { data?: unknown }).data;
+        const usage = normalizeCopilotModelCallUsage(data);
+        if (usage) modelCallUsages.push(usage);
+      });
+      const offUsageInfo = session.on('session.usage_info', (event) => {
+        const raw = (event as unknown as { data?: unknown }).data;
+        const data = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+        const currentTokens = typeof data.currentTokens === "number" && Number.isFinite(data.currentTokens) && data.currentTokens >= 0 ? data.currentTokens : undefined;
+        const tokenLimit = typeof data.tokenLimit === "number" && Number.isFinite(data.tokenLimit) && data.tokenLimit >= 0 ? data.tokenLimit : undefined;
+        const messagesLength = typeof data.messagesLength === "number" && Number.isFinite(data.messagesLength) && data.messagesLength >= 0 ? data.messagesLength : undefined;
+        const snapshot: CopilotContextUsage = {};
+        if (currentTokens !== undefined) snapshot.currentTokens = currentTokens;
+        if (tokenLimit !== undefined) snapshot.tokenLimit = tokenLimit;
+        if (messagesLength !== undefined) snapshot.messagesLength = messagesLength;
+        if (currentTokens !== undefined && tokenLimit !== undefined && tokenLimit > 0) {
+          snapshot.percent = Math.round(currentTokens / tokenLimit * 100);
+        }
+        if (Object.keys(snapshot).length) contextUsage = snapshot;
+      });
 
       try {
         const usageBefore = await getCopilotSessionUsageMetrics(session);
@@ -321,9 +477,16 @@ export class CopilotAgentRuntime {
           (finalEvent as unknown as { data?: { content?: string } } | undefined)?.data?.content;
         if (finalContent) content = finalContent;
         const usageAfter = await getCopilotSessionUsageMetrics(session);
-        const usage = diffCopilotUsageMetrics(usageAfter, usageBefore);
+        const metricUsage = diffCopilotUsageMetrics(usageAfter, usageBefore);
+        const eventUsage = aggregateCopilotModelCallUsages(modelCallUsages);
+        const usage = mergeUsagePreferProviderEvents(eventUsage, metricUsage);
 
-        return { content, chars, timedOut, ...(usage ? { usage } : {}) };
+        return {
+          content, chars, timedOut,
+          ...(usage ? { usage } : {}),
+          ...(modelCallUsages.length ? { modelCallUsages } : {}),
+          ...(contextUsage ? { contextUsage } : {})
+        };
       } catch (error) {
         if (input.timeoutMs && isCopilotWaitTimeout(error)) {
           timedOut = true;
@@ -335,6 +498,8 @@ export class CopilotAgentRuntime {
         offMessage();
         offReasoning();
         offAll();
+        offUsage();
+        offUsageInfo();
         this.activeTurns.delete(input.turnId);
       }
     });
