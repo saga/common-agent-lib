@@ -7,6 +7,8 @@ Provider-neutral tracing primitives for Node.js Agent applications. Works with C
 - `AgentTraceRecorder`: creates trace contexts, normalized events and duration spans.
 - `InMemoryTraceStore`: test/demo store.
 - `SqliteTraceStore`: append-only local SQLite event storage with sequence assignment and indexed queries.
+- First-class, provider-neutral token usage and context-occupancy fields on trace events.
+- Token-usage aggregation that does not add context occupancy to consumed tokens or mix incompatible cost units.
 - Recursive credential redaction and bounded event payloads.
 - Query filters for trace, turn, sessions, event types, category and time range.
 - Shared event schema from `@saga/agent-contracts`.
@@ -35,7 +37,17 @@ await trace.record({
   category: 'agent',
   type: 'turn.started',
   status: 'running',
-  data: { requestId: 'req-42', prompt: 'Summarize the source' },
+  data: { requestId: 'req-42' },
+  usage: {
+    inputTokens: 1200,
+    outputTokens: 240,
+    totalTokens: 1440,
+    cachedInputTokens: 800,
+    modelCalls: 1,
+    source: 'provider-event',
+    byModel: { 'example-model': { inputTokens: 1200, outputTokens: 240 } },
+  },
+  contextUsage: { currentTokens: 18000, tokenLimit: 128000, messagesLength: 24, percent: 14 },
 });
 
 const answer = await trace.runSpan(
@@ -46,6 +58,18 @@ const answer = await trace.runSpan(
 const events = await trace.query({ traceId: context.traceId, limit: 100 });
 await trace.close();
 ```
+
+## Token usage
+
+Usage measurements are provider-reported, normalized data; the recorder never estimates a token count from text length. Add `usage` and optionally `contextUsage` to an event:
+
+- `inputTokens`, `outputTokens`, `totalTokens`, cache counters and reasoning tokens describe consumption for model calls.
+- `contextUsage.currentTokens` and `contextUsage.tokenLimit` describe a context-window snapshot. They are not additional consumed tokens.
+- `premiumRequestCost` and `totalNanoAiu` retain provider-reported metrics without claiming they are currency.
+- `providerCost` is aggregated only when every sample uses the same `providerCostUnit`.
+- `aggregateAgentTokenUsage([...])` combines usage samples and model breakdowns while preserving missing measurements.
+
+The SQLite adapter stores these fields in dedicated columns and migrates existing trace databases in place. Usage fields are optional, so older events and SDKs that do not expose usage remain valid.
 
 ## Query and custom persistence
 
