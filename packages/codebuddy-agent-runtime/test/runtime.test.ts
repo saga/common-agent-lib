@@ -47,6 +47,34 @@ test('forwards fallbackModel and reasoning profile through the query options con
   assert.equal(receivedOptions?.effort, 'high');
 });
 
+test('resumes a caller-supplied CodeBuddy query session and opts into persistence', async () => {
+  let receivedOptions: Record<string, unknown> | undefined;
+  const runtime = new CodeBuddyAgentRuntime(({ options }) => {
+    receivedOptions = options;
+    return fakeQuery([
+      { type: 'system', subtype: 'init', session_id: 'existing-session' },
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'continued' }] } },
+      { type: 'result', subtype: 'success' },
+    ]);
+  });
+
+  const result = await runtime.run({ prompt: 'continue', resumeSessionId: 'existing-session' });
+
+  assert.equal(receivedOptions?.resume, 'existing-session');
+  assert.equal(receivedOptions?.persistSession, true);
+  assert.equal(result.sessionId, 'existing-session');
+  assert.equal(result.text, 'continued');
+});
+
+test('rejects an empty or explicitly non-persistent resume session', async () => {
+  const runtime = new CodeBuddyAgentRuntime(() => {
+    throw new Error('query must not start');
+  });
+  await assert.rejects(runtime.run({ prompt: 'continue', resumeSessionId: '   ' }), /non-empty session ID/);
+  await assert.rejects(runtime.run({ prompt: 'continue', resumeSessionId: 'existing-session', persistSession: false }), /requires persistSession/);
+  await assert.rejects(runtime.run({ prompt: 'continue', resumeSessionId: 'existing-session', contextWindow: 1_000_000, contextWindowModel: deepseekFlash }), /contextWindow override is not supported/);
+});
+
 test('plain-text tasks deny tools and do not load host settings by default', () => {
   const options = buildCodeBuddyOptions({});
   assert.deepEqual(options.tools, []);
