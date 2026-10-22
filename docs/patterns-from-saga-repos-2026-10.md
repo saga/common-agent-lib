@@ -24,10 +24,11 @@
 - [copilot-server-agent](https://github.com/saga/copilot-server-agent)：client/session 与业务 execution 分层；明确区分 runtime trace、业务事件、policy/approval 和 evidence；tool policy 由声明的风险属性和部署许可判定，而非按工具名写死。
 - [team-member-copilot-agent](https://github.com/saga/team-member-copilot-agent)：每个长期 Member 有自己的 session / memory / capability；消息上下文、长期记忆、工作目标与 Execution 是不同的数据对象；恢复与重试是应用状态语义，不是 SDK 的自动行为。
 - [agentic-data-architect](https://github.com/saga/agentic-data-architect)：将业务资料、source confidence、知识置信度与 workflow state 分开；Markdown 工作流只表达阶段和合法路线，业务 evaluator 决定条件是否成立。
-- [architecture-diagram-studio](https://github.com/saga/architecture-diagram-studio)：近期把 Copilot runtime 单独提取；稳定 session 关联 conversation 与配置 revision；只对可恢复的 CLI/IPC 断连做 reconnect，不把认证、quota、模型选择错误伪装成重启问题；领域变更经 Diagram Document 校验后应用。
+- [architecture-diagram-studio](https://github.com/saga/architecture-diagram-studio)：近期把 Copilot runtime 单独提取；稳定 session 关联 conversation 与配置 revision；只对可恢复的 CLI/IPC 断连做 reconnect，不把认证、quota、模型选择错误伪装成重启问题；领域变更经当前权威数据与版本检查后应用。
+- [copilot-server-agent](https://github.com/saga/copilot-server-agent)：resume 路径恢复已保存的会话配置，不能只凭 sessionId 传空配置。宿主需要持久化非敏感配置，再在恢复时重新计算 provider 凭据；会话拥有权、运行时附着锁、turn 锁和 durable Execution 仍由应用负责。
 - [agent-skills](https://github.com/saga/agent-skills)：可用来快速验证 SDK 的最小 API，但临时实验代码不应自动升级为生产范式；版本、生命周期和错误语义应以当前项目锁定的 SDK 与真实测试为准。
 
-现有的 @saga/copilot-agent-runtime 已覆盖最适合公共化的 SDK 生命周期。不要把 Team、Member、Conversation、业务任务计划、授权或持久化倒灌进 Runtime。
+现有的 @saga/copilot-agent-runtime 已覆盖最适合公共化的 SDK 生命周期。恢复会话必须明确提供原 session config；不要把宿主完整配置或密钥直接当业务数据持久化，也不要用空 `{}` 恢复后宣称仍保留原有 tools / provider / MCP 设置。不要把 Team、Member、Conversation、业务任务计划、授权或持久化倒灌进 Runtime。
 
 ### Trajectory、Trace 与 Evidence
 
