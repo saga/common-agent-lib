@@ -4,6 +4,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
   AgentEventSchema,
+  AgentTokenUsageSchema,
   type AgentEvent,
   type AgentModelTokenUsage,
   type AgentTokenUsage,
@@ -111,7 +112,7 @@ function safeLimit(value: number | undefined): number {
  */
 export function aggregateAgentTokenUsage(usages: readonly AgentTokenUsage[]): AgentTokenUsage | undefined {
   if (!usages.length) return undefined;
-  const parsed = usages.map((usage) => AgentEventSchema.shape.usage.parse(usage));
+  const parsed = usages.map((usage) => AgentTokenUsageSchema.parse(usage));
   const result: AgentTokenUsage = {};
   const numericFields = [
     'inputTokens', 'outputTokens', 'totalTokens', 'cachedInputTokens', 'cacheWriteTokens',
@@ -158,7 +159,7 @@ export function aggregateAgentTokenUsage(usages: readonly AgentTokenUsage[]): Ag
     }
   }
   if (Object.keys(byModel).length) result.byModel = byModel;
-  return AgentEventSchema.shape.usage.parse(result);
+  return Object.keys(result).length ? AgentTokenUsageSchema.parse(result) : undefined;
 }
 
 /**
