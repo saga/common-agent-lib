@@ -44,7 +44,7 @@ await runtime.resumeSession(sessionId, resumeConfig);
 
 需要区分三层职责：`availableTools` 限定该 Session 的最大工具集合；`onPermissionRequest` 回复 SDK 的工具权限握手；`hooks.onPreToolUse`（如果宿主配置了）在工具执行前校验具体工具、参数、路径和副作用。三者不能互相替代。即使权限回调返回允许，业务授权、资源范围、请求 revision 和最终副作用仍必须由服务端执行路径验证；公共 Runtime 不为每个宿主实现这些规则。
 
-Permission handler 也必须按最小权限原则决策：不要因为使用了 `mode: 'empty'` 就一概批准所有工具，先确认该 Session 实际暴露的工具和副作用边界。
+Permission handler 也必须按最小权限原则决策：不要因为使用了 `mode: 'empty'` 就一概批准所有工具，先确认该 Session 实际暴露的工具和副作用边界。若 SDK 提供 `invocation.managedSettingsEnabled` 或请求中的 `managedApprovalRequired`，宿主必须尊重托管策略，不可直接自动批准。没有人工审批界面/授权代理时，应返回 SDK 支持的 fail-closed 决策（例如 `user-not-available`），而不是返回 `no-result` 后假设请求会自行结束；`no-result` 的语义是让另一个连接中的参与者有机会作出决定。
 
 回调内的日志、数据库写入或其它遥测不应成为 permission handshake 的前置条件。日志操作可能同步抛错，也可能异步拒绝；把它们从回调的决策路径中隔离，确保回调能及时返回。公共包故意不替宿主选择“approve once”“deny”或 OAuth 流程。
 
