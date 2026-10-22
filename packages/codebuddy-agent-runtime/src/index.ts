@@ -1,6 +1,6 @@
 import { existsSync, rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import {
   buildCodeBuddyContextWindowOption,
   normalizeCodeBuddyContextWindow,
@@ -236,18 +236,18 @@ function createContextWindowSeedWorkspace(
   contextWindow: number,
   sourceCwd: string,
 ): { cwd: string; cleanup: () => void } {
-  const cwd = mkdtempSync(path.join(os.tmpdir(), 'saga-codebuddy-context-window-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'saga-codebuddy-context-window-'));
   try {
-    const configDir = path.join(cwd, '.codebuddy');
+    const configDir = join(cwd, '.codebuddy');
     mkdirSync(configDir, { recursive: true });
     // Preserve only project model definitions so the temporary cwd resolves the same model.
     // models.json may contain credentials, so the temporary copy is owner-readable only.
-    const sourceModels = path.join(path.resolve(sourceCwd), '.codebuddy', 'models.json');
+    const sourceModels = join(resolve(sourceCwd), '.codebuddy', 'models.json');
     if (existsSync(sourceModels)) {
-      writeFileSync(path.join(configDir, 'models.json'), readFileSync(sourceModels), { mode: 0o600 });
+      writeFileSync(join(configDir, 'models.json'), readFileSync(sourceModels), { mode: 0o600 });
     }
     writeFileSync(
-      path.join(configDir, 'settings.json'),
+      join(configDir, 'settings.json'),
       JSON.stringify({ contextWindow }, null, 2) + '\n',
       { encoding: 'utf8', mode: 0o600 },
     );
