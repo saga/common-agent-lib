@@ -377,12 +377,18 @@ export class CopilotAgentRuntime {
     return client.createSession(config);
   }
 
+  /**
+   * Resume with the host's reconstructed session configuration. An empty object can
+   * reset model/tools/provider/working-directory/MCP settings instead of restoring the
+   * original intent, so the runtime intentionally requires the caller to supply config.
+   * Recompute credentials at resume time; never persist secrets with business state.
+   */
   async resumeSession(
     sessionId: string,
-    config?: CopilotResumeSessionConfig,
+    config: CopilotResumeSessionConfig,
   ): Promise<CopilotSessionResult> {
     const client = await this.start();
-    return client.resumeSession(sessionId, config ?? {});
+    return client.resumeSession(sessionId, config);
   }
 
   async deleteSession(sessionId: string): Promise<void> {
