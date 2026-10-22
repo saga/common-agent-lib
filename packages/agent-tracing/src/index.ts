@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { AgentEventSchema, type AgentEvent } from '@saga/agent-contracts';
+import {
+  AgentEventSchema,
+  type AgentEvent,
+  type AgentModelTokenUsage,
+  type AgentTokenUsage,
+} from '@saga/agent-contracts';
 
 export type TraceEventInput = Omit<AgentEvent, 'id' | 'timestamp' | 'sequence' | 'payloadComplete'> & {
   id?: string;
@@ -100,6 +105,63 @@ function safeLimit(value: number | undefined): number {
 }
 
 /**
+ * Sums token counts without treating missing measurements as zero.
+ * Provider cost is only summed when every sample uses the same declared unit.
+ * Context occupancy is intentionally not aggregated because it is a snapshot, not consumption.
+ */
+export function aggregateAgentTokenUsage(usages: readonly AgentTokenUsage[]): AgentTokenUsage | undefined {
+  if (!usages.length) return undefined;
+  const parsed = usages.map((usage) => AgentEventSchema.shape.usage.parse(usage));
+  const result: AgentTokenUsage = {};
+  const numericFields = [
+    'inputTokens', 'outputTokens', 'totalTokens', 'cachedInputTokens', 'cacheWriteTokens',
+    'reasoningTokens', 'modelCalls', 'premiumRequestCost', 'totalNanoAiu',
+  ] as const;
+  for (const field of numericFields) {
+    let total = 0;
+    let found = false;
+    for (const usage of parsed) {
+      const value = usage[field];
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        total += value;
+        found = true;
+      }
+    }
+    if (found) (result as Record<string, unknown>)[field] = total;
+  }
+
+  const costSamples = parsed.filter((usage) => typeof usage.providerCost === 'number');
+  const costUnits = new Set(costSamples.map((usage) => usage.providerCostUnit ?? 'unspecified'));
+  if (costSamples.length === parsed.length && costUnits.size === 1) {
+    result.providerCost = costSamples.reduce((total, usage) => total + (usage.providerCost ?? 0), 0);
+    const unit = costSamples[0]?.providerCostUnit;
+    if (unit) result.providerCostUnit = unit;
+  }
+
+  const sources = new Set(parsed.map((usage) => usage.source).filter((source): source is NonNullable<AgentTokenUsage['source']> => Boolean(source)));
+  if (sources.size === 1 && parsed.every((usage) => usage.source)) result.source = parsed[0]?.source;
+
+  const byModel: Record<string, AgentModelTokenUsage> = {};
+  for (const usage of parsed) {
+    for (const [model, counts] of Object.entries(usage.byModel ?? {})) {
+      const current = { ...(byModel[model] ?? {}) } as Record<string, unknown>;
+      for (const field of [
+        'inputTokens', 'outputTokens', 'totalTokens', 'cachedInputTokens', 'cacheWriteTokens',
+        'reasoningTokens', 'premiumRequestCost', 'totalNanoAiu',
+      ] as const) {
+        const amount = counts[field];
+        if (typeof amount === 'number' && Number.isFinite(amount)) {
+          current[field] = ((typeof current[field] === 'number' ? current[field] : 0) as number) + amount;
+        }
+      }
+      byModel[model] = current as AgentModelTokenUsage;
+    }
+  }
+  if (Object.keys(byModel).length) result.byModel = byModel;
+  return AgentEventSchema.shape.usage.parse(result);
+}
+
+/**
  * In-memory store for tests, demos and short-lived processes.
  * For persistence across restarts, use SqliteTraceStore or provide another AgentTraceStore.
  */
@@ -176,13 +238,22 @@ export class SqliteTraceStore implements AgentTraceStore {
         payload_complete INTEGER NOT NULL DEFAULT 1,
         actor_json TEXT,
         data_json TEXT NOT NULL,
-        metadata_json TEXT NOT NULL
+        metadata_json TEXT NOT NULL,
+        usage_json TEXT,
+        context_usage_json TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_trace_session_time ON trace_events(session_id, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_trace_id_sequence ON trace_events(trace_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_trace_turn ON trace_events(turn_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_trace_type_time ON trace_events(type, timestamp DESC);
     `);
+    // Upgrade databases created by earlier package versions without rebuilding the event ledger.
+    const existingColumns = new Set(
+      (this.database.prepare('PRAGMA table_info(trace_events)').all() as Array<{ name?: unknown }>)
+        .map((column) => String(column.name ?? '')),
+    );
+    if (!existingColumns.has('usage_json')) this.database.exec('ALTER TABLE trace_events ADD COLUMN usage_json TEXT');
+    if (!existingColumns.has('context_usage_json')) this.database.exec('ALTER TABLE trace_events ADD COLUMN context_usage_json TEXT');
     if (options.filename !== ':memory:') {
       try { chmodSync(options.filename, 0o600); } catch { /* File permissions vary by platform. */ }
     }
@@ -205,10 +276,10 @@ export class SqliteTraceStore implements AgentTraceStore {
         INSERT INTO trace_events
           (id, timestamp, session_id, agent_id, correlation_id, trace_id, turn_id, parent_event_id,
            sequence, category, type, status, duration_ms, provider, model, payload_complete,
-           actor_json, data_json, metadata_json)
+           actor_json, data_json, metadata_json, usage_json, context_usage_json)
         VALUES ($id, $timestamp, $session_id, $agent_id, $correlation_id, $trace_id, $turn_id, $parent_event_id,
            $sequence, $category, $type, $status, $duration_ms, $provider, $model, $payload_complete,
-           $actor_json, $data_json, $metadata_json)
+           $actor_json, $data_json, $metadata_json, $usage_json, $context_usage_json)
       `).run({
         $id: persisted.id,
         $timestamp: persisted.timestamp,
@@ -229,6 +300,8 @@ export class SqliteTraceStore implements AgentTraceStore {
         $actor_json: persisted.actor === undefined ? null : JSON.stringify(persisted.actor),
         $data_json: serialize(persisted.data),
         $metadata_json: serialize(persisted.metadata),
+        $usage_json: persisted.usage === undefined ? null : JSON.stringify(persisted.usage),
+        $context_usage_json: persisted.contextUsage === undefined ? null : JSON.stringify(persisted.contextUsage),
       });
       this.database.exec('COMMIT');
       return persisted;
@@ -279,6 +352,8 @@ export class SqliteTraceStore implements AgentTraceStore {
       ...(row.model !== null ? { model: String(row.model) } : {}),
       payloadComplete: Number(row.payload_complete) === 1,
       ...(row.actor_json !== null ? { actor: JSON.parse(String(row.actor_json)) } : {}),
+      ...(row.usage_json !== null ? { usage: JSON.parse(String(row.usage_json)) } : {}),
+      ...(row.context_usage_json !== null ? { contextUsage: JSON.parse(String(row.context_usage_json)) } : {}),
       data: JSON.parse(String(row.data_json)),
       metadata: JSON.parse(String(row.metadata_json)),
     }));
