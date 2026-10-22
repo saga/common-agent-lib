@@ -30,6 +30,19 @@ When an SDK option appears undocumented, inconsistently typed, or ignored, use t
 
 Keep the probe reproducible and tied to a concrete SDK version. Record the exact package version, API surface, resulting argv/env evidence, and a small regression test. Re-run all three checks after an SDK upgrade. Do not infer API support from online docs for a different version or from an unrelated SDK interface.
 
+## Versions currently observed in Saga repositories
+
+This is an audit snapshot, not a guarantee that a semver range has already been verified:
+
+| Repository | Declared range | Lockfile observation in this review | Notes |
+| --- | --- | --- | --- |
+| `common-agent-lib/packages/codebuddy-agent-runtime` | Exact `0.3.276` | No root lockfile was present at the queried path; package dependency is now pinned exactly | Shared adapter baseline. |
+| `vocal-saga/local-agent-service` | `^0.3.276` | `0.3.276` | Current concrete source used to align the shared package baseline. |
+| `agentic-data-architect` | `^0.3.267` | `0.3.274` | Uses `query()` with explicit `resume: sessionId`; its permission/tool policy and Investigation state are application-owned. The older lower bound should not be taken as evidence that every later release is verified. |
+| `desktop-agent` | `^0.3.276` | No root package lockfile was found at the queried path | Uses an interactive host-side `canUseTool` approval gate. That tool-enabled flow does not fit the shared runtime's no-tool default and must not inherit its security policy implicitly. |
+
+The npm registry lists `0.3.284` as a release newer than the current locked `0.3.276`, but this review has not run the declaration / compilation / transport probe on `0.3.284`. Keep the shared package pinned to the tested baseline until that probe and the regression suite are run. For application repos with a different concrete version, read their lockfile; the package.json range is not runtime evidence.
+
 ## Choosing `query()` versus V2 Session
 
 - Prefer `query()` for isolated tasks with a per-task model, thinking mode, effort, fallback model, structured output, timeout, or cancellation profile. This is the path covered by this package and the current per-task CodeBuddy profiles in `fanyi-extension` / `vocal-saga`.
