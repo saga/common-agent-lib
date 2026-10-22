@@ -293,7 +293,7 @@ export class CopilotAgentRuntime {
             prompt: input.prompt,
             ...(input.attachments?.length ? { attachments: input.attachments } : {}),
           },
-          input.timeoutMs,
+          input.timeoutMs ? input.timeoutMs + 1_000 : undefined,
         );
 
         // Do not rely solely on the SDK timeout: some SDK/tool-loop failure modes have
