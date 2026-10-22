@@ -291,13 +291,34 @@ export class CopilotAgentRuntime {
         const usageBefore = await getCopilotSessionUsageMetrics(session);
         if (input.model) await session.setModel(input.model);
 
-        const finalEvent = await session.sendAndWait(
+        const send = session.sendAndWait(
           {
             prompt: input.prompt,
             ...(input.attachments?.length ? { attachments: input.attachments } : {}),
           },
           input.timeoutMs,
         );
+
+        // Do not rely solely on the SDK timeout: some SDK/tool-loop failure modes have
+        // been observed to keep sendAndWait pending beyond its requested timeout.
+        // The watchdog rejects the application turn; the catch below then aborts the session.
+        let watchdog: NodeJS.Timeout | undefined;
+        let finalEvent: Awaited<typeof send>;
+        try {
+          finalEvent = input.timeoutMs
+            ? await Promise.race([
+                send,
+                new Promise<never>((_, reject) => {
+                  watchdog = setTimeout(
+                    () => reject(new Error(`Timeout after ${input.timeoutMs}ms waiting for session.idle`)),
+                    input.timeoutMs,
+                  );
+                }),
+              ])
+            : await send;
+        } finally {
+          if (watchdog) clearTimeout(watchdog);
+        }
 
         const finalContent =
           (finalEvent as unknown as { data?: { content?: string } } | undefined)?.data?.content;
