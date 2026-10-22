@@ -4,11 +4,11 @@
 
 ## Scope and current package boundary
 
-`@saga/codebuddy-agent-runtime` currently targets `@tencent-ai/agent-sdk ^0.3.276` and deliberately wraps the one-shot TypeScript `query()` API. The upstream Agent SDK is a Preview integration. The V2 Session API must be treated as a separate option surface, not as a typed alias of `query()` options. Long-lived Session pools, durable run state, document/chapter batching, reviewer workflows, and business progress stay in the host application.
+`@saga/codebuddy-agent-runtime` pins `@tencent-ai/agent-sdk` to `0.3.276` and deliberately wraps the one-shot TypeScript `query()` API. The upstream Agent SDK is a Preview integration. The V2 Session API must be treated as a separate option surface, not as a typed alias of `query()` options. Long-lived Session pools, durable run state, document/chapter batching, reviewer workflows, and business progress stay in the host application.
 
 ## Observed option compatibility
 
-A CodeBuddy SDK probe recorded the following observations for versions `0.3.274`, `0.3.276`, and `0.3.282`. Version `0.2.3` predates the tested option fields. Re-probe the exact installed package whenever the lockfile/runtime version changes.
+A CodeBuddy SDK probe recorded the following observations for versions `0.3.274`, `0.3.276`, and `0.3.282`. Version `0.2.3` predates the tested option fields. The current `vocal-saga/local-agent-service/package-lock.json` resolves `0.3.276`, which is why the common package now pins that exact baseline. The npm registry page lists `0.3.284` as a newer release, but this audit has not completed the three-layer probe against `0.3.284`; treat it as unverified, not automatically compatible. Re-probe the exact installed package whenever the lockfile/runtime version changes.
 
 | Option / behavior | `query()` Options | V2 `SessionOptions` | Implementation guidance |
 | --- | --- | --- | --- |
