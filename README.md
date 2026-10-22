@@ -22,6 +22,8 @@
 
 这些 package 可独立安装、按需使用；只有确实需要公共契约的模块才声明单向依赖，例如 agent-tracing 依赖 agent-contracts。不存在一个必须同时安装的“大一统 Agent Framework”。
 
+CodeBuddy / WorkBuddy SDK 的 option 是否生效取决于具体 API surface，而不只是字段名称。跨版本兼容性探针、`query()` 与 V2 Session 的已知差异、上下文窗口配置与会话池边界记录在 [CodeBuddy SDK Compatibility Notes](docs/codebuddy-sdk-compatibility.md)；后续升级应按文档的声明、编译和实际传输三层证据复核。
+
 ## 为什么新增这些 package
 
 四个项目的横向检查显示，除了 Runtime / Knowledge / Workflow，还反复出现：
