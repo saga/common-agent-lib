@@ -42,6 +42,8 @@ await runtime.resumeSession(sessionId, resumeConfig);
 
 如果宿主没有 MCP OAuth token broker，应明确返回 SDK 的取消结果，并把需要登录/授权的信息反馈给用户；不要让请求无限等待。`onPermissionRequest` 必须返回 SDK 定义的权限决策结果，例如 `{ kind: 'approve-once' }` 或明确的拒绝结果；不要返回代表已完成状态的 `{ kind: 'approved' }`。后者不是 hook 的决策命令，可能导致 SDK 在授权阶段报错。优先使用当前安装版本的 SDK 类型来约束回调返回值，不要仅凭字段名称推断语义。
 
+需要区分三层职责：`availableTools` 限定该 Session 的最大工具集合；`onPermissionRequest` 回复 SDK 的工具权限握手；`hooks.onPreToolUse`（如果宿主配置了）在工具执行前校验具体工具、参数、路径和副作用。三者不能互相替代。即使权限回调返回允许，业务授权、资源范围、请求 revision 和最终副作用仍必须由服务端执行路径验证；公共 Runtime 不为每个宿主实现这些规则。
+
 Permission handler 也必须按最小权限原则决策：不要因为使用了 `mode: 'empty'` 就一概批准所有工具，先确认该 Session 实际暴露的工具和副作用边界。
 
 回调内的日志、数据库写入或其它遥测不应成为 permission handshake 的前置条件。日志操作可能同步抛错，也可能异步拒绝；把它们从回调的决策路径中隔离，确保回调能及时返回。公共包故意不替宿主选择“approve once”“deny”或 OAuth 流程。
