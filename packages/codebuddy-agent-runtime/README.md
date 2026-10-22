@@ -45,6 +45,21 @@ console.log(result.text);
 console.log(result.usage);
 ```
 
+## Resuming a query session
+
+The runtime supports continuation of a known CodeBuddy query session without taking ownership of the application's workflow state:
+
+```ts
+const next = await runtime.run({
+  prompt: 'Continue the investigation using the prior session context.',
+  resumeSessionId: persistedSessionId,
+  // A resume request explicitly opts into session persistence.
+  // Keep your own mapping between this SDK session and the business execution.
+});
+```
+
+`resumeSessionId` is forwarded to the SDK's `resume` option and enables `persistSession` by default. Explicitly disabling persistence while requesting resume is rejected. This is only SDK-session continuation: the host still owns durable run status, checkpoints, authorization, retries and idempotency. For a different model/runtime or a context-window override, start a compatible session/task instead; this adapter currently rejects combining `resumeSessionId` and `contextWindow` because that interaction has not been validated against the pinned SDK version.
+
 ## Structured output
 
 ```ts
