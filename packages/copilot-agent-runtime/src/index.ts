@@ -357,11 +357,22 @@ export class CopilotAgentRuntime {
 
   private async abortAndWaitIdle(session: CopilotSession): Promise<void> {
     const idle = this.watchIdle(session, this.abortIdleGraceMs);
+    let abortTimer: NodeJS.Timeout | undefined;
     try {
-      await session.abort();
+      await Promise.race([
+        session.abort(),
+        new Promise<never>((_, reject) => {
+          abortTimer = setTimeout(
+            () => reject(new Error('Copilot abort timed out')),
+            this.abortIdleGraceMs,
+          );
+        }),
+      ]);
     } catch {
       idle.cancel();
-      throw new Error('Copilot turn 超时，且无法请求 Agent 停止。');
+      throw new Error('Copilot turn 超时，且无法在限定时间内请求 Agent 停止。');
+    } finally {
+      if (abortTimer) clearTimeout(abortTimer);
     }
 
     if (!(await idle.promise)) {
