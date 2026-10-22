@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import {
   CopilotAgentRuntime,
   diffCopilotUsageMetrics,
+  normalizeCopilotModelCallUsage,
+  aggregateCopilotModelCallUsages,
   isCopilotSessionNotFound,
   isCopilotWaitTimeout,
   resumeOrCreateCopilotSession,
@@ -41,12 +43,40 @@ test('computes incremental Copilot usage from cumulative metrics', () => {
   );
 
   assert.deepEqual(delta, {
+    source: 'session-metrics',
     inputTokens: 400,
     outputTokens: 100,
     totalTokens: 500,
     totalPremiumRequestCost: 1,
-    models: { gpt: { inputTokens: 300, outputTokens: 100, totalNanoAiu: 40 } },
+    models: { gpt: { inputTokens: 300, outputTokens: 100, totalTokens: 400, totalNanoAiu: 40 } },
   });
+});
+
+test('normalizes provider usage events and aggregates per-model cache/reasoning metrics', () => {
+  const first = normalizeCopilotModelCallUsage({
+    model: 'gpt-5', inputTokens: 120, outputTokens: 30, cacheReadTokens: 20,
+    cacheWriteTokens: 4, reasoningTokens: 8, cost: 0.5, duration: 900,
+    timeToFirstTokenMs: 120, interTokenLatencyMs: 15,
+  });
+  const second = normalizeCopilotModelCallUsage({
+    model: 'gpt-5', inputTokens: 80, outputTokens: 20, cacheReadTokens: 10,
+    reasoningTokens: 3, cost: 0.25,
+  });
+  assert.equal(first?.totalTokens, 150);
+  assert.equal(first?.cachedInputTokens, 20);
+  assert.equal(first?.premiumRequestCost, 0.5);
+
+  const usage = aggregateCopilotModelCallUsages([first!, second!]);
+  assert.equal(usage?.source, 'provider-event');
+  assert.equal(usage?.modelCalls, 2);
+  assert.equal(usage?.inputTokens, 200);
+  assert.equal(usage?.outputTokens, 50);
+  assert.equal(usage?.totalTokens, 250);
+  assert.equal(usage?.cachedInputTokens, 30);
+  assert.equal(usage?.reasoningTokens, 11);
+  assert.equal(usage?.totalPremiumRequestCost, 0.75);
+  assert.equal(usage?.models?.['gpt-5']?.inputTokens, 200);
+  assert.equal(usage?.models?.['gpt-5']?.cacheWriteTokens, 4);
 });
 
 test('recognizes missing resumable Copilot sessions', () => {
