@@ -83,7 +83,9 @@ test('resume-or-create preserves non-missing-session errors', async () => {
 test('application watchdog aborts a stuck Copilot turn and waits for idle', async () => {
   const listeners = new Map<string, Set<(event: unknown) => void>>();
   const session = {
-    on: (type: string, handler: (event: unknown) => void) => {
+    on: (typeOrHandler: string | ((event: unknown) => void), maybeHandler?: (event: unknown) => void) => {
+      const type = typeof typeOrHandler === 'string' ? typeOrHandler : '*';
+      const handler = typeof typeOrHandler === 'function' ? typeOrHandler : maybeHandler!;
       const handlers = listeners.get(type) ?? new Set();
       handlers.add(handler);
       listeners.set(type, handlers);
@@ -92,6 +94,7 @@ test('application watchdog aborts a stuck Copilot turn and waits for idle', asyn
     sendAndWait: () => new Promise(() => undefined),
     abort: async () => {
       for (const handler of listeners.get('session.idle') ?? []) handler({ type: 'session.idle' });
+      for (const handler of listeners.get('*') ?? []) handler({ type: 'session.idle' });
     },
     setModel: async () => undefined,
   } as unknown as CopilotSession;
