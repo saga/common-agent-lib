@@ -56,7 +56,9 @@ export interface CodeBuddyTaskInput {
   /** JSON Schema for structured output. The SDK's StructuredOutput tool requires an object schema. */
   schema?: Record<string, unknown>;
   maxTurns?: number;
-  /** Opt into the SDK's session persistence behavior for this query. Defaults to false; this flag alone does not implement resume orchestration. */
+  /** Resume a prior CodeBuddy query session. This opts into session persistence unless explicitly disabled. */
+  resumeSessionId?: string;
+  /** Opt into the SDK's session persistence behavior for this query. Defaults to false for new one-shot tasks. */
   persistSession?: boolean;
   /** Extra SDK options such as hooks. Runtime safety defaults are applied after these values. */
   sdkOptions?: Record<string, unknown>;
@@ -100,7 +102,7 @@ export function buildCodeBuddyPrompt(prompt: string, systemPrompt = ''): string 
 export function buildCodeBuddyOptions(
   input: Pick<
     CodeBuddyTaskInput,
-    'model' | 'fallbackModel' | 'cwd' | 'thinking' | 'effort' | 'schema' | 'maxTurns' | 'persistSession' | 'sdkOptions'
+    'model' | 'fallbackModel' | 'cwd' | 'thinking' | 'effort' | 'schema' | 'maxTurns' | 'resumeSessionId' | 'persistSession' | 'sdkOptions'
   >,
   contextWindowSeeded = false,
 ): Record<string, unknown> {
@@ -119,7 +121,8 @@ export function buildCodeBuddyOptions(
     // Normal requests keep the previous no-settings/Skills/MCP behavior.
     settingSources: contextWindowSeeded ? ['project'] : [],
     permissionMode: 'default',
-    persistSession: input.persistSession ?? false,
+    persistSession: input.persistSession ?? Boolean(input.resumeSessionId),
+    ...(input.resumeSessionId ? { resume: input.resumeSessionId } : {}),
     thinking: input.thinking ?? (hasSchema ? { type: 'adaptive' } : { type: 'disabled' }),
     effort: input.effort ?? (hasSchema ? 'medium' : 'low'),
     tools: hasSchema ? ['StructuredOutput'] : [],
@@ -273,6 +276,15 @@ export class CodeBuddyAgentRuntime {
       throw new TypeError('CodeBuddy structured output schema must have type: "object"');
     }
     if (input.signal?.aborted) throw new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted before it started');
+    if (input.resumeSessionId !== undefined && !input.resumeSessionId.trim()) {
+      throw new TypeError('resumeSessionId must be a non-empty session ID');
+    }
+    if (input.resumeSessionId && input.persistSession === false) {
+      throw new TypeError('resumeSessionId requires persistSession to remain enabled');
+    }
+    if (input.resumeSessionId && input.contextWindow !== undefined) {
+      throw new TypeError('resuming a CodeBuddy session with a contextWindow override is not supported by this adapter');
+    }
 
     // CodeBuddy Agent SDK query() does not expose contextWindow as an SDK option.
     // For explicit opt-in only, use CodeBuddy's documented settings.json seed in an
