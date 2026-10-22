@@ -29,6 +29,13 @@ Use this Skill when an application can call a local Agent runtime (for example W
 - Do not assume browser request-body limits are the right limit for a long-running local document operation; use a document/task API when that is the better boundary.
 - Keep normal web/page translation independent from document translation so a change to one workflow does not accidentally alter the other.
 
+## Cache identity and per-task profile changes
+
+- Treat output-affecting options as part of task identity: resolved model/provider, fallback model, thinking/effort, context-window override, prompt revision, schema/response format, and task-specific context version. If any of these changes, invalidate or namespace cached results; do not return a previous result under a new profile.
+- Keep independent task profiles (for example translation, accuracy review and style review) distinct. When a selected model changes, refresh that model's supported config options and clear an override that is no longer valid for the new model.
+- Client-side option lists are hints, not authority. Revalidate the model/profile/tier on the local service immediately before execution; a stale or unsupported override should produce an explicit response rather than being silently ignored.
+- A session ID and task/profile revision should be distinct identifiers. Session scope controls conversation history; the profile/cache key controls which execution settings produced a result. Do not substitute one for the other.
+
 ## Local service security
 
 - Bind local services to loopback unless remote access is an explicit requirement.
