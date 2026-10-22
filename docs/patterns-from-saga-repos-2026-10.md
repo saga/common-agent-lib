@@ -30,6 +30,19 @@
 
 现有的 @saga/copilot-agent-runtime 已覆盖最适合公共化的 SDK 生命周期。恢复会话必须明确提供原 session config；不要把宿主完整配置或密钥直接当业务数据持久化，也不要用空 `{}` 恢复后宣称仍保留原有 tools / provider / MCP 设置。不要把 Team、Member、Conversation、业务任务计划、授权或持久化倒灌进 Runtime。
 
+2026-10-23 的仓库版本快照：
+
+| Repository | Declared version | Lockfile observation |
+| --- | --- | --- |
+| `copilot-server-agent` | `1.0.14` | `1.0.14` |
+| `ai-interview-questions` | `1.0.14` | `1.0.14` |
+| `team-member-copilot-agent` | `^1.0.15` | `1.0.15` |
+| `common-agent-lib/packages/copilot-agent-runtime` | `^1.0.15` | 当前仓库未发现 root lockfile |
+| `architecture-diagram-studio/v2` | `^1.0.17` | `1.0.24` |
+
+这个分叉意味着 SDK 的 callback/result union、managed approval 字段和默认行为不能从一个仓库直接抄到另一个仓库。每个项目以实际 lockfile 为准；跨版本复用时至少核对类型定义、对应 SDK 实现/文档和最小回归测试。必要时先升级并锁定依赖，再迁移公共 Runtime；不要靠 `as any` 把新版本字段塞进旧版类型，也不要在未验证的 SDK 上默认自动批准。
+
+
 ### Trajectory、Trace 与 Evidence
 
 - [architecture-diagram-studio trace ledger](https://github.com/saga/architecture-diagram-studio/blob/main/v1/server/trace-ledger.ts) 使用 traceId / turnId / parentEventId / sequence / category / status / duration / provider / model，将流式运行事件关联为可检索记录。
