@@ -67,12 +67,14 @@ test('structured tasks only allow StructuredOutput and require object schema', a
   const runtime = new CodeBuddyAgentRuntime(({ options: received }) => {
     assert.equal((received.outputFormat as { type: string }).type, 'json_schema');
     return fakeQuery([
+      { type: 'system', subtype: 'init', session_id: 'structured-session-1' },
       { type: 'assistant', message: { content: [{ type: 'text', text: '{"ok":true}' }] } },
       { type: 'result', subtype: 'success', structured_output: { ok: true }, usage: { input_tokens: 12, output_tokens: 3 }, duration_ms: 10, num_turns: 1 },
     ]);
   });
   const result = await runtime.run({ prompt: 'extract', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } });
   assert.deepEqual(result.structuredOutput, { ok: true });
+  assert.equal(result.sessionId, 'structured-session-1');
   assert.equal(result.usage?.totalTokens, 15);
 });
 
