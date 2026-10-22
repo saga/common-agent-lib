@@ -105,3 +105,16 @@ architecture-diagram-studio 的 SQLite ledger 说明，轨迹不只是一个事�
 本次把 `devweekly/vocal-saga/local-agent-service/src/agents/workbuddy.ts` 中通用的 SDK 接线提取为 `@saga/codebuddy-agent-runtime`。当前包覆盖 query API、显式 prompt 合并、无隐式 host settings、普通任务禁用工具、StructuredOutput、超时/取消和 usage/session ID 归一化。
 
 暂不抽取该服务的长驻 SDK Session Pool、角色/批次隔离、文学任务 profile 和文档 Run：这些与并发模式、文档任务语义紧密相关，且上游 v2 Session API 仍属不稳定接口。先将可靠的单次 query adapter 做成 package，使用它的应用再用实测决定是否继续抽池化接口。
+
+## 2026-10-23 补充：CodeBuddy option surface 与长任务会话边界
+
+最近对 `fanyi-extension` 与 `vocal-saga/local-agent-service` 的横向检查补充了一个重要经验：CodeBuddy 的 `query()` 和 V2 Session API 不是同一组可互换的选项。
+
+- SDK probe 对 `0.3.274`、`0.3.276`、`0.3.282` 的观察是：`thinking` / `effort` 在两种 API 的类型和传输路径中均有证据；`fallbackModel` 存在于 `query()` Options，却不在 V2 `SessionOptions` 中，传入 Session 配置可能被静默忽略。更旧的 `0.2.3` 没有这些字段。每次升级必须以锁定版本复核，而不是相信跨版本的示例或仅凭编译成功。
+- 因此公共 `@saga/codebuddy-agent-runtime` 继续包装 `query()`，长驻 Session Pool 仍由应用持有。若每个 task profile 必须可靠地切换 model / thinking / effort / fallback model，不能为节省 CLI 启动而随意迁入 Session API；需要会话历史时，先逐项验证该 API 对所需选项的支持。
+- 上下文窗口不是 `maxInputTokens` 的别名，也不能从模型列表推断可选档位。UI 使用服务端 config-options 契约；服务端对请求中的 tier 二次验证。未显式选档时保留模型默认值；显式覆盖需要临时隔离配置，不覆盖用户或项目的原始 settings。
+- `vocal-saga` 的文档并发实验也表明，会话 pool 的 scope 是调度约束：同一个 scope 若只允许一个 active turn，就会自然串行；并发要靠不同且有意义的 lane，并确保每批上下文自包含。持久的多阶段工作流应绕过不适合它的共享短任务池，并在应用侧持久化 run/checkpoint/status。模型 session ID 只是恢复线索，不是业务 checkpoint。
+- structured output 和 session identity 应一起从同一结果流保留下来，避免成功路径归一化结果时丢失后续恢复需要的 SDK session ID。
+
+可复用的 SDK 接入事实与 probe 步骤见 [CodeBuddy / WorkBuddy SDK Compatibility Notes](./codebuddy-sdk-compatibility.md)。会话 Pool、翻译 task profiles、章节/批次编排和 durable workflow 实现仍然留在 `vocal-saga` 等具体应用中，不应为这些业务语义扩展一个通用 Session Pool 框架。
+
