@@ -1,3 +1,24 @@
+import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  buildCodeBuddyContextWindowOption,
+  normalizeCodeBuddyContextWindow,
+  type CodeBuddyContextWindowModel,
+} from './context-window.js';
+
+export {
+  buildCodeBuddyContextWindowOption,
+  formatCodeBuddyContextWindow,
+  normalizeCodeBuddyContextWindow,
+  resolveCodeBuddyContextWindow,
+} from './context-window.js';
+export type {
+  CodeBuddyContextWindowModel,
+  CodeBuddyContextWindowOption,
+  NormalizedCodeBuddyContextWindow,
+} from './context-window.js';
+
 export type CodeBuddyEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type CodeBuddyThinking =
   | { type: 'disabled' }
@@ -21,6 +42,13 @@ export interface CodeBuddyTaskInput {
   model?: string;
   fallbackModel?: string;
   cwd?: string;
+  /**
+   * Optional per-invocation context-window tier in tokens. Leave unset to retain the
+   * model's configured default. When set, contextWindowModel is required so this runtime
+   * can validate against supportedLengths and maxInputTokens before applying the override.
+   */
+  contextWindow?: number;
+  contextWindowModel?: CodeBuddyContextWindowModel;
   timeoutMs?: number;
   signal?: AbortSignal;
   thinking?: CodeBuddyThinking;
@@ -69,10 +97,13 @@ export function buildCodeBuddyPrompt(prompt: string, systemPrompt = ''): string 
  * Build conservative defaults for application tasks. SDK filesystem settings are not loaded,
  * normal tasks have no tools, and structured-output tasks may use only StructuredOutput.
  */
-export function buildCodeBuddyOptions(input: Pick<
-  CodeBuddyTaskInput,
-  'model' | 'fallbackModel' | 'cwd' | 'thinking' | 'effort' | 'schema' | 'maxTurns' | 'persistSession' | 'sdkOptions'
->): Record<string, unknown> {
+export function buildCodeBuddyOptions(
+  input: Pick<
+    CodeBuddyTaskInput,
+    'model' | 'fallbackModel' | 'cwd' | 'thinking' | 'effort' | 'schema' | 'maxTurns' | 'persistSession' | 'sdkOptions'
+  >,
+  contextWindowSeeded = false,
+): Record<string, unknown> {
   const hasSchema = Boolean(input.schema);
   const canUseTool = async (toolName: string) => {
     if (hasSchema && toolName === 'StructuredOutput') return { behavior: 'allow' as const };
@@ -84,8 +115,9 @@ export function buildCodeBuddyOptions(input: Pick<
     ...(input.model ? { model: input.model } : {}),
     ...(input.fallbackModel ? { fallbackModel: input.fallbackModel } : {}),
     ...(input.cwd ? { cwd: input.cwd } : {}),
-    // Repositories must opt in explicitly to loading host-level Skills, MCP and settings.
-    settingSources: [],
+    // Only the isolated temporary context-window workspace opts into project settings.
+    // Normal requests keep the previous no-settings/Skills/MCP behavior.
+    settingSources: contextWindowSeeded ? ['project'] : [],
     permissionMode: 'default',
     persistSession: input.persistSession ?? false,
     thinking: input.thinking ?? (hasSchema ? { type: 'adaptive' } : { type: 'disabled' }),
@@ -200,6 +232,26 @@ async function defaultQueryFactory(input: CodeBuddyQueryInput): Promise<CodeBudd
  * It owns prompt/options defaults, event consumption, timeout/abort and usage normalization;
  * application workflow, persistence, authorization and final schema validation remain outside.
  */
+function createContextWindowSeedWorkspace(contextWindow: number): { cwd: string; cleanup: () => void } {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'saga-codebuddy-context-window-'));
+  try {
+    const configDir = path.join(cwd, '.codebuddy');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      path.join(configDir, 'settings.json'),
+      JSON.stringify({ contextWindow }, null, 2) + '\n',
+      { encoding: 'utf8', mode: 0o600 },
+    );
+  } catch (error) {
+    rmSync(cwd, { recursive: true, force: true });
+    throw error;
+  }
+  return {
+    cwd,
+    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+  };
+}
+
 export class CodeBuddyAgentRuntime {
   constructor(private readonly queryFactory: CodeBuddyQueryFactory | ((input: CodeBuddyQueryInput) => Promise<CodeBuddyQueryHandle>) = defaultQueryFactory) {}
 
@@ -213,10 +265,27 @@ export class CodeBuddyAgentRuntime {
     }
     if (input.signal?.aborted) throw new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted before it started');
 
-    const startedAt = Date.now();
-    const prompt = buildCodeBuddyPrompt(input.prompt, input.systemPrompt);
-    const options = buildCodeBuddyOptions(input);
-    const query = await this.queryFactory({ prompt, options });
+    // CodeBuddy Agent SDK query() does not expose contextWindow as an SDK option.
+    // For explicit opt-in only, use CodeBuddy's documented settings.json seed in an
+    // isolated temporary project directory. The no-override path stays byte-for-byte
+    // equivalent in behavior and never loads host-level settings.
+    let contextWorkspace: { cwd: string; cleanup: () => void } | undefined;
+    if (input.contextWindow !== undefined) {
+      const capability = normalizeCodeBuddyContextWindow(input.contextWindowModel);
+      if (!capability || !capability.supportedLengths.includes(input.contextWindow)) {
+        throw new TypeError('contextWindow is not a supported tier for the selected CodeBuddy model');
+      }
+      contextWorkspace = createContextWindowSeedWorkspace(input.contextWindow);
+    }
+
+    try {
+      const startedAt = Date.now();
+      const prompt = buildCodeBuddyPrompt(input.prompt, input.systemPrompt);
+      const options = buildCodeBuddyOptions({
+        ...input,
+        cwd: contextWorkspace?.cwd ?? input.cwd,
+      }, Boolean(contextWorkspace));
+      const query = await this.queryFactory({ prompt, options });
 
     let text = '';
     let structuredOutput: unknown;
@@ -284,13 +353,16 @@ export class CodeBuddyAgentRuntime {
     }
 
     const resolvedStructuredOutput = resolveCodeBuddyStructuredOutput(structuredOutput, text);
-    return {
-      text: text.trim(),
-      ...(resolvedStructuredOutput !== undefined ? { structuredOutput: resolvedStructuredOutput } : {}),
-      ...(usage ? { usage } : {}),
-      ...(sessionId ? { sessionId } : {}),
-      messageCount,
-      durationMs: Date.now() - startedAt,
-    };
+      return {
+        text: text.trim(),
+        ...(resolvedStructuredOutput !== undefined ? { structuredOutput: resolvedStructuredOutput } : {}),
+        ...(usage ? { usage } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        messageCount,
+        durationMs: Date.now() - startedAt,
+      };
+    } finally {
+      contextWorkspace?.cleanup();
+    }
   }
 }

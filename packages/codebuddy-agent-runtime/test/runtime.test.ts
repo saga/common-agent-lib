@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  buildCodeBuddyContextWindowOption,
   buildCodeBuddyOptions,
   buildCodeBuddyPrompt,
   CodeBuddyAgentRuntime,
@@ -152,3 +153,42 @@ test('usage parser ignores missing and zero usage but preserves real token count
     totalTokens: 5,
   });
 });
+
+test('explicit context-window selection uses an isolated settings seed and removes it afterward', async () => {
+  let seedCwd = '';
+  const runtime = new CodeBuddyAgentRuntime(({ options }) => {
+    seedCwd = String(options.cwd || '');
+    assert.deepEqual(options.settingSources, ['project']);
+    return fakeQuery([
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } },
+      { type: 'result', subtype: 'success' },
+    ]);
+  });
+  const result = await runtime.run({
+    prompt: 'task',
+    contextWindow: 1_000_000,
+    contextWindowModel: deepseekFlash,
+  });
+  assert.equal(result.text, 'done');
+  assert.equal(seedCwd.length > 0, true);
+  assert.equal(await import('node:fs/promises').then(({ access }) => access(seedCwd).then(() => true, () => false)), false);
+});
+
+test('rejects an unsupported context-window tier before starting the SDK query', async () => {
+  let invoked = false;
+  const runtime = new CodeBuddyAgentRuntime(() => {
+    invoked = true;
+    return fakeQuery([]);
+  });
+  await assert.rejects(runtime.run({
+    prompt: 'task',
+    contextWindow: 1_000_000,
+    contextWindowModel: { maxInputTokens: 500_000, contextWindow: { supportedLengths: [250_000, 500_000], defaultLength: 250_000 } },
+  }), /not a supported tier/);
+  assert.equal(invoked, false);
+});
+
+const deepseekFlash = {
+  maxInputTokens: 1_000_000,
+  contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 300_000 },
+};
