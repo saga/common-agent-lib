@@ -26,6 +26,27 @@ test('prompt composition keeps system and user input explicit', () => {
   );
 });
 
+test('forwards fallbackModel and reasoning profile through the query options contract', async () => {
+  let receivedOptions: Record<string, unknown> | undefined;
+  const runtime = new CodeBuddyAgentRuntime(({ options }) => {
+    receivedOptions = options;
+    return fakeQuery([{ type: 'result', subtype: 'success' }]);
+  });
+
+  await runtime.run({
+    prompt: 'task',
+    model: 'primary-model',
+    fallbackModel: 'backup-model',
+    thinking: { type: 'enabled', budgetTokens: 4096 },
+    effort: 'high',
+  });
+
+  assert.equal(receivedOptions?.model, 'primary-model');
+  assert.equal(receivedOptions?.fallbackModel, 'backup-model');
+  assert.deepEqual(receivedOptions?.thinking, { type: 'enabled', budgetTokens: 4096 });
+  assert.equal(receivedOptions?.effort, 'high');
+});
+
 test('plain-text tasks deny tools and do not load host settings by default', () => {
   const options = buildCodeBuddyOptions({});
   assert.deepEqual(options.tools, []);
