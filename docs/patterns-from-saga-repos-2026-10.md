@@ -118,3 +118,15 @@ architecture-diagram-studio 的 SQLite ledger 说明，轨迹不只是一个事�
 
 可复用的 SDK 接入事实与 probe 步骤见 [CodeBuddy / WorkBuddy SDK Compatibility Notes](./codebuddy-sdk-compatibility.md)。会话 Pool、翻译 task profiles、章节/批次编排和 durable workflow 实现仍然留在 `vocal-saga` 等具体应用中，不应为这些业务语义扩展一个通用 Session Pool 框架。
 
+### Provider fallback：容量错误可以切换，语义错误不应该隐藏
+
+`desktop-agent` 与 `agentic-data-architect` 都明确区分了“首选 Provider 暂时不可用”和“当前任务调用本身失败”。可复用的策略边界是：
+
+- 只有明确识别的 quota / rate-limit / resource-exhaustion 错误，且用户启用了 fallback，才尝试备用 Provider。
+- 认证失败、权限拒绝、工具参数错误、schema/代码错误、用户取消和未知异常不能自动切换；它们要保留原始失败语义，避免把配置或安全故障伪装成模型容量问题。
+- 每次 Provider attempt 应分别记录开始、结束、失败原因和实际使用的 Provider/model。fallback 不应悄悄修改用户保存的首选 Provider；结果应暴露实际执行路径。
+- 切换 Provider 或 model 时，不复用另一 Runtime 的 SDK Session。两种 SDK 的历史状态、工具权限与恢复语义不同。
+
+这是一组适合放进应用层 runtime policy 的原则，而不是继续把每个厂商的错误字符串、桌面审批 UI 或 provider 排序塞入 `@saga/codebuddy-agent-runtime`。其中模型错误分类仍需针对具体 SDK 版本用真实异常与回归测试校验。
+
+
