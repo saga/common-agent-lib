@@ -140,7 +140,10 @@ export function aggregateAgentTokenUsage(usages: readonly AgentTokenUsage[]): Ag
   }
 
   const sources = new Set(parsed.map((usage) => usage.source).filter((source): source is NonNullable<AgentTokenUsage['source']> => Boolean(source)));
-  if (sources.size === 1 && parsed.every((usage) => usage.source)) result.source = parsed[0]?.source;
+  const sharedSource = parsed[0]?.source;
+  if (sources.size === 1 && parsed.every((usage) => usage.source !== undefined) && sharedSource !== undefined) {
+    result.source = sharedSource;
+  }
 
   const byModel: Record<string, AgentModelTokenUsage> = {};
   for (const usage of parsed) {
