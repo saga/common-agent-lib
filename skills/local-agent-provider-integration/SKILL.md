@@ -15,6 +15,14 @@ Use this Skill when an application can call a local Agent runtime (for example W
 - When a user explicitly selects the local provider, fail clearly or preserve the existing result if it is unavailable. Never silently fall back to a remote service; the fallback could leak local content, incur a charge or change model behavior.
 - If fallback is desired, make it an explicit user-visible policy with a clear indication of which provider actually handled the request.
 
+## Provider fallback policy
+
+- Define fallback eligibility as an explicit policy, not as a generic catch-all around provider execution.
+- A user-enabled fallback may retry on a recognized quota, rate-limit or resource-exhaustion failure. Do not classify authentication, permission denial, user cancellation, invalid tool input, schema/business validation or unknown failures as capacity errors.
+- Record every provider attempt and the actual provider/model that produced the final result. Keep the user's preferred provider setting unchanged unless the user explicitly changes it.
+- When switching provider or model, do not reuse the prior SDK session as though cross-runtime conversation state were portable. Start a compatible session and transfer only the context the host intentionally reconstructs.
+- Error classifiers are version-sensitive: test against real representative errors and negative cases from the specific SDK versions in the lockfile. A broad regex alone is not proof that a fallback decision is safe.
+
 ## Health and request lifecycle
 
 - Keep a cheap health check separate from inference. When feasible, detect availability before showing the provider as selectable or before starting a long document job.
