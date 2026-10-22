@@ -56,7 +56,7 @@ export interface CodeBuddyTaskInput {
   /** JSON Schema for structured output. The SDK's StructuredOutput tool requires an object schema. */
   schema?: Record<string, unknown>;
   maxTurns?: number;
-  /** Use only when the caller explicitly needs a resumable workflow session. Defaults to false. */
+  /** Opt into the SDK's session persistence behavior for this query. Defaults to false; this flag alone does not implement resume orchestration. */
   persistSession?: boolean;
   /** Extra SDK options such as hooks. Runtime safety defaults are applied after these values. */
   sdkOptions?: Record<string, unknown>;
