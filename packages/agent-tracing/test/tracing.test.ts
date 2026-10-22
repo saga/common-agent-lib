@@ -27,7 +27,7 @@ test('aggregates token usage without combining incompatible provider-cost units'
   assert.equal(total?.outputTokens, 35);
   assert.equal(total?.totalTokens, 175);
   assert.equal(total?.modelCalls, 2);
-  assert.equal(total?.providerCost, 0.03);
+  assert.ok(Math.abs((total?.providerCost ?? 0) - 0.03) < 1e-12);
   assert.equal(total?.byModel?.['model-a']?.inputTokens, 140);
 
   const mixedCost = aggregateAgentTokenUsage([
