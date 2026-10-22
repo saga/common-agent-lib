@@ -1,4 +1,4 @@
-import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -232,11 +232,20 @@ async function defaultQueryFactory(input: CodeBuddyQueryInput): Promise<CodeBudd
  * It owns prompt/options defaults, event consumption, timeout/abort and usage normalization;
  * application workflow, persistence, authorization and final schema validation remain outside.
  */
-function createContextWindowSeedWorkspace(contextWindow: number): { cwd: string; cleanup: () => void } {
+function createContextWindowSeedWorkspace(
+  contextWindow: number,
+  sourceCwd: string,
+): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(path.join(os.tmpdir(), 'saga-codebuddy-context-window-'));
   try {
     const configDir = path.join(cwd, '.codebuddy');
     mkdirSync(configDir, { recursive: true });
+    // Preserve only project model definitions so the temporary cwd resolves the same model.
+    // models.json may contain credentials, so the temporary copy is owner-readable only.
+    const sourceModels = path.join(path.resolve(sourceCwd), '.codebuddy', 'models.json');
+    if (existsSync(sourceModels)) {
+      writeFileSync(path.join(configDir, 'models.json'), readFileSync(sourceModels), { mode: 0o600 });
+    }
     writeFileSync(
       path.join(configDir, 'settings.json'),
       JSON.stringify({ contextWindow }, null, 2) + '\n',
@@ -275,7 +284,7 @@ export class CodeBuddyAgentRuntime {
       if (!capability || !capability.supportedLengths.includes(input.contextWindow)) {
         throw new TypeError('contextWindow is not a supported tier for the selected CodeBuddy model');
       }
-      contextWorkspace = createContextWindowSeedWorkspace(input.contextWindow);
+      contextWorkspace = createContextWindowSeedWorkspace(input.contextWindow, input.cwd ?? process.cwd());
     }
 
     try {

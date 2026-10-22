@@ -87,7 +87,7 @@ const result = await runtime.run({
 });
 ```
 
-The tier values are token counts, not compaction thresholds. `maxInputTokens` remains the physical model limit. If `defaultLength` is absent or invalid, the smallest supported tier is used as the selector's initial value. CodeBuddy's current TypeScript `query()` API does not expose a `contextWindow` parameter, so an explicit choice is applied through an isolated temporary project `.codebuddy/settings.json` seed. The temporary directory is removed after the invocation; no host or user settings, Skills or MCP config are loaded. Leaving `contextWindow` unset does not create the temporary workspace.
+The tier values are token counts, not compaction thresholds. `maxInputTokens` remains the physical model limit. If `defaultLength` is absent or invalid, the smallest supported tier is used as the selector's initial value. CodeBuddy's current TypeScript `query()` API does not expose a `contextWindow` parameter, so an explicit choice is applied through an isolated temporary project `.codebuddy/settings.json` seed. The temporary directory is removed after the invocation; only the current project's `.codebuddy/models.json` is copied into it with mode `0600` so model IDs and context tiers still resolve. Host/user settings, project settings, Skills and MCP config are not copied or loaded. Leaving `contextWindow` unset does not create the temporary workspace.
 
 ## Per-task reasoning profile
 
