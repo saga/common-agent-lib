@@ -114,12 +114,9 @@ export async function resumeOrCreateCopilotSession(
   try {
     return await client.resumeSession(sessionId, config as CopilotResumeSessionConfig);
   } catch (error) {
+    // Never convert an arbitrary resume failure into a new session. Doing so can
+    // silently discard conversation history during auth, quota, or transport failures.
     if (isCopilotSessionNotFound(error)) return client.createSession(config);
-    try {
-      if ((await client.getSessionMetadata(sessionId)) === undefined) return client.createSession(config);
-    } catch {
-      // Preserve the original resume error when metadata lookup also fails.
-    }
     throw error;
   }
 }
