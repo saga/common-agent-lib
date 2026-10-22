@@ -11,6 +11,39 @@
 - `onPermissionRequest` / `onMcpAuthRequest` 属于应用创建 session 时的安全策略；公共 turn runtime 不应替宿主应用自动批准权限或接管 OAuth。没有明确策略时应拒绝/取消，而不是遗留一个永远 pending 的请求。若宿主没有 MCP OAuth broker，应实现 `onMcpAuthRequest` 并返回 `{ kind: 'cancelled' }`，同时向用户报告需要外部登录。
 - SDK 事件和日志回调不能阻塞 permission handshake 或 turn completion；日志失败应记录/降级，但不能阻止 SDK 回调返回。
 
+## Session permission / MCP auth callbacks
+
+公共包显式导出 `CopilotSessionPolicy` 作为应用层的回调接口。它只定义 SDK hook 的类型，不提供默认批准策略、交互式审批 UI、OAuth token broker，也不把某个应用的工具白名单复制到这里。权限决策和认证方式依然由宿主应用负责。
+
+Copilot SDK 的 `onPermissionRequest` 与 `onMcpAuthRequest` 是创建或恢复 Session 时的配置项。若既没有注册回调，也没有接入并响应 SDK 的 pending permission RPC，SDK 可能把请求作为事件发出并一直等待消费者处理；请求进入 pending 并不意味着工具已获准。回调必须同时提供给 `createSession` 和 `resumeSession`，不能只在首次创建时配置。参见 [Copilot SDK Node.js 的 Permission Handling 文档](https://github.com/github/copilot-sdk/blob/main/nodejs/README.md#permission-handling)。
+
+示意接法：
+
+~~~ts
+import type {
+  CopilotCreateSessionConfig,
+  CopilotResumeSessionConfig,
+  CopilotSessionPolicy,
+} from '@saga/copilot-agent-runtime';
+
+// 由应用提供：按其工具范围、授权状态和 UI 能力做出决定。
+const policy: CopilotSessionPolicy = {
+  onPermissionRequest: appPermissionPolicy,
+  onMcpAuthRequest: appMcpAuthPolicy,
+};
+
+const createConfig = { ...createBaseConfig, ...policy } satisfies CopilotCreateSessionConfig;
+const resumeConfig = { ...resumeBaseConfig, ...policy } satisfies CopilotResumeSessionConfig;
+
+const session = await runtime.createSession(createConfig);
+// 之后恢复同一会话时也需要带上回调：
+await runtime.resumeSession(sessionId, resumeConfig);
+~~~
+
+如果宿主没有 MCP OAuth token broker，应明确返回 SDK 的取消结果，并把需要登录/授权的信息反馈给用户；不要让请求无限等待。Permission handler 也必须按最小权限原则决策：不要因为使用了 `mode: 'empty'` 就一概批准所有工具，先确认该 Session 实际暴露的工具和副作用边界。
+
+回调内的日志、数据库写入或其它遥测不应成为 permission handshake 的前置条件。日志操作可能同步抛错，也可能异步拒绝；把它们从回调的决策路径中隔离，确保回调能及时返回。公共包故意不替宿主选择“approve once”“deny”或 OAuth 流程。
+
 ## 不负责什么
 
 不认识 Team、Member、Conversation、Execution、Policy、MCP registry、Skill、Knowledge，也不落数据库。
