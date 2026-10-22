@@ -12,6 +12,17 @@ export type CopilotResumeSessionConfig =
 export type CopilotSessionResult =
   Awaited<ReturnType<CopilotClient['createSession']>>;
 
+/**
+ * Application-owned Copilot session callbacks. This exposes the SDK hook seam without
+ * imposing a shared allow/deny or OAuth policy on every host application.
+ *
+ * Apply the selected callbacks to both createSession and resumeSession config objects.
+ */
+export interface CopilotSessionPolicy {
+  onPermissionRequest?: CopilotCreateSessionConfig["onPermissionRequest"];
+  onMcpAuthRequest?: CopilotCreateSessionConfig["onMcpAuthRequest"];
+}
+
 /** Per-model usage delta, normalized across Copilot SDK metric/event shapes. */
 export interface CopilotModelUsageDelta {
   inputTokens?: number;
