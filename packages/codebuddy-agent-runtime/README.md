@@ -96,7 +96,7 @@ The caller may pass `thinking`, `effort`, `model` and `fallbackModel` independen
 ## Important boundaries
 
 - SDK output and schema-constrained generation are not a replacement for application-side Zod/JSON Schema validation.
-- Setting `persistSession: true` or loading `settingSources` changes persistence/configuration semantics; use those deliberately.
+- Setting `persistSession: true` or loading `settingSources` changes persistence/configuration semantics; use those deliberately. `persistSession` controls the SDK invocation's persistence behavior; it does not by itself implement a durable workflow, a resume API, checkpoints, or business execution recovery. The host must persist the session/run association and implement recovery explicitly.
 - Tool access defaults to none for ordinary text tasks and allows only `StructuredOutput` for schema tasks. This package is not a sandbox. Do not grant filesystem, shell, MCP or arbitrary tool access just because the model requests it.
 - Timeout/abort requests interruption but cannot guarantee that every CLI/runtime version stops immediately. Application-level job state must distinguish requested cancellation from confirmed completion.
 - Do not silently switch to a remote provider if local execution fails; fallback is a business/privacy policy and should be explicit.
