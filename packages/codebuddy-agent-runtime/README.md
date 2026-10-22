@@ -105,3 +105,5 @@ The caller may pass `thinking`, `effort`, `model` and `fallbackModel` independen
 ## Version note
 
 This package currently targets the API shape used by `@tencent-ai/agent-sdk ^0.3.276`, matching the integration observed in `devweekly/vocal-saga/local-agent-service`. Because the upstream SDK is preview and has both the stable `query()` path and unstable v2 Session APIs, this package currently wraps `query()`; high-throughput pooled sessions and project/run orchestration remain application-owned until the Session contract stabilizes.
+
+Before changing this boundary or upgrading the SDK, read [CodeBuddy / WorkBuddy SDK Compatibility Notes](../../docs/codebuddy-sdk-compatibility.md). In particular, `fallbackModel` was observed in `query()` options but absent from V2 `SessionOptions` in versions `0.3.274`, `0.3.276` and `0.3.282`; do not treat successful compilation or shared field names as proof that an option is forwarded by both APIs.
