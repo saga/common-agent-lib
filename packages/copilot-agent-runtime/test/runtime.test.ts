@@ -10,6 +10,11 @@ import {
   resumeOrCreateCopilotSession,
 } from '../src/index.js';
 import type { CopilotClient, CopilotSession } from '@github/copilot-sdk';
+import type {
+  CopilotCreateSessionConfig,
+  CopilotResumeSessionConfig,
+  CopilotSessionPolicy,
+} from '../src/index.js';
 
 test('recognizes the SDK wait timeout shape', () => {
   assert.equal(
@@ -140,6 +145,39 @@ test('captures per-call token usage and context occupancy, filling unreported fi
   assert.equal(result.contextUsage?.currentTokens, 2400);
   assert.equal(result.contextUsage?.tokenLimit, 128000);
   assert.equal(result.contextUsage?.percent, 2);
+});
+
+test('forwards application-owned session policy callbacks to create and resume configs', async () => {
+  const policy: CopilotSessionPolicy = {
+    onPermissionRequest: async () => ({ kind: 'approve-once' }),
+    onMcpAuthRequest: async () => ({ kind: 'cancelled' }),
+  };
+  const createConfig = {
+    sessionId: 'created-session',
+    model: 'gpt-5-mini',
+    ...policy,
+  } as CopilotCreateSessionConfig;
+  const resumeConfig = { ...policy } as CopilotResumeSessionConfig;
+  const createdConfigs: unknown[] = [];
+  const resumedConfigs: unknown[] = [];
+  const client = {
+    start: async () => undefined,
+    createSession: async (config: unknown) => {
+      createdConfigs.push(config);
+      return {} as CopilotSession;
+    },
+    resumeSession: async (_sessionId: string, config: unknown) => {
+      resumedConfigs.push(config);
+      return {} as CopilotSession;
+    },
+  } as unknown as CopilotClient;
+  const runtime = new CopilotAgentRuntime({ createClient: () => client });
+
+  await runtime.createSession(createConfig);
+  await runtime.resumeSession('existing-session', resumeConfig);
+
+  assert.equal(createdConfigs[0], createConfig);
+  assert.equal(resumedConfigs[0], resumeConfig);
 });
 
 test('recognizes missing resumable Copilot sessions', () => {
