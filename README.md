@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery | `@github/copilot-sdk` |
 | `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
-| `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
+| `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、Token Usage 聚合、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
 | **@saga/document-core** | 文档统一契约、预算分批、逻辑分页、翻译结果校验 | 无 |
 | `@saga/agent-context` | 确定性 Context 组装、预算控制、来源保留、重复项和省略原因 | 无 |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
@@ -327,7 +327,7 @@ npm run build
 
 ## 新增的跨项目实践（2026-10）
 
-- **轨迹关联字段进入 @saga/agent-contracts**：AgentTraceContext / AgentEvent 支持 correlationId、traceId、turnId、parentEventId、sequence，以及类别、状态、耗时、provider/model 等可观测字段。Schema 只规定事件形状，不提供数据库、LangSmith client 或监管审计系统。
+- **轨迹与 Token Usage 进入公共契约**：AgentTraceContext / AgentEvent 统一 correlationId、traceId、turnId、parentEventId、sequence、provider/model、输入/输出/缓存/推理 Token、Provider 报告的费用指标和上下文窗口占用。@saga/agent-tracing 提供跨模型的 Usage 聚合及 SQLite 持久化；不把上下文占用当作消费量，也不混加不同单位的费用。Schema 只规定事件形状，不提供托管 tracing 或监管审计系统。
 - **Ant Design X UI**：放在 [可复用 Skill](skills/ant-design-x-agent-ui/SKILL.md)，而不是做成 npm UI framework。它指导如何组合 antd 控件、X 聊天组件、流式消息和应用自身的业务状态。
 - **WorkBuddy / 本机 Agent**：操作流程沉淀在 [coding-agent Skill](skills/workbuddy-agent-workflow/SKILL.md)；本机/远程 Provider 的边界沉淀在 [local-agent integration Skill](skills/local-agent-provider-integration/SKILL.md)。
 - **仓库分析与证据**：见 [2026-10 模式归纳](docs/patterns-from-saga-repos-2026-10.md)。
@@ -348,7 +348,7 @@ npm run build
 
 ## Agent tracing
 
-@saga/agent-tracing 提供跨 Agent SDK 的 trace recorder、span helper、内存 store 和 SQLite store。不同项目统一事件形状和查询方式，同时保留对 PostgreSQL、LangSmith、OpenTelemetry 或其它后端的适配空间。
+@saga/agent-tracing 提供跨 Agent SDK 的 trace recorder、span helper、Token Usage 规范化/聚合、内存 store 和 SQLite store。Token 统计直接采用 SDK / Provider 指标，不根据文本长度估算；上下文占用单独记录，费用只在计量单位一致时聚合。不同项目统一事件形状和查询方式，同时保留对 PostgreSQL、LangSmith、OpenTelemetry 或其它后端的适配空间。
 
 ```ts
 import { AgentTraceRecorder, SqliteTraceStore } from '@saga/agent-tracing';
