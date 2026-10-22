@@ -255,6 +255,8 @@ Concurrency lock
 
 Session 的 `onPermissionRequest` / `onMcpAuthRequest` 是宿主应用的策略接缝：在 `createSession` 和 `resumeSession` 中都要传递所需回调。SDK 未收到权限回调时可能把请求留在 pending 状态；公共包只提供 `CopilotSessionPolicy` 类型，不替宿主批准工具或实现 OAuth。托管策略、审批 UI 和无可用审批人时的 fail-closed 行为见 [Copilot Runtime session callback 约定](packages/copilot-agent-runtime/README.md#session-permission--mcp-auth-callbacks)。
 
+Copilot 的 `resumeSession` 也必须携带宿主重建的原会话配置，不能用空 `{}` 企图“只恢复历史”；需要恢复的 tools / provider / workingDirectory / MCP / hooks 应显式传入，凭据则在恢复时重算，不应随配置持久化。
+
 ### Knowledge
 
 业务项目负责：
