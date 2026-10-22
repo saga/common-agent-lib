@@ -133,7 +133,7 @@ export function aggregateAgentTokenUsage(usages: readonly AgentTokenUsage[]): Ag
 
   const costSamples = parsed.filter((usage) => typeof usage.providerCost === 'number');
   const costUnits = new Set(costSamples.map((usage) => usage.providerCostUnit ?? 'unspecified'));
-  if (costSamples.length === parsed.length && costUnits.size === 1) {
+  if (costSamples.length === parsed.length && costSamples.every((usage) => Boolean(usage.providerCostUnit)) && costUnits.size === 1) {
     result.providerCost = costSamples.reduce((total, usage) => total + (usage.providerCost ?? 0), 0);
     const unit = costSamples[0]?.providerCostUnit;
     if (unit) result.providerCostUnit = unit;
