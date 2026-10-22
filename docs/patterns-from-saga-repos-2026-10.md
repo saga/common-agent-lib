@@ -130,6 +130,8 @@ architecture-diagram-studio 的 SQLite ledger 说明，轨迹不只是一个事�
 - `vocal-saga` 的文档并发实验也表明，会话 pool 的 scope 是调度约束：同一个 scope 若只允许一个 active turn，就会自然串行；并发要靠不同且有意义的 lane，并确保每批上下文自包含。持久的多阶段工作流应绕过不适合它的共享短任务池，并在应用侧持久化 run/checkpoint/status。模型 session ID 只是恢复线索，不是业务 checkpoint。
 - structured output 和 session identity 应一起从同一结果流保留下来，避免成功路径归一化结果时丢失后续恢复需要的 SDK session ID。
 
+当前已把公共 CodeBuddy runtime、`vocal-saga/local-agent-service` 和 `desktop-agent` 固定在已观察的 `0.3.276`；`agentic-data-architect` 固定在其原 lockfile 的 `0.3.274`。npm 上更新的 `0.3.284` 尚未经过相同的声明、编译和传输探针，所以没有作为默认升级目标。
+
 可复用的 SDK 接入事实与 probe 步骤见 [CodeBuddy / WorkBuddy SDK Compatibility Notes](./codebuddy-sdk-compatibility.md)。会话 Pool、翻译 task profiles、章节/批次编排和 durable workflow 实现仍然留在 `vocal-saga` 等具体应用中，不应为这些业务语义扩展一个通用 Session Pool 框架。
 
 ### Provider fallback：容量错误可以切换，语义错误不应该隐藏
