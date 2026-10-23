@@ -93,8 +93,8 @@ export function isCopilotSessionNotFound(error: unknown): boolean {
 
   // Keep these phrases session-scoped: "model does not exist" and similar
   // configuration errors must not cause history to be silently discarded.
-  return /session.{0,100}\\b(?:does not exist|has been deleted)\\b/i.test(message)
-    || /\\b(?:does not exist|has been deleted)\\b.{0,100}session/i.test(message);
+  return /session.{0,100}\b(?:does not exist|has been deleted)\b/i.test(message)
+    || /\b(?:does not exist|has been deleted)\b.{0,100}session/i.test(message);
 }
 
 /** Read cumulative usage without making session.usage a hard compile-time dependency on SDK typings. */
