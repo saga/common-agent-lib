@@ -76,11 +76,25 @@ export interface CopilotContextUsage {
   percent?: number;
 }
 
-const COPILOT_SESSION_NOT_FOUND = /session not found|no such session|unknown session|does not exist|has been deleted/i;
+const COPILOT_SESSION_NOT_FOUND = /session not found|no such session|unknown session/i;
 
 /** Copilot SDK sometimes returns a plain Error for a missing resumable session. */
 export function isCopilotSessionNotFound(error: unknown): boolean {
-  return error instanceof Error && COPILOT_SESSION_NOT_FOUND.test(error.message);
+  if (!(error instanceof Error)) return false;
+
+  const message = error.message;
+  if (COPILOT_SESSION_NOT_FOUND.test(message)) return true;
+
+  // Some runtime versions represent an unknown resumable session as JSON-RPC
+  // MethodNotFound. Require "session" in the message so unrelated missing RPCs
+  // are never converted into a fresh session.
+  const code = (error as Error & { code?: unknown }).code;
+  if (code === -32601 && /session/i.test(message)) return true;
+
+  // Keep these phrases session-scoped: "model does not exist" and similar
+  // configuration errors must not cause history to be silently discarded.
+  return /session.{0,100}\\b(?:does not exist|has been deleted)\\b/i.test(message)
+    || /\\b(?:does not exist|has been deleted)\\b.{0,100}session/i.test(message);
 }
 
 /** Read cumulative usage without making session.usage a hard compile-time dependency on SDK typings. */
@@ -375,8 +389,10 @@ export class CopilotAgentRuntime {
     const client = this.client;
     this.client = null;
     this.starting = null;
-    this.activeTurns.clear();
-    this.locks.clear();
+
+    // Do not clear activeTurns or lock queues here. In-flight runTurn() calls
+    // retire their own listeners and lock entries in finally; clearing the maps
+    // early would let a restarted runtime bypass an existing session lock.
     if (!client) return;
     await client.stop();
   }
