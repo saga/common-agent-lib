@@ -423,6 +423,7 @@ export class CodeBuddyAgentRuntime {
         if (error instanceof CodeBuddyTaskError) throw error;
         // Stream/callback failures must not leave an SDK query running in the background.
         requestInterrupt();
+        if (iterator?.return) void Promise.resolve(iterator.return()).catch(() => undefined);
         const message = error instanceof Error ? error.message : String(error);
         throw new CodeBuddyTaskError('sdk-error', 'CodeBuddy Agent SDK call failed: ' + message);
       } finally {
