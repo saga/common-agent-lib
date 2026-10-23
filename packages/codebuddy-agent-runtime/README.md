@@ -10,7 +10,7 @@ Reusable TypeScript runtime adapter for the Tencent CodeBuddy Agent SDK used by 
 - Explicit system/user prompt composition.
 - Safe defaults for application tasks: no implicit host settings/Skills/MCP, no ordinary tools, no persisted session unless requested.
 - JSON Schema output via the SDK's `StructuredOutput` mechanism and `structured_output` result field.
-- Timeout and `AbortSignal` handling that requests interruption.
+- Timeout and `AbortSignal` handling that begins before async query initialization, races each stream read against cancellation, and requests iterator cleanup plus SDK interruption without falsely claiming the CLI has stopped.
 - Normalized per-turn usage, session ID callbacks, message/event hooks.
 - An injectable query factory, so tests can run without a CodeBuddy installation or login.
 - Model-aware context-window option discovery and explicit per-call overrides, guarded by `supportedLengths` and `maxInputTokens`.
@@ -113,7 +113,7 @@ The caller may pass `thinking`, `effort`, `model` and `fallbackModel` independen
 - SDK output and schema-constrained generation are not a replacement for application-side Zod/JSON Schema validation.
 - Setting `persistSession: true` or loading `settingSources` changes persistence/configuration semantics; use those deliberately. `persistSession` controls the SDK invocation's persistence behavior; it does not by itself implement a durable workflow, a resume API, checkpoints, or business execution recovery. The host must persist the session/run association and implement recovery explicitly.
 - Tool access defaults to none for ordinary text tasks and allows only `StructuredOutput` for schema tasks. This package is not a sandbox. Do not grant filesystem, shell, MCP or arbitrary tool access just because the model requests it.
-- Timeout/abort requests interruption but cannot guarantee that every CLI/runtime version stops immediately. Application-level job state must distinguish requested cancellation from confirmed completion.
+- Timeout/abort requests interruption but cannot guarantee that every CLI/runtime version stops immediately. The deadline includes an asynchronous query factory; late handles are interrupted when they appear, and late stream events no longer invoke application callbacks after timeout. Application-level job state must distinguish requested cancellation from confirmed completion.
 - Do not silently switch to a remote provider if local execution fails; fallback is a business/privacy policy and should be explicit.
 - Trace callbacks are for operational observability; the host must redact and size-bound events before persistence. They are not regulatory audit evidence.
 
