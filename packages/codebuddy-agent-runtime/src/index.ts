@@ -354,7 +354,19 @@ export class CodeBuddyAgentRuntime {
       // If startup settles after timeout/abort already returned to the caller, still
       // request interruption as soon as the SDK handle becomes available.
       const queryPromise = Promise.resolve()
-        .then(() => this.queryFactory({ prompt, options }))
+        .then(() => {
+          // If the caller cancels before the scheduled factory starts, do not launch
+          // a provider process merely to interrupt it immediately afterward.
+          if (interruptionKind) {
+            throw new CodeBuddyTaskError(
+              interruptionKind,
+              interruptionKind === 'timeout'
+                ? 'CodeBuddy task timed out before query initialization'
+                : 'CodeBuddy task was aborted before query initialization',
+            );
+          }
+          return this.queryFactory({ prompt, options });
+        })
         .then((created) => {
           query = created;
           if (interruptionKind) requestInterrupt();
