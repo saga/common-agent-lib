@@ -430,7 +430,7 @@ export class CodeBuddyAgentRuntime {
         if (abortListener && input.signal) input.signal.removeEventListener('abort', abortListener);
       }
 
-    const resolvedStructuredOutput = resolveCodeBuddyStructuredOutput(structuredOutput, text);
+      const resolvedStructuredOutput = resolveCodeBuddyStructuredOutput(structuredOutput, text);
       return {
         text: text.trim(),
         ...(resolvedStructuredOutput !== undefined ? { structuredOutput: resolvedStructuredOutput } : {}),
