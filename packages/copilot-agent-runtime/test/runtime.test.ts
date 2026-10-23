@@ -204,9 +204,23 @@ test('forwards application-owned session policy callbacks to create and resume c
   assert.equal(resumedConfigs[0], resumeConfig);
 });
 
-test('recognizes missing resumable Copilot sessions', () => {
+test('recognizes only session-specific resumable-session failures', () => {
   assert.equal(isCopilotSessionNotFound(new Error('Session not found: 123')), true);
+  assert.equal(isCopilotSessionNotFound(new Error('session 123 has been deleted')), true);
+  assert.equal(isCopilotSessionNotFound(new Error('model does not exist')), false);
   assert.equal(isCopilotSessionNotFound(new Error('permission denied')), false);
+
+  const sessionMethodMissing = Object.assign(
+    new Error('Method not found while resuming session 123'),
+    { code: -32601 },
+  );
+  assert.equal(isCopilotSessionNotFound(sessionMethodMissing), true);
+
+  const unrelatedMethodMissing = Object.assign(
+    new Error('Method not found: custom/tool'),
+    { code: -32601 },
+  );
+  assert.equal(isCopilotSessionNotFound(unrelatedMethodMissing), false);
 });
 
 test('resume-or-create only creates a session when the previous session is missing', async () => {
