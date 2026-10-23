@@ -321,31 +321,57 @@ export class CopilotAgentRuntime {
     this.createClient = options.createClient ?? (() => new CopilotClient());
   }
 
+  /**
+   * Generation prevents an in-flight start from publishing a client after stop().
+   * The completed startup still owns cleanup of its local client, even when stop()
+   * cannot await client.start() itself.
+   */
+  private lifecycleGeneration = 0;
+
   async start(): Promise<CopilotClient> {
     if (this.client) return this.client;
     if (this.starting) return this.starting;
 
-    this.starting = (async () => {
-      const client = this.createClient();
-      await client.start();
-      this.client = client;
-      this.lastErrorMessage = null;
-      return client;
-    })()
-      .catch((error) => {
-        this.starting = null;
-        this.lastErrorMessage = error instanceof Error ? error.message : String(error);
-        throw error;
-      })
-      .then((client) => {
-        this.starting = null;
-        return client;
-      });
+    const generation = this.lifecycleGeneration;
+    const starting = (async () => {
+      let client: CopilotClient | undefined;
+      try {
+        client = this.createClient();
+        await client.start();
 
-    return this.starting;
+        if (generation !== this.lifecycleGeneration) {
+          // stop() ran while start() was pending. Do not resurrect the runtime.
+          try {
+            await client.stop();
+          } catch {
+            // The original lifecycle has already been cancelled; preserve that outcome.
+          }
+          throw new Error('Copilot runtime was stopped while the client was starting.');
+        }
+
+        this.client = client;
+        this.lastErrorMessage = null;
+        return client;
+      } catch (error) {
+        if (generation === this.lifecycleGeneration) {
+          this.lastErrorMessage = error instanceof Error ? error.message : String(error);
+        }
+        throw error;
+      }
+    })();
+
+    this.starting = starting;
+    try {
+      return await starting;
+    } finally {
+      // An older startup must not clear a newer startup's promise.
+      if (this.starting === starting) this.starting = null;
+    }
   }
 
   async stop(): Promise<void> {
+    // Invalidate every startup already in flight before detaching the current client.
+    this.lifecycleGeneration += 1;
     const client = this.client;
     this.client = null;
     this.starting = null;
@@ -493,6 +519,9 @@ export class CopilotAgentRuntime {
         const finalContent =
           (finalEvent as unknown as { data?: { content?: string } } | undefined)?.data?.content;
         if (finalContent) content = finalContent;
+        // Some SDK paths return a final message without streaming deltas.
+        // Keep chars consistent with the content actually returned to the caller.
+        chars = content.length;
         const usageAfter = await getCopilotSessionUsageMetrics(session);
         const metricUsage = diffCopilotUsageMetrics(usageAfter, usageBefore);
         const eventUsage = aggregateCopilotModelCallUsages(modelCallUsages);
