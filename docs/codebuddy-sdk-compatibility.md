@@ -67,7 +67,13 @@ The common adapter covers one-shot query initialization/streaming timeout and ca
 
 ## query() background work and V2 Session
 
-Official SDK documentation describes query() as an async message stream whose completion is represented by the first result message. The current query path is not a general-purpose, long-lived event pump for background tasks: SDK behavior can close the query stream after its result. If an integration depends on background-task completion events or continuous reads across several turns, evaluate the V2 Session send()/stream() path explicitly and add a version-specific runtime transport probe. Do not infer option parity: the previously probed V2 SessionOptions omitted fallbackModel even though query() accepted it. Source: [CodeBuddy TypeScript SDK](https://www.workbuddy.ai/docs/zh/cli/sdk).
+Official SDK documentation describes query() as an async message stream whose completion is represented by the first result message. The current query path is not a general-purpose, long-lived event pump for background tasks: SDK behavior can close the query stream after its result. If an integration depends on background-task completion events or continuous reads across several turns, evaluate the V2 Session send()/stream() path explicitly and add a version-specific runtime transport probe. Do not infer option parity: the previously probed V2 SessionOptions omitted fallbackModel even though query() accepted it. Source: [CodeBuddy TypeScript SDK](https://www.codebuddy.ai/docs/cli/sdk-typescript).
+
+## Application-specific integration boundaries
+
+The adapter in this package intentionally has a constrained tool contract: regular tasks expose no tools, and structured tasks expose only the SDK's `StructuredOutput` tool. It is not a drop-in replacement for an application whose CodeBuddy query also owns custom `canUseTool` logic, MCP server assembly, workspace path checks, interactive `AskUserQuestion`, a business/Mission gate, tool audit events or multi-stage continuations. The current `agentic-data-architect/src/agent/codebuddy.ts` uses those capabilities to enforce its Investigation workspace and action policy. Do not migrate it by placing arbitrary fields in `sdkOptions` or by weakening the runtime's final safety defaults. Keep that integration application-owned until a separate, typed, least-privilege tool-policy seam has tests for allow/deny, path escape, MCP and human-input flows.
+
+Similarly, `fanyi-extension` validates the server's `config-options` response before rendering a selector; that is a browser/API-contract concern. The shared package should own model-metadata validation and context-window seeding, not the extension's response DTO, UI display or saved preference semantics.
 
 ## Config-option discovery and context window
 
