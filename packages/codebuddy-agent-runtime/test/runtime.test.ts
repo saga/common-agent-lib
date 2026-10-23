@@ -135,6 +135,7 @@ test('collects assistant text, session ID and usage callbacks', async () => {
     cacheReadTokens: 2,
     cacheCreationTokens: 0,
     totalTokens: 17,
+    totalCostUsd: 0,
     durationMs: 20,
     numTurns: 1,
   });
