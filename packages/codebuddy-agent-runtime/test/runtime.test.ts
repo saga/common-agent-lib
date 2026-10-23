@@ -239,6 +239,23 @@ test('timeout stops local iterator consumption so late events cannot call host c
   assert.equal(textCallbacks, 0);
 });
 
+test('a cancellation before query initialization does not launch the SDK query', async () => {
+  let factoryCalls = 0;
+  const controller = new AbortController();
+  const runtime = new CodeBuddyAgentRuntime(() => {
+    factoryCalls += 1;
+    return fakeQuery([]);
+  });
+  const run = runtime.run({ prompt: 'cancel before start', signal: controller.signal });
+  controller.abort();
+  await assert.rejects(
+    run,
+    (error: unknown) => error instanceof CodeBuddyTaskError && error.code === 'aborted',
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(factoryCalls, 0);
+});
+
 test('abort signal requests interruption', async () => {
   let interrupted = 0;
   const controller = new AbortController();
@@ -249,6 +266,9 @@ test('abort signal requests interruption', async () => {
   }, { interrupt: () => { interrupted += 1; } });
   const runtime = new CodeBuddyAgentRuntime(() => neverEnding);
   const run = runtime.run({ prompt: 'task', signal: controller.signal });
+  // Let the query factory produce a handle so this specifically exercises interrupting
+  // an invocation that has started, rather than cancellation before launch.
+  await new Promise<void>((resolve) => setImmediate(resolve));
   controller.abort();
   await assert.rejects(
     run,
