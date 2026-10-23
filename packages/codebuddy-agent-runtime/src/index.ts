@@ -142,6 +142,9 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function nonNegativeNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'number' && typeof value !== 'string') return undefined;
+  if (typeof value === 'string' && !value.trim()) return undefined;
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
@@ -173,7 +176,7 @@ export function parseCodeBuddyUsage(result: unknown): CodeBuddyUsage | undefined
     cacheReadTokens,
     cacheCreationTokens,
     totalTokens: totalInput + outputTokens,
-    ...(totalCostUsd !== undefined && totalCostUsd > 0 ? { totalCostUsd } : {}),
+    ...(totalCostUsd !== undefined ? { totalCostUsd } : {}),
     ...(durationMs !== undefined ? { durationMs: Math.round(durationMs) } : {}),
     ...(numTurns !== undefined ? { numTurns } : {}),
   };
