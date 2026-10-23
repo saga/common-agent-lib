@@ -1,6 +1,6 @@
 # CodeBuddy / WorkBuddy Agent SDK Compatibility Notes
 
-> Last reviewed: 2026-10-23. Evidence is from the CodeBuddy SDK versions actually probed in Saga projects, not a promise that every future Preview release behaves the same way.
+> Last reviewed: 2026-10-24. Evidence is from the CodeBuddy SDK versions actually probed in Saga projects, not a promise that every future Preview release behaves the same way.
 
 ## Scope and current package boundary
 
@@ -52,6 +52,23 @@ The npm registry lists [`@tencent-ai/agent-sdk` `0.3.284`](https://www.npmjs.com
 - If the host introduces a Session pool, define the key and concurrency invariant explicitly. Application evidence from document translation shows that one scoped session should have one active turn at a time; reusing the same scope serializes calls, while distinct lanes permit parallel work only when their prompts are self-contained and history isolation is intended.
 - A durable multi-step workflow must persist its own run/checkpoint/status and restore the correct session/run association. A returned SDK session ID is not a durable business checkpoint and must survive structured-output/result normalization if the host needs to resume it.
 
+## Runtime lifecycle and cancellation lessons
+
+The actual vocal-saga/local-agent-service integration adds evidence that belongs in every WorkBuddy/CodeBuddy query adapter:
+
+- A timeout must cover the complete invocation, including any asynchronous SDK loading/query-factory step, not only iteration of the returned stream. Otherwise a request can remain pending before the watchdog is even installed.
+- query() returns an async message iterator with an interrupt() control. A Promise.race() bounds how long the host waits; it does not prove that the underlying CLI process has exited. On timeout or AbortSignal, request interruption, race each pending iterator read against the cancellation signal, stop invoking host callbacks after the caller has left, and request iterator cleanup where supported. Error text and execution state must not claim confirmed shutdown unless the SDK/runtime provides that confirmation.
+- If the query handle becomes available after timeout/abort has already returned, interrupt it immediately. SDK startup may be asynchronous or wrapped by a lazy import, so cancellation cannot assume a handle already exists.
+- Host callbacks (onEvent, onText, onSessionId) are part of the failure surface. If one throws, stop local iterator consumption and request interruption rather than leaving the SDK query running without a consumer. Hosts should keep trace persistence small and must not mistake a callback failure for a validated business result.
+- Preserve a reported total_cost_usd: 0 as zero; absent, null, or invalid cost is unknown, not zero. In some WorkBuddy subscription responses zero is an observed value, and dropping it collapses two different states.
+- Long-lived Session pools belong to the host while V2 Session option parity remains unstable. A host pool must serialize each session to one active turn, include the full task/model/schema/revision scope in its key, bound reuse, and treat shutdown as terminal: mark the pool closed before waking waiters, close sessions created by late factories, and never label a session as using a new model unless setModel() succeeded or the session was recreated.
+
+The common adapter covers one-shot query initialization/streaming timeout and callback cleanup, structured-output extraction and usage normalization. It deliberately does not own a document translation pool, chapter/run state, role allocation, or per-project recovery. These are host concerns because their scope and recovery semantics differ.
+
+## query() background work and V2 Session
+
+Official SDK documentation describes query() as an async message stream whose completion is represented by the first result message. The current query path is not a general-purpose, long-lived event pump for background tasks: SDK behavior can close the query stream after its result. If an integration depends on background-task completion events or continuous reads across several turns, evaluate the V2 Session send()/stream() path explicitly and add a version-specific runtime transport probe. Do not infer option parity: the previously probed V2 SessionOptions omitted fallbackModel even though query() accepted it. Source: [CodeBuddy TypeScript SDK](https://www.workbuddy.ai/docs/zh/cli/sdk).
+
 ## Config-option discovery and context window
 
 The UI should consume a provider/configuration endpoint such as `GET /api/codebuddy/config-options?model=…`; it should not invent selectable tiers from the model list or from `maxInputTokens` alone. A context-window selector is meaningful only when the configuration metadata supplies at least two valid distinct tiers, each no greater than the model's physical `maxInputTokens`. Keep the default unchanged when the user has not explicitly selected an override. After model/profile changes, refresh the options and clear any saved tier that does not belong to the selected model. The host must validate the requested value again at execution time because UI options can be stale.
@@ -66,7 +83,11 @@ At minimum, test:
 - No context-window override means no temporary workspace and no added project setting source.
 - Unsupported/invalid context tiers fail before starting an SDK invocation; valid overrides clean up temporary files on both success and error.
 - Session IDs and structured output are both preserved when present in one result stream.
-- Timeout and caller abort request SDK interruption. Application status distinguishes cancellation requested from runtime shutdown/idle confirmed; do not claim the process definitely stopped merely because the caller's Promise rejected.
+- Timeout starts before asynchronous query initialization, and caller abort requests SDK interruption.
+- A query that never resolves during startup times out; a late query handle is interrupted when it appears.
+- A stalled iterator does not keep invoking host callbacks after timeout; iterator cleanup is requested where supported.
+- SDK interruption is reported as requested, not confirmed process shutdown, unless the runtime exposes a confirmation.
+- Explicit total_cost_usd: 0 is preserved; absent/null costs remain unknown.
 - Structured output is still validated by the host application before it changes business state.
 
 ## Sources observed in Saga repositories
