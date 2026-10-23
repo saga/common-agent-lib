@@ -85,7 +85,7 @@ export interface CodeBuddyQueryInput {
   options: Record<string, unknown>;
 }
 
-export type CodeBuddyQueryFactory = (input: CodeBuddyQueryInput) => CodeBuddyQueryHandle;
+export type CodeBuddyQueryFactory = (input: CodeBuddyQueryInput) => CodeBuddyQueryHandle | Promise<CodeBuddyQueryHandle>;
 
 /** Combine instructions and task input because query() accepts a single prompt string. */
 export function buildCodeBuddyPrompt(prompt: string, systemPrompt = ''): string {
@@ -265,7 +265,7 @@ function createContextWindowSeedWorkspace(
 }
 
 export class CodeBuddyAgentRuntime {
-  constructor(private readonly queryFactory: CodeBuddyQueryFactory | ((input: CodeBuddyQueryInput) => Promise<CodeBuddyQueryHandle>) = defaultQueryFactory) {}
+  constructor(private readonly queryFactory: CodeBuddyQueryFactory = defaultQueryFactory) {}
 
   async run(input: CodeBuddyTaskInput): Promise<CodeBuddyTaskResult> {
     if (!input.prompt.trim()) throw new TypeError('CodeBuddy prompt must not be empty');
@@ -306,68 +306,122 @@ export class CodeBuddyAgentRuntime {
         ...input,
         cwd: contextWorkspace?.cwd ?? input.cwd,
       }, Boolean(contextWorkspace));
-      const query = await this.queryFactory({ prompt, options });
+      // The timeout covers SDK import/query initialization as well as message consumption.
+      // A query factory can be async even though the SDK's query() itself returns a handle.
+      let query: CodeBuddyQueryHandle | undefined;
+      let interruptionKind: 'timeout' | 'aborted' | undefined;
+      let rejectInterruption!: (error: CodeBuddyTaskError) => void;
+      const interruption = new Promise<never>((_resolve, reject) => {
+        rejectInterruption = reject;
+      });
+      let interruptRequested = false;
+      const requestInterrupt = (): void => {
+        if (!query || interruptRequested) return;
+        interruptRequested = true;
+        try {
+          void Promise.resolve(query.interrupt?.()).catch(() => undefined);
+        } catch {
+          // Keep the timeout/abort outcome authoritative even if interrupt throws synchronously.
+        }
+      };
+      const triggerInterruption = (kind: 'timeout' | 'aborted'): void => {
+        if (interruptionKind) return;
+        interruptionKind = kind;
+        requestInterrupt();
+        rejectInterruption(new CodeBuddyTaskError(
+          kind,
+          kind === 'timeout'
+            ? 'CodeBuddy task timed out after ' + input.timeoutMs + 'ms; interruption was requested but process shutdown is not confirmed'
+            : 'CodeBuddy task was aborted; interruption was requested but process shutdown is not confirmed',
+        ));
+      };
+
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let abortListener: (() => void) | undefined;
+      if (input.timeoutMs !== undefined) {
+        timeout = setTimeout(() => triggerInterruption('timeout'), input.timeoutMs);
+      }
+      if (input.signal) {
+        abortListener = () => triggerInterruption('aborted');
+        input.signal.addEventListener('abort', abortListener, { once: true });
+        // Close the race between the initial preflight check and listener registration.
+        if (input.signal.aborted) abortListener();
+      }
+
+      // If startup settles after timeout/abort already returned to the caller, still
+      // request interruption as soon as the SDK handle becomes available.
+      const queryPromise = Promise.resolve()
+        .then(() => this.queryFactory({ prompt, options }))
+        .then((created) => {
+          query = created;
+          if (interruptionKind) requestInterrupt();
+          return created;
+        });
 
       let text = '';
       let structuredOutput: unknown;
       let usage: CodeBuddyUsage | undefined;
       let sessionId: string | undefined;
       let messageCount = 0;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      let abortListener: (() => void) | undefined;
-
-      const consumption = (async () => {
-        for await (const item of query) {
-          messageCount += 1;
-          const event = asRecord(item);
-          input.onEvent?.(item);
-
-          const foundSessionId = readSessionId(event);
-          if (foundSessionId && foundSessionId !== sessionId) {
-            sessionId = foundSessionId;
-            input.onSessionId?.(foundSessionId);
-          }
-
-          for (const chunk of extractText(event)) {
-            text += (text ? '\n' : '') + chunk;
-            input.onText?.(chunk);
-          }
-
-          if (event.type === 'result') {
-            if (event.is_error === true || (Array.isArray(event.errors) && event.errors.length > 0)) {
-              throw new Error('CodeBuddy execution failed: ' + String((event.errors as unknown[] | undefined)?.[0] ?? 'unknown error'));
-            }
-            if (typeof event.subtype === 'string' && event.subtype !== 'success') {
-              throw new Error('CodeBuddy execution failed: ' + event.subtype);
-            }
-            if ('structured_output' in event) structuredOutput = event.structured_output;
-            usage = parseCodeBuddyUsage(event);
-          }
-        }
-      })();
-
-      const interruption = new Promise<never>((_resolve, reject) => {
-        if (input.timeoutMs !== undefined) {
-          timeout = setTimeout(() => {
-            void Promise.resolve(query.interrupt?.()).catch(() => undefined);
-            reject(new CodeBuddyTaskError('timeout', 'CodeBuddy task timed out after ' + input.timeoutMs + 'ms'));
-          }, input.timeoutMs);
-        }
-        if (input.signal) {
-          abortListener = () => {
-            void Promise.resolve(query.interrupt?.()).catch(() => undefined);
-            reject(new CodeBuddyTaskError('aborted', 'CodeBuddy task was aborted'));
-          };
-          if (input.signal.aborted) abortListener();
-          else input.signal.addEventListener('abort', abortListener, { once: true });
-        }
-      });
+      let iterator: AsyncIterator<unknown> | undefined;
+      const startedAt = Date.now();
 
       try {
+        const createdQuery = await Promise.race([queryPromise, interruption]);
+        if (interruptionKind) requestInterrupt();
+        iterator = createdQuery[Symbol.asyncIterator]();
+
+        const consumption = (async () => {
+          try {
+            for (;;) {
+              // Race each pending iterator read against timeout/abort. Some SDK versions
+              // keep next() pending even after interrupt(), so a plain for-await loop can
+              // continue running after the request has already timed out.
+              const next = await Promise.race([iterator!.next(), interruption]);
+              if (next.done) break;
+
+              messageCount += 1;
+              const event = asRecord(next.value);
+              input.onEvent?.(next.value);
+
+              const foundSessionId = readSessionId(event);
+              if (foundSessionId && foundSessionId !== sessionId) {
+                sessionId = foundSessionId;
+                input.onSessionId?.(foundSessionId);
+              }
+
+              for (const chunk of extractText(event)) {
+                text += (text ? '\n' : '') + chunk;
+                input.onText?.(chunk);
+              }
+
+              if (event.type === 'result') {
+                if (event.is_error === true || (Array.isArray(event.errors) && event.errors.length > 0)) {
+                  throw new Error('CodeBuddy execution failed: ' + String((event.errors as unknown[] | undefined)?.[0] ?? 'unknown error'));
+                }
+                if (typeof event.subtype === 'string' && event.subtype !== 'success') {
+                  throw new Error('CodeBuddy execution failed: ' + event.subtype);
+                }
+                if ('structured_output' in event) structuredOutput = event.structured_output;
+                usage = parseCodeBuddyUsage(event);
+              }
+            }
+          } finally {
+            // Stop local consumption promptly. This is separate from process shutdown:
+            // the SDK's interrupt() is best effort and may not close a wedged iterator.
+            if (interruptionKind && iterator?.return) {
+              void Promise.resolve(iterator.return()).catch(() => undefined);
+            }
+          }
+        })();
+
         await Promise.race([consumption, interruption]);
       } catch (error) {
         if (error instanceof CodeBuddyTaskError) throw error;
-        throw new CodeBuddyTaskError('sdk-error', 'CodeBuddy Agent SDK call failed: ' + (error instanceof Error ? error.message : String(error)));
+        // Stream/callback failures must not leave an SDK query running in the background.
+        requestInterrupt();
+        const message = error instanceof Error ? error.message : String(error);
+        throw new CodeBuddyTaskError('sdk-error', 'CodeBuddy Agent SDK call failed: ' + message);
       } finally {
         if (timeout) clearTimeout(timeout);
         if (abortListener && input.signal) input.signal.removeEventListener('abort', abortListener);
