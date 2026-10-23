@@ -28,6 +28,7 @@ Use this Skill when an application can call a local Agent runtime (for example W
 - Keep a cheap health check separate from inference. When feasible, detect availability before showing the provider as selectable or before starting a long document job.
 - Distinguish service-unavailable, authentication, model/provider, timeout, malformed response and cancellation errors.
 - Apply timeouts, cancellation and concurrency limits at the service boundary. A browser/UI request should not start unbounded independent work.
+- For WorkBuddy/CodeBuddy, read `docs/codebuddy-sdk-compatibility.md` before changing SDK integration. `query()` Options and V2 Session options are not interchangeable; a `Promise.race()` only bounds caller waiting, and `interrupt()` does not itself prove the CLI has exited. Start the deadline before asynchronous SDK/query initialization and prevent late iterator events from updating host state after cancellation.
 - A queued / background task needs an observable task ID and status if the UI is not expected to wait for the full result.
 
 ## Divide responsibilities
