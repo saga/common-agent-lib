@@ -4,9 +4,10 @@
 
 ## Copilot SDK 可靠性约束
 
-- `resumeOrCreateCopilotSession` 只在明确识别到 session 不存在时创建新 session；权限、认证、配额和传输错误不能被伪装成“恢复成功”。
+- `resumeOrCreateCopilotSession` 只在明确识别到 session 不存在时创建新 session；匹配应限定到 session-not-found 文案，或包含 session 标识的 JSON-RPC `-32601`。模型、Provider、权限、认证、配额和传输错误不能被伪装成“恢复成功”。
 - `runTurn` 同时传递 SDK timeout，并设置应用层 watchdog。watchdog 触发后必须调用 `abort()`，再在有限时间内等待 `session.idle`；不能仅仅结束 HTTP 请求而让后台 Agent 继续执行。
 - `session.idle` 是停止/空闲信号，不是业务成功结果。调用方仍须检查最终 assistant message、错误事件和业务结果。
+- `start()` 与 `stop()` 并发时，`stop()` 会使尚未完成的启动失效；启动完成后必须自行关闭客户端，不能重新发布到 Runtime。运行中的 turn 通过自己的 `finally` 释放事件监听和锁队列，不要在 shutdown 时提前清空锁表，否则随后重启可能绕过同一 session 的串行化。
 - 同一个 session 的 turn 必须通过稳定的 `lockKey` 串行执行。不要把 SDK session 的持久化等同于工具执行状态的持久化。
 - `resumeSession(sessionId, config)` 必须带上宿主重建的完整会话配置；不要在恢复路径传空 `{}`。原始配置中如有 model / tools / workingDirectory / provider / MCP / hooks 等字段，空配置恢复可能让这些设置改变或丢失。配置中的密钥不应持久化，恢复时由宿主重新解析并注入。
 - `onPermissionRequest` / `onMcpAuthRequest` 属于应用创建 session 时的安全策略；公共 turn runtime 不应替宿主应用自动批准权限或接管 OAuth。没有明确策略时应拒绝/取消，而不是遗留一个永远 pending 的请求。若宿主没有 MCP OAuth broker，应实现 `onMcpAuthRequest` 并返回 `{ kind: 'cancelled' }`，同时向用户报告需要外部登录。
