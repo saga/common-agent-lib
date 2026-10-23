@@ -10,6 +10,7 @@ import {
   CodeBuddyAgentRuntime,
   CodeBuddyTaskError,
   parseCodeBuddyUsage,
+  type CodeBuddyQueryHandle,
 } from '../src/index.js';
 
 function fakeQuery(messages: unknown[], interrupt?: () => unknown) {
@@ -173,6 +174,71 @@ test('timeout requests SDK interruption', async () => {
   assert.equal(interrupted, 1);
 });
 
+test('timeout also bounds async query-factory initialization', async () => {
+  const runtime = new CodeBuddyAgentRuntime(() => new Promise<CodeBuddyQueryHandle>(() => undefined));
+  await assert.rejects(
+    runtime.run({ prompt: 'startup never completes', timeoutMs: 10 }),
+    (error: unknown) => error instanceof CodeBuddyTaskError && error.code === 'timeout',
+  );
+});
+
+test('a query handle that appears after timeout is interrupted immediately', async () => {
+  let resolveFactory!: (query: CodeBuddyQueryHandle) => void;
+  let interrupted = 0;
+  const runtime = new CodeBuddyAgentRuntime(() => new Promise<CodeBuddyQueryHandle>((resolve) => {
+    resolveFactory = resolve;
+  }));
+
+  await assert.rejects(
+    runtime.run({ prompt: 'delayed startup', timeoutMs: 10 }),
+    (error: unknown) => error instanceof CodeBuddyTaskError && error.code === 'timeout',
+  );
+
+  resolveFactory(Object.assign(fakeQuery([]), {
+    interrupt: () => { interrupted += 1; },
+  }));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(interrupted, 1);
+});
+
+test('timeout stops local iterator consumption so late events cannot call host callbacks', async () => {
+  let resolveNext!: (value: IteratorResult<unknown>) => void;
+  let interrupted = 0;
+  let returnCalls = 0;
+  let textCallbacks = 0;
+  const query = {
+    [Symbol.asyncIterator]() {
+      return {
+        next: () => new Promise<IteratorResult<unknown>>((resolve) => { resolveNext = resolve; }),
+        return: async () => {
+          returnCalls += 1;
+          return { done: true, value: undefined };
+        },
+      };
+    },
+    interrupt: () => { interrupted += 1; },
+  } as unknown as CodeBuddyQueryHandle;
+  const runtime = new CodeBuddyAgentRuntime(() => query);
+
+  await assert.rejects(
+    runtime.run({
+      prompt: 'late event',
+      timeoutMs: 10,
+      onText: () => { textCallbacks += 1; },
+    }),
+    (error: unknown) => error instanceof CodeBuddyTaskError && error.code === 'timeout',
+  );
+
+  resolveNext({
+    done: false,
+    value: { type: 'assistant', message: { content: [{ type: 'text', text: 'too late' }] } },
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(interrupted, 1);
+  assert.equal(returnCalls, 1);
+  assert.equal(textCallbacks, 0);
+});
+
 test('abort signal requests interruption', async () => {
   let interrupted = 0;
   const controller = new AbortController();
@@ -196,15 +262,17 @@ test('rejects array schema because SDK StructuredOutput requires object schema',
   await assert.rejects(runtime.run({ prompt: 'task', schema: { type: 'array', items: { type: 'string' } } }), /schema must have type/);
 });
 
-test('usage parser ignores missing and zero usage but preserves real token counts', () => {
+test('usage parser distinguishes missing cost from an explicitly reported zero cost', () => {
   assert.equal(parseCodeBuddyUsage({}), undefined);
   assert.equal(parseCodeBuddyUsage({ usage: { input_tokens: 0, output_tokens: 0 } }), undefined);
+  assert.equal(parseCodeBuddyUsage({ usage: { input_tokens: 3, output_tokens: 2 }, total_cost_usd: null })?.totalCostUsd, undefined);
   assert.deepEqual(parseCodeBuddyUsage({ usage: { input_tokens: 3, output_tokens: 2 }, total_cost_usd: 0 }), {
     inputTokens: 3,
     outputTokens: 2,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
     totalTokens: 5,
+    totalCostUsd: 0,
   });
 });
 
