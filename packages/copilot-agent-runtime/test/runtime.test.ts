@@ -16,6 +16,29 @@ import type {
   CopilotSessionPolicy,
 } from '../src/index.js';
 
+test('stopping while client startup is pending prevents the runtime from resurrecting the client', async () => {
+  let finishStart!: () => void;
+  const startGate = new Promise<void>((resolve) => {
+    finishStart = resolve;
+  });
+  let stopCalls = 0;
+  const client = {
+    start: async () => startGate,
+    stop: async () => { stopCalls += 1; },
+  } as unknown as CopilotClient;
+
+  const runtime = new CopilotAgentRuntime({ createClient: () => client });
+  const starting = runtime.start();
+
+  await runtime.stop();
+  assert.equal(runtime.status(), 'idle');
+
+  finishStart();
+  await assert.rejects(starting, /stopped while the client was starting/i);
+  assert.equal(stopCalls, 1);
+  assert.equal(runtime.status(), 'idle');
+});
+
 test('recognizes the SDK wait timeout shape', () => {
   assert.equal(
     isCopilotWaitTimeout(new Error('Timeout after 300000ms waiting for session.idle')),
@@ -132,6 +155,7 @@ test('captures per-call token usage and context occupancy, filling unreported fi
   });
 
   assert.equal(result.content, 'done');
+  assert.equal(result.chars, 4);
   assert.equal(result.usage?.source, 'provider-event');
   assert.equal(result.usage?.inputTokens, 90);
   assert.equal(result.usage?.outputTokens, 20);
