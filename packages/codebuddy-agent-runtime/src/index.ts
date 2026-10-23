@@ -367,7 +367,6 @@ export class CodeBuddyAgentRuntime {
       let sessionId: string | undefined;
       let messageCount = 0;
       let iterator: AsyncIterator<unknown> | undefined;
-      const startedAt = Date.now();
 
       try {
         const createdQuery = await Promise.race([queryPromise, interruption]);
