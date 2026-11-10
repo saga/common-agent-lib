@@ -4,3 +4,4 @@ export * from './diff.js';
 export * from './session.js';
 export * from './ContextExplorer.js';
 export * from './ContextDebugger.js';
+export * from './agent-trace-adapter.js';
