@@ -33,3 +33,18 @@ test('adapts agentic-data-architect trajectory tool lifecycle and usage', () => 
   assert.equal(session.events[3]?.usage?.cachedInputTokens, 20);
   assert.equal(session.runs.length, 0, 'trajectory summaries without actual provider payload must not fabricate a context snapshot');
 });
+
+test('adapts compaction snapshots and reported reductions from trace events', () => {
+  const sessions = contextSessionsFromAgentEvents([{
+    id: 'compact-1', timestamp: '2026-01-01T00:00:00.000Z', type: 'context.compaction',
+    sessionId: 'session-1', status: 'completed', durationMs: 120,
+    data: {
+      before: { messages: [{ id: 'm1', role: 'user', content: 'keep' }, { id: 'm2', role: 'assistant', content: 'remove' }] },
+      after: { messages: [{ id: 'm1', role: 'user', content: 'keep' }] },
+      preCompactionTokens: 100, postCompactionTokens: 40, tokensRemoved: 60, messagesRemoved: 1,
+    },
+  }]);
+  assert.equal(sessions[0]?.compactions.length, 1);
+  assert.equal(sessions[0]?.compactions[0]?.tokensRemoved, 60);
+  assert.equal(sessions[0]?.compactions[0]?.durationMs, 120);
+});
