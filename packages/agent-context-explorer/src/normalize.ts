@@ -103,7 +103,7 @@ export function normalizeContext(request: unknown, response?: unknown, options: 
   } : undefined;
   return {
     id: options.id ?? String(req.id ?? res.id ?? ('context-' + Date.now())),
-    provider: options.provider ?? (Array.isArray(req.messages) ? 'openai-compatible' : Array.isArray(req.input) ? 'responses-compatible' : 'generic'),
+    provider: options.provider ?? (Array.isArray(req.messages) ? 'openai-compatible' : req.input !== undefined ? 'responses-compatible' : 'generic'),
     ...(req.model ?? res.model ? { model: String(req.model ?? res.model) } : {}),
     ...(res.created ? { createdAt: new Date(Number(res.created) * 1000).toISOString() } : {}),
     messages: msgs, tools: toolsOf(req, redact), parameters: safe(params, redact) as Record<string, unknown>,
