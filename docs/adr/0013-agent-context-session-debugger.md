@@ -28,4 +28,4 @@ The host or tracing integration emits session/run/event records. The explorer do
 
 Applications can embed a session debugger without coupling to a specific Agent runtime or tracing vendor. Missing call/result correlation becomes visible rather than silently hidden. Compaction comparisons are auditable when hosts preserve snapshots before and after transformation.
 
-The initial model was subsequently aligned with the shared saga trace envelope and the Agentic Data Architect trajectory contract. See ADR 0014 for the expanded lifecycle, usage, provenance, adapter and payload-completeness decisions.
+The initial model was subsequently aligned with the shared saga trace envelope and the Agentic Data Architect trajectory contract. See ADR 0014 for the expanded lifecycle, usage, provenance, adapter and payload-completeness decisions. The trajectory adapter deliberately synthesizes a clearly named session key when its source only provides turn identity; it never treats a turn ID as a trace ID.
