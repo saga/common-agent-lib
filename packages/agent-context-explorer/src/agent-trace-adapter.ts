@@ -78,7 +78,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
     });
   const usage = usageOf(event.usage) ?? usageOf(snapshot.usage);
   const contextUsage = contextUsageOf(event.contextUsage);
-  const completed = response !== undefined || /completed|success|finished/i.test(event.status ?? '');
+  const completed = response !== undefined || /completed|success|finished|fail|error|cancel|abort/i.test(event.status ?? '');
   const runStatus: ContextRun['status'] = /fail|error/i.test(event.status ?? '') ? 'failed' : /cancel/i.test(event.status ?? '') ? 'cancelled' : /abort/i.test(event.status ?? '') ? 'aborted' : completed ? 'completed' : 'running';
   const attempt = number(data.attempt);
   const actualModel = snapshot.model ?? event.model;
@@ -311,7 +311,7 @@ export function contextSessionFromTrajectoryEvents(
     const embedded = object(details.snapshot);
     if (!request && !Object.keys(embedded).length) continue;
     const snapshot = Object.keys(embedded).length ? snapshotOf(embedded, options)! : normalizeContext(request, response, {
-      provider: options.provider, id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
+      provider: options.provider ?? event.provider, id: string(details.runId ?? details.apiCallId ?? details.providerCallId) ?? event.id,
       includeRaw: options.includeRaw, redactSecrets: options.redactSecrets,
     });
     const eventRecord = contextEvents.find((item) => item.id === event.id);
@@ -320,7 +320,7 @@ export function contextSessionFromTrajectoryEvents(
     const requestId = string(details.requestId);
     const actualModel = snapshot.model ?? event.model;
     runs.push({
-      id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
+      id: string(details.runId ?? details.apiCallId ?? details.providerCallId) ?? event.id,
       sequence: event.sequence ?? runs.length + 1, sessionId, turnId: event.turnId,
       ...(requestId ? { requestId } : {}),
       ...(string(details.apiCallId) ? { apiCallId: string(details.apiCallId) } : {}),
@@ -333,7 +333,7 @@ export function contextSessionFromTrajectoryEvents(
       provider: options.provider ?? event.provider ?? string(details.provider) ?? snapshot.provider,
       ...(string(details.initiator) ? { initiator: string(details.initiator) } : {}),
       startedAt: event.timestamp,
-      ...(response !== undefined || event.status === 'completed' ? { completedAt: string(details.completedAt) ?? event.timestamp } : {}),
+      ...(response !== undefined || /completed|failed|error|cancelled|aborted/i.test(event.status ?? '') ? { completedAt: string(details.completedAt) ?? event.timestamp } : {}),
       status: /fail|error/i.test(event.status ?? '') ? 'failed' : event.status === 'cancelled' ? 'cancelled' : event.status === 'aborted' ? 'aborted' : response !== undefined || event.status === 'completed' ? 'completed' : 'running',
       snapshot, ...(usage ? { usage } : {}), ...(contextUsage ? { contextUsage } : {}),
       payloadComplete: event.payloadComplete ?? (request !== undefined && response !== undefined || embedded.rawRequest != null && embedded.rawResponse !== undefined || Array.isArray(embedded.messages) && Array.isArray(embedded.responseMessages) && embedded.responseMessages.length > 0),
