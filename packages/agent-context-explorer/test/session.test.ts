@@ -41,3 +41,19 @@ test('correlates out-of-order tool lifecycle events by stable call id', () => {
   assert.equal(graph.nodes[0]?.result, 'ok');
   assert.equal(graph.orphanResults.length, 0);
 });
+
+test('merges runtime metadata into tool calls captured in the provider message', () => {
+  const snapshot = normalizeContext({ messages: [
+    { role: 'assistant', tool_calls: [{ id: 'call-1', function: { name: 'search', arguments: '{"q":"x"}' } }] },
+  ] });
+  const graph = buildToolCallGraph(snapshot.messages, [{
+    id: 'event-1', type: 'tool-call', timestamp: '2026-01-01T00:00:00Z',
+    toolCallId: 'call-1', toolName: 'search', status: 'started',
+    agentId: 'researcher', parentToolCallId: 'parent-1',
+    mcpServerName: 'knowledge', mcpToolName: 'search',
+  }]);
+  assert.equal(graph.nodes[0]?.agentId, 'researcher');
+  assert.equal(graph.nodes[0]?.parentToolCallId, 'parent-1');
+  assert.equal(graph.nodes[0]?.mcpServerName, 'knowledge');
+  assert.equal(graph.nodes[0]?.mcpToolName, 'search');
+});
