@@ -111,6 +111,7 @@ test('maps shared agent-tracing events and keeps correlation identifiers distinc
   assert.equal(session.runs[0]?.contextUsage?.percent, 10);
   assert.equal(session.events[0]?.correlationId, 'corr-1');
   assert.equal(session.events[0]?.requestId, 'request-1');
+  assert.equal(session.events[0]?.providerCallId, 'provider-1');
   assert.equal(session.events[1]?.toolCallId, 'call-1');
   assert.equal(session.events[1]?.parentToolCallId, 'call-parent');
 });
