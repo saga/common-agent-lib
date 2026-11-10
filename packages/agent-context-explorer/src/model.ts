@@ -17,7 +17,7 @@ export interface ContextTool { name: string; description?: string; inputSchema?:
 
 /** Provider-reported consumption for one model call. Missing measurements remain absent. */
 export interface ModelCallUsage {
-  model?: string; inputTokens?: number; outputTokens?: number; totalTokens?: number;
+  model?: string; inputTokens?: number; newInputTokens?: number; outputTokens?: number; totalTokens?: number;
   cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number;
   premiumRequestCost?: number; totalNanoAiu?: number; providerCost?: number; providerCostUnit?: string;
   durationMs?: number; finishReason?: string; reasoningEffort?: string;
