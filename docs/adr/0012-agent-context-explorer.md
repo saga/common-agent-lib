@@ -9,7 +9,7 @@ Agent applications need to inspect the provider request and response, not only h
 
 ## Decision
 
-Add @saga/agent-context-explorer as an independent workspace package. It provides a provider-neutral normalized model, adapters for common OpenAI-compatible and Anthropic-style payload shapes, message-level diffing and a reusable React inspector. It has no dependency on a model SDK, tracing backend, application database or UI framework other than React as a peer dependency.
+Add @saga/agent-context-explorer as an independent workspace package. It provides a provider-neutral normalized model, adapters for common OpenAI-compatible and Anthropic-style payload shapes, message-level diffing and a reusable React inspector built with Ant Design and Ant Design X. It has no dependency on a model SDK, tracing backend, application database or UI framework other than React as a peer dependency.
 
 Capture should happen at the provider transport boundary whenever possible. The host remains responsible for deciding which payloads may be captured, stored, retained and shown. Raw prompt/response content is visible in the inspector; secret-shaped fields and Bearer values are redacted by default. Hidden reasoning is never inferred or generated.
 
