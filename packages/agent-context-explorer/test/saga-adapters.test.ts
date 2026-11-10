@@ -10,6 +10,10 @@ const at = (second: number) => new Date(Date.UTC(2026, 10, 10, 8, 0, second)).to
 test('maps Agentic Data Architect trajectory identifiers, usage and context occupancy without conflating turn and session', () => {
   const session = contextSessionFromTrajectoryEvents([
     {
+      id: 'turn-start-1', turnId: 'turn-7', timestamp: at(0), type: 'turn_start',
+      name: 'Turn started', status: 'started', details: {},
+    },
+    {
       id: 'model-1', turnId: 'turn-7', timestamp: at(1), type: 'model_call',
       name: 'Model call', status: 'completed', model: 'claude-sonnet',
       inputTokens: 1400, outputTokens: 300, premiumRequestCost: 0.02,
