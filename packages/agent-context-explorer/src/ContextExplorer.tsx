@@ -1,52 +1,70 @@
-import * as React from 'react';
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Alert, Card, Collapse, Descriptions, Empty, Space, Tabs, Tag, Typography } from 'antd';
+import { Bubble } from '@ant-design/x';
 import type { ContextMessage, ContextSnapshot, ContentPart } from './model.js';
 import { diffContext } from './diff.js';
-export interface ContextExplorerProps { snapshot: ContextSnapshot; previous?: ContextSnapshot; className?: string }
-const css: Record<string, React.CSSProperties> = {
-  root: { fontFamily: 'ui-sans-serif,system-ui,sans-serif', color: 'var(--context-fg,#20242b)', border: '1px solid var(--context-border,#d8dde5)', borderRadius: 10, overflow: 'hidden', background: 'var(--context-bg,#fff)' },
-  row: { borderBottom: '1px solid var(--context-border,#e8ebf0)', padding: 12 }, muted: { color: 'var(--context-muted,#667085)', fontSize: 12 },
-  button: { border: '1px solid var(--context-border,#d8dde5)', borderRadius: 6, padding: '5px 10px', background: 'transparent', cursor: 'pointer', color: 'inherit' },
-  pre: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '8px 0 0', font: '12px/1.55 ui-monospace,monospace' },
-  badge: { display: 'inline-block', borderRadius: 5, padding: '2px 6px', background: 'var(--context-selected,#edf2f8)', fontSize: 11, marginRight: 6 },
+
+const { Text, Paragraph } = Typography;
+const json = (value: unknown): string => {
+  try { return JSON.stringify(value, null, 2) ?? String(value); } catch { return String(value); }
 };
-function partText(p: ContentPart): string {
-  if (p.kind === 'text' || p.kind === 'thinking' || p.kind === 'refusal') return p.text;
-  if (p.kind === 'tool-call') return JSON.stringify({ name: p.name, arguments: p.arguments }, null, 2);
-  if (p.kind === 'tool-result') return typeof p.content === 'string' ? p.content : JSON.stringify(p.content, null, 2);
-  if (p.kind === 'image') return p.url ? '[Image] ' + p.url : '[Image payload]';
-  if (p.kind === 'json') return JSON.stringify(p.value, null, 2);
-  return JSON.stringify(p.value, null, 2);
+function PartView({ part }: { part: ContentPart }) {
+  if (part.kind === 'text') return <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{part.text}</Paragraph>;
+  if (part.kind === 'thinking') return <Collapse size="small" items={[{ key: 'thinking', label: 'Thinking / reasoning block', children: <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }}>{part.text}</pre> }]} />;
+  if (part.kind === 'image') return <Space direction="vertical"><Text type="secondary">Image · {part.mediaType ?? 'unknown media type'}{part.detail ? ' · ' + part.detail : ''}</Text>{part.url?.startsWith('http') ? <img src={part.url} alt={part.alt ?? 'Prompt image'} style={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain' }} /> : <Text code>{part.url ? '[inline image data]' : '[image payload not rendered]'}</Text>}</Space>;
+  if (part.kind === 'tool-call') return <Card size="small" title={<Space><Tag color="blue">Tool call</Tag><Text strong>{part.name}</Text></Space>}><Descriptions size="small" column={1}><Descriptions.Item label="Call ID">{part.id ?? '—'}</Descriptions.Item></Descriptions><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }}>{json(part.arguments)}</pre></Card>;
+  if (part.kind === 'tool-result') return <Card size="small" title={<Space><Tag color={part.isError ? 'red' : 'green'}>Tool result</Tag><Text>{part.name ?? part.toolCallId ?? 'Tool output'}</Text></Space>}><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }}>{json(part.content)}</pre></Card>;
+  if (part.kind === 'refusal') return <Alert type="warning" showIcon message="Refusal" description={part.text} />;
+  if (part.kind === 'json') return <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }}>{json(part.value)}</pre>;
+  return <Card size="small" title={<Tag>{part.kind === 'unknown' ? part.type : part.kind}</Tag>}><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }}>{json(part.kind === 'unknown' ? part.value : part)}</pre></Card>;
 }
-function MessageCard({ message }: { message: ContextMessage }) {
-  const [expanded, setExpanded] = useState(false);
-  return <article style={css.row}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-      <div><span style={css.badge}>{message.role}</span>{message.name && <span style={css.muted}>{message.name}</span>}{message.channel && <span style={css.muted}> · {message.channel}</span>}</div>
-      <button type="button" style={css.button} onClick={() => setExpanded(!expanded)}>{expanded ? 'Collapse' : 'Raw message'}</button>
-    </div>
-    {message.parts.map((part, i) => <div key={i} style={{ marginTop: 8 }}><span style={css.badge}>{part.kind}</span><pre style={css.pre}>{partText(part)}</pre></div>)}
-    {expanded && <pre style={css.pre}>{JSON.stringify(message.raw, null, 2)}</pre>}
-  </article>;
+function MessageView({ message }: { message: ContextMessage }) {
+  const isUser = message.role === 'user';
+  const label = [message.role, message.name, message.channel].filter(Boolean).join(' · ');
+  const content = <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    {message.parts.length ? message.parts.map((part, index) => <PartView key={index} part={part} />) : <Text type="secondary">Empty message</Text>}
+    {message.recipient && <Text type="secondary">To: {message.recipient}</Text>}
+    {message.tokenCount !== undefined && <Text type="secondary">{message.tokenCount.toLocaleString()} tokens</Text>}
+  </Space>;
+  return <Bubble placement={isUser ? 'end' : 'start'} variant="outlined" shape="round" header={<Space size={6}><Tag color={isUser ? 'blue' : message.role === 'assistant' ? 'purple' : 'default'}>{label}</Tag><Text type="secondary" style={{ fontSize: 11 }}>#{message.index + 1}</Text></Space>} content={content} />;
 }
-/** Compact, framework-light inspector. Hosts may theme it through --context-* CSS variables. */
+function JsonPanel({ value, title }: { value: unknown; title: string }) {
+  return <Card size="small" title={title} extra={<Text type="secondary">{value == null ? 'not captured' : 'captured payload'}</Text>}>
+    <Paragraph copyable={{ text: json(value) }} style={{ marginBottom: 8 }}><Text type="secondary">Copy JSON</Text></Paragraph>
+    <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 560, overflow: 'auto', margin: 0 }}>{json(value)}</pre>
+  </Card>;
+}
+export interface ContextExplorerProps { snapshot: ContextSnapshot; previous?: ContextSnapshot; className?: string }
+/** Ant Design + Ant Design X inspector for captured provider exchanges. */
 export function ContextExplorer({ snapshot, previous, className }: ContextExplorerProps) {
-  const [tab, setTab] = useState('messages');
+  const [activeKey, setActiveKey] = useState('messages');
   const diff = useMemo(() => previous ? diffContext(previous.messages, snapshot.messages) : undefined, [previous, snapshot]);
-  const tabs = ['messages', 'tools', 'parameters', 'raw', ...(previous ? ['diff'] : [])];
-  return <section className={className} style={css.root}>
-    <header style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--context-border,#d8dde5)' }}>
-      <strong>{snapshot.model ?? 'LLM request'}</strong><span style={css.muted}>{snapshot.provider}</span><span style={css.muted}>{snapshot.messages.length} messages</span>
-      {snapshot.usage && <span style={css.muted}>{snapshot.usage.inputTokens ?? '—'} in / {snapshot.usage.outputTokens ?? '—'} out tokens</span>}
-    </header>
-    <nav aria-label="Context views" style={{ display: 'flex', gap: 6, padding: 8, borderBottom: '1px solid var(--context-border,#d8dde5)' }}>
-      {tabs.map((item) => <button key={item} type="button" style={{ ...css.button, ...(tab === item ? { background: 'var(--context-selected,#edf2f8)', fontWeight: 600 } : {}) }} onClick={() => setTab(item)}>{item}{item === 'diff' && diff ? ' (+' + diff.added + ' / −' + diff.removed + ' / ~' + diff.changed + ')' : ''}</button>)}
-    </nav>
-    {snapshot.warnings.map((warning) => <div key={warning} style={{ padding: 10, ...css.muted }}>{warning}</div>)}
-    {tab === 'messages' && <>{snapshot.system && <div style={css.row}><strong>System context</strong><pre style={css.pre}>{snapshot.system}</pre></div>}{snapshot.messages.map((m) => <MessageCard key={m.id} message={m} />)}{snapshot.responseMessages.length > 0 && <div style={css.row}><strong>Model response</strong></div>}{snapshot.responseMessages.map((m) => <MessageCard key={m.id} message={m} />)}</>}
-    {tab === 'tools' && snapshot.tools.map((tool) => <div key={tool.name} style={css.row}><strong>{tool.name}</strong><p style={css.muted}>{tool.description}</p><pre style={css.pre}>{JSON.stringify(tool.inputSchema ?? tool.raw, null, 2)}</pre></div>)}
-    {tab === 'parameters' && <pre style={{ ...css.pre, padding: 16 }}>{JSON.stringify(snapshot.parameters, null, 2)}</pre>}
-    {tab === 'raw' && <div style={{ padding: 12 }}><strong>Request</strong><pre style={css.pre}>{JSON.stringify(snapshot.rawRequest, null, 2)}</pre>{snapshot.rawResponse !== undefined && <><strong>Response</strong><pre style={css.pre}>{JSON.stringify(snapshot.rawResponse, null, 2)}</pre></>}</div>}
-    {tab === 'diff' && diff && diff.changes.map((change) => <div key={change.index} style={css.row}><span style={css.badge}>{change.kind}</span><strong>Message {change.index + 1}</strong>{change.changedFields && <span style={css.muted}> · {change.changedFields.join(', ')}</span>}<pre style={css.pre}>{JSON.stringify(change.after ?? change.before, null, 2)}</pre></div>)}
-  </section>;
+  const messages = [...snapshot.messages, ...snapshot.responseMessages];
+  const tabs = [
+    { key: 'messages', label: 'Messages', children: <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+      {snapshot.system && <Card size="small" title="System context"><Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{snapshot.system}</Paragraph></Card>}
+      {messages.length ? messages.map((message) => <MessageView key={message.id} message={message} />) : <Empty description="No message payload captured" />}
+    </Space> },
+    { key: 'tools', label: <>Tools <Tag>{snapshot.tools.length}</Tag></>, children: snapshot.tools.length ? <Space direction="vertical" style={{ display: 'flex' }}>{snapshot.tools.map((tool, index) => <Card key={tool.name + index} size="small" title={tool.name}><Paragraph>{tool.description}</Paragraph><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{json(tool.inputSchema ?? tool.raw)}</pre></Card>)}</Space> : <Empty description="No tools declared" /> },
+    { key: 'parameters', label: 'Parameters', children: <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }} items={Object.entries(snapshot.parameters).map(([key, value]) => ({ key, label: key, children: <Text code>{json(value)}</Text> }))} /> },
+    { key: 'raw', label: 'Raw payload', children: <Space direction="vertical" style={{ display: 'flex' }}><JsonPanel title="Request" value={snapshot.rawRequest} />{snapshot.rawResponse !== undefined && <JsonPanel title="Response" value={snapshot.rawResponse} />}</Space> },
+    ...(diff ? [{ key: 'diff', label: <>Context diff <Tag color={diff.changed || diff.added || diff.removed ? 'processing' : 'success'}>+{diff.added} / −{diff.removed} / ~{diff.changed}</Tag></>, children: diff.changes.length ? <Space direction="vertical" style={{ display: 'flex' }}>{diff.changes.map((change) => <Card key={change.index} size="small" title={<Space><Tag color={change.kind === 'added' ? 'green' : change.kind === 'removed' ? 'red' : change.kind === 'changed' ? 'orange' : 'default'}>{change.kind}</Tag>Message {change.index + 1}</Space>}><Text type="secondary">{change.changedFields?.join(', ')}</Text><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{json(change.after ?? change.before)}</pre></Card>)}</Space> : <Empty description="No message changes" /> }] : []),
+  ];
+  return <div className={className}>
+    <Card size="small" styles={{ body: { padding: 16 } }}>
+      <Space wrap size={[12, 8]} style={{ marginBottom: 12 }}>
+        <Text strong>{snapshot.model ?? 'LLM request'}</Text><Tag color="blue">{snapshot.provider}</Tag><Tag>{snapshot.messages.length} request messages</Tag><Tag>{snapshot.tools.length} tools</Tag>
+        {snapshot.usage && <Tag color="purple">{snapshot.usage.inputTokens ?? '—'} input / {snapshot.usage.outputTokens ?? '—'} output tokens</Tag>}
+      </Space>
+      {snapshot.usage && <Descriptions size="small" column={{ xs: 2, sm: 3, md: 5 }} items={[
+        { key: 'in', label: 'Input', children: snapshot.usage.inputTokens?.toLocaleString() ?? '—' },
+        { key: 'out', label: 'Output', children: snapshot.usage.outputTokens?.toLocaleString() ?? '—' },
+        { key: 'total', label: 'Total', children: snapshot.usage.totalTokens?.toLocaleString() ?? '—' },
+        { key: 'cached', label: 'Cached input', children: snapshot.usage.cachedInputTokens?.toLocaleString() ?? '—' },
+        { key: 'reasoning', label: 'Reasoning', children: snapshot.usage.reasoningTokens?.toLocaleString() ?? '—' },
+      ]} />}
+    </Card>
+    {snapshot.warnings.map((warning) => <Alert key={warning} style={{ marginTop: 8 }} type="warning" showIcon message={warning} />)}
+    <Tabs activeKey={activeKey} onChange={setActiveKey} items={tabs} style={{ marginTop: 12 }} />
+  </div>;
 }
