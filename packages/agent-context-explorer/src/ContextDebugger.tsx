@@ -124,7 +124,7 @@ export function ContextDebugger({ snapshot, previous, session, className }: Cont
         <Statistic title="Output tokens" value={totalOutput} />
       </Space>
     </Card>
-    {toolGraph.orphanResults.length > 0 && <Alert style={{ marginTop: 8 }} type="warning" showIcon message={toolGraph.orphanResults.length + ' tool result(s) could not be correlated to a captured tool call.' />}
+    {toolGraph.orphanResults.length > 0 && <Alert style={{ marginTop: 8 }} type="warning" showIcon message={toolGraph.orphanResults.length + ' tool result(s) could not be correlated to a captured tool call.'} />}
     <Tabs activeKey={activeKey} onChange={setActiveKey} items={tabs} style={{ marginTop: 12 }} />
   </div>;
 }
