@@ -82,7 +82,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const runStatus: ContextRun['status'] = /fail|error/i.test(event.status ?? '') ? 'failed' : /cancel/i.test(event.status ?? '') ? 'cancelled' : /abort/i.test(event.status ?? '') ? 'aborted' : completed ? 'completed' : 'running';
   const attempt = number(data.attempt);
   const actualModel = snapshot.model ?? event.model;
-  const requestId = string(data.requestId ?? data.serviceRequestId);
+  const requestId = string(data.requestId);
   return {
     id: string(data.runId ?? data.apiCallId ?? data.providerCallId) ?? event.id, sequence: event.sequence ?? 1,
     ...(event.sessionId ? { sessionId: event.sessionId } : {}),
@@ -162,7 +162,7 @@ function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOp
     ...(event.sessionId ? { sessionId: event.sessionId } : {}),
     ...(event.traceId ? { traceId: event.traceId } : {}),
     ...(event.turnId ? { turnId: event.turnId } : {}),
-    ...(string(data.runId ?? data.apiCallId ?? data.providerCallId) ? { runId: string(data.runId ?? data.apiCallId ?? data.providerCallId) } : {}),
+    ...(string(data.runId) ? { runId: string(data.runId) } : {}),
     ...(string(data.requestId) ? { requestId: string(data.requestId) } : {}),
     ...(string(data.apiCallId) ? { apiCallId: string(data.apiCallId) } : {}),
     ...(string(data.providerCallId) ? { providerCallId: string(data.providerCallId) } : {}),
@@ -281,7 +281,7 @@ export function contextSessionFromTrajectoryEvents(
       ...(toolName ? { toolName } : {}),
       ...(event.model ? { model: event.model } : {}),
       ...(status ? { status } : {}), ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
-      ...(string(details.apiCallId ?? details.providerCallId) ? { runId: string(details.apiCallId ?? details.providerCallId) } : {}),
+      ...(string(details.runId) ? { runId: string(details.runId) } : {}),
       summary: string(details.progressMessage ?? details.summary) ?? event.name,
       ...(details.arguments !== undefined ? { input: redactContextPayload(details.arguments, options.redactSecrets ?? true) } : {}),
       ...(details.resultPreview !== undefined ? { output: redactContextPayload(details.resultPreview, options.redactSecrets ?? true) } : {}),
