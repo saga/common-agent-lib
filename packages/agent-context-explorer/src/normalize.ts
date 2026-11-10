@@ -1,13 +1,14 @@
 import type { ContentPart, ContextMessage, ContextSnapshot, ContextTool, MessageRole, NormalizeOptions } from './model.js';
 
-const SECRET_KEY = /authorization|api[_-]?key|password|secret|cookie|credential|private[_-]?key|access[_-]?token/i;
-const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
+const SECRET_KEY = /authorization|(^|[_-])token($|[_-])|api[_-]?key|password|secret|cookie|credential|private[_-]?key/i;
+const BEARER = /\\bBearer\\s+[A-Za-z0-9._~+/-]+=*/gi;
 const obj = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
 const stringify = (value: unknown): string => { try { return typeof value === 'string' ? value : JSON.stringify(value, null, 2); } catch { return String(value); } };
-function safe(value: unknown, redact: boolean): unknown {
+function safe(value: unknown, redact: boolean, key = ''): unknown {
   if (!redact) return value;
+  if (SECRET_KEY.test(key)) return '[REDACTED]';
   if (Array.isArray(value)) return value.map((item) => safe(item, redact));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, SECRET_KEY.test(key) ? '[REDACTED]' : safe(item, redact)]));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([childKey, item]) => [childKey, safe(item, redact, childKey)]));
   return typeof value === 'string' ? value.replace(BEARER, 'Bearer [REDACTED]') : value;
 }
 function roleOf(value: unknown): MessageRole {
@@ -32,12 +33,14 @@ function partsOf(content: unknown): ContentPart[] {
   });
 }
 function messageOf(input: unknown, index: number, prefix: string, redact: boolean): ContextMessage {
-  const m = obj(input); const parts = partsOf(m.content ?? m.text ?? m.input);
+  const m = obj(input);
+  const inferredRole = m.role ?? (m.type === 'tool_use' ? 'assistant' : m.type === 'tool_result' ? 'tool' : m.type);
+  const parts = partsOf(m.content ?? m.text ?? m.input);
   for (const call of Array.isArray(m.tool_calls) ? m.tool_calls : []) { const fn = obj(call.function); parts.push({ kind: 'tool-call', id: call.id, name: String(fn.name ?? call.name ?? 'unknown'), arguments: fn.arguments ?? call.arguments ?? {} }); }
   if (m.type === 'tool_use' && !parts.some((part) => part.kind === 'tool-call')) parts.push({ kind: 'tool-call', id: m.id, name: String(m.name ?? 'unknown'), arguments: m.input ?? {} });
-  if ((m.type === 'tool_result' || (m.role === 'tool' && m.tool_call_id)) && !parts.some((part) => part.kind === 'tool-result')) parts.splice(0, parts.length, { kind: 'tool-result', toolCallId: m.tool_use_id ?? m.tool_call_id, name: m.name, content: m.content ?? m.output, isError: Boolean(m.is_error) });
+  if ((m.type === 'tool_result' || (m.role === 'tool' && (m.tool_call_id || m.tool_use_id))) && !parts.some((part) => part.kind === 'tool-result')) parts.splice(0, parts.length, { kind: 'tool-result', toolCallId: m.tool_use_id ?? m.tool_call_id, name: m.name, content: m.content ?? m.output, isError: Boolean(m.is_error) });
   return {
-    id: String(m.id ?? m.message_id ?? m.tool_call_id ?? (prefix + '-' + index)), index, role: roleOf(m.role ?? m.type),
+    id: String(m.id ?? m.message_id ?? m.tool_call_id ?? (prefix + '-' + index)), index, role: roleOf(inferredRole),
     ...(m.name ? { name: String(m.name) } : {}), ...(m.recipient ?? m.to ? { recipient: String(m.recipient ?? m.to) } : {}),
     ...(m.channel ?? (m.type && !['message', 'text'].includes(m.type)) ? { channel: String(m.channel ?? m.type) } : {}),
     ...(m.timestamp ? { timestamp: String(m.timestamp) } : {}), parts: parts.map((part) => safe(part, redact) as ContentPart),
@@ -70,15 +73,31 @@ export function normalizeContext(request: unknown, response?: unknown, options: 
   const msgs = requestMessages(req).map((m, i) => messageOf(m, i, 'request', redact));
   const outputs = responseMessages(res).map((m, i) => messageOf(m, i, 'response', redact));
   const usage = obj(res.usage ?? obj(res.choices?.[0]).usage);
-  const input = usage.input_tokens ?? usage.prompt_tokens; const output = usage.output_tokens ?? usage.completion_tokens;
-  const cached = usage.cache_read_input_tokens ?? obj(usage.prompt_tokens_details).cached_tokens;
-  const reasoning = obj(usage.output_tokens_details).reasoning_tokens;
-  const system = typeof req.system === 'string' ? req.system : msgs.filter((m) => m.role === 'system' || m.role === 'developer').map((m) => m.parts.map((p) => p.kind === 'text' ? p.text : '').join('')).join('\n\n') || undefined;
+  const input = usage.input_tokens ?? usage.prompt_tokens;
+  const output = usage.output_tokens ?? usage.completion_tokens;
+  const cached = usage.cache_read_input_tokens ?? usage.cached_input_tokens ?? obj(usage.prompt_tokens_details).cached_tokens ?? obj(usage.input_tokens_details).cached_tokens;
+  const cacheWrite = usage.cache_creation_input_tokens ?? usage.cache_write_input_tokens;
+  const reasoning = obj(usage.output_tokens_details).reasoning_tokens ?? usage.reasoning_tokens;
+  const total = usage.total_tokens;
+  const system = typeof req.system === 'string' ? req.system : msgs.filter((m) => m.role === 'system' || m.role === 'developer').map((m) => m.parts.map((p) => p.kind === 'text' ? p.text : '').join('')).join('\\n\\n') || undefined;
   const warnings: string[] = [];
   if (!msgs.length) warnings.push('No messages/input array was found in the request payload.');
   if (response !== undefined && !outputs.length) warnings.push('Response payload did not contain a recognized message/output shape.');
   if (options.includeRaw === false) warnings.push('Raw provider payloads were omitted by configuration.');
-  const params = Object.fromEntries(['temperature', 'top_p', 'top_k', 'max_tokens', 'max_completion_tokens', 'stop', 'stream', 'response_format', 'tool_choice'].filter((key) => req[key] !== undefined).map((key) => [key, req[key]]));
+  const parameterKeys = ['temperature', 'top_p', 'top_k', 'max_tokens', 'max_completion_tokens', 'stop', 'stream', 'response_format', 'tool_choice', 'reasoning_effort', 'effort'];
+  const params = Object.fromEntries(parameterKeys.filter((key) => req[key] !== undefined).map((key) => [key, req[key]]));
+  const finishReason = res.choices?.[0]?.finish_reason ?? res.stop_reason ?? res.status;
+  const usageData = typeof input === 'number' || typeof output === 'number' || typeof total === 'number' ? {
+    ...(typeof input === 'number' ? { inputTokens: input } : {}),
+    ...(typeof output === 'number' ? { outputTokens: output } : {}),
+    ...(typeof total === 'number' ? { totalTokens: total } : {}),
+    ...(typeof cached === 'number' ? { cachedInputTokens: cached } : {}),
+    ...(typeof cacheWrite === 'number' ? { cacheWriteTokens: cacheWrite } : {}),
+    ...(typeof reasoning === 'number' ? { reasoningTokens: reasoning } : {}),
+    ...(typeof usage.premium_request_cost === 'number' ? { premiumRequestCost: usage.premium_request_cost } : {}),
+    ...(typeof usage.total_nano_aiu === 'number' ? { totalNanoAiu: usage.total_nano_aiu } : {}),
+    source: 'provider-event' as const,
+  } : undefined;
   return {
     id: options.id ?? String(req.id ?? res.id ?? ('context-' + Date.now())),
     provider: options.provider ?? (Array.isArray(req.messages) ? 'openai-compatible' : Array.isArray(req.input) ? 'responses-compatible' : 'generic'),
@@ -88,10 +107,8 @@ export function normalizeContext(request: unknown, response?: unknown, options: 
     ...(system ? { system } : {}), rawRequest: options.includeRaw === false ? null : safe(request, redact),
     ...(response !== undefined && options.includeRaw !== false ? { rawResponse: safe(response, redact) } : {}),
     responseMessages: outputs,
-    ...(typeof input === 'number' || typeof output === 'number' ? { usage: {
-      ...(typeof input === 'number' ? { inputTokens: input } : {}), ...(typeof output === 'number' ? { outputTokens: output } : {}),
-      ...(typeof usage.total_tokens === 'number' ? { totalTokens: usage.total_tokens } : {}),
-      ...(typeof cached === 'number' ? { cachedInputTokens: cached } : {}), ...(typeof reasoning === 'number' ? { reasoningTokens: reasoning } : {}),
-    } } : {}), warnings,
+    ...(usageData ? { usage: { ...usageData, ...(typeof finishReason === 'string' ? { finishReason } : {}), ...(typeof req.reasoning_effort === 'string' ? { reasoningEffort: req.reasoning_effort } : {}) } } : {}),
+    ...(options.provenance ? { provenance: options.provenance } : {}),
+    warnings,
   };
 }
