@@ -26,8 +26,15 @@ function usageOf(value: unknown): ModelCallUsage | undefined {
   for (const field of ['providerCostUnit', 'finishReason', 'reasoningEffort'] as const) { const s = string(usage[field]); if (s) result[field] = s; }
   if (usage.source === 'provider-event' || usage.source === 'session-metrics' || usage.source === 'unknown') result.source = usage.source;
   if (usage.byModel && typeof usage.byModel === 'object' && !Array.isArray(usage.byModel)) {
-    result.byModel = Object.fromEntries(Object.entries(usage.byModel as Record<string, unknown>)
-      .map(([model, counts]) => [model, usageOf(counts)]).filter((entry) => entry[1] !== undefined));
+    const byModel: Record<string, Omit<ModelCallUsage, 'model' | 'byModel'>> = {};
+    for (const [model, counts] of Object.entries(usage.byModel as Record<string, unknown>)) {
+      const normalized = usageOf(counts);
+      if (!normalized) continue;
+      const { byModel: nested, model: ignoredModel, ...metrics } = normalized;
+      void nested; void ignoredModel;
+      byModel[model] = metrics;
+    }
+    if (Object.keys(byModel).length) result.byModel = byModel;
   }
   if (Object.keys(result).length) return result as ModelCallUsage;
   return undefined;
@@ -71,17 +78,20 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const usage = usageOf(event.usage) ?? usageOf(snapshot.usage);
   const contextUsage = contextUsageOf(event.contextUsage);
   const completed = response !== undefined || /completed|success|finished/i.test(event.status ?? '');
+  const attempt = number(data.attempt);
+  const actualModel = snapshot.model ?? event.model;
+  const requestId = string(data.requestId);
   return {
     id: string(data.runId) ?? event.id, sequence: event.sequence ?? 1,
     ...(event.sessionId ? { sessionId: event.sessionId } : {}),
     ...(event.turnId ? { turnId: event.turnId } : {}),
-    ...(string(data.requestId) ? { requestId: string(data.requestId) } : {}),
+    ...(requestId ? { requestId } : {}),
     ...(string(data.parentRunId) ? { parentRunId: string(data.parentRunId) } : {}),
     ...(string(data.stage) ? { stage: string(data.stage) } : {}),
-    ...(number(data.attempt) !== undefined ? { attempt: number(data.attempt) } : {}),
+    ...(attempt !== undefined ? { attempt } : {}),
     ...(event.provider ? { provider: event.provider } : {}),
     ...(event.model ? { model: event.model } : {}),
-    ...((snapshot.model ?? event.model) ? { actualModel: snapshot.model ?? event.model } : {}),
+    ...(actualModel ? { actualModel } : {}),
     startedAt: event.timestamp,
     ...(completed ? { completedAt: string(data.completedAt) ?? event.timestamp } : {}),
     status: /fail|error/i.test(event.status ?? '') ? 'failed' : completed ? 'completed' : 'running',
