@@ -25,3 +25,8 @@ The explorer does not own trace storage, authorization, prompt construction, mod
 ## Consequences
 
 The UI can be embedded in existing React applications without adopting Langfuse or another hosted platform. Provider-specific adapters can be added as payload formats evolve. Trace integration remains an application-level composition rather than a dependency cycle.
+
+
+## Session-level extension
+
+See ADR 0013 for the session debugger model, chronological timeline, tool-call correlation and compaction analysis.

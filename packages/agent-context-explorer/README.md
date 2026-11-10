@@ -1,43 +1,59 @@
 # @saga/agent-context-explorer
 
-Provider-neutral inspection models and reusable Ant Design and Ant Design X UI for understanding what an LLM request contains and what the provider returned.
+Provider-neutral LLM request/response inspection and session-level Agent debugging UI built with Ant Design and Ant Design X.
 
-The package normalizes OpenAI Chat Completions, Responses-style arrays, Anthropic-style messages/content blocks and generic message payloads. It renders roles, channels, text, thinking blocks, images, tool calls/results, refusals, JSON and unknown multimodal blocks while retaining their raw representation. It exposes tool schemas, model parameters, usage, raw request/response and message-level context diffing.
+The package normalizes OpenAI Chat Completions, Responses-style arrays, Anthropic-style messages/content blocks and generic message payloads. It exposes structured messages, tools, parameters, raw payloads and usage. The session debugger adds a chronological LLM-call timeline, correlated tool execution graph, run-level token accounting, context diffs and before/after compaction analysis.
 
-This is a viewer and normalization layer, not an Agent runtime, trace backend, prompt builder or model SDK wrapper. It has no dependency on provider SDKs, databases or tracing vendors. React, Ant Design and Ant Design X are peer dependencies; the normalized model can be used without rendering the component.
-
-## Install and use
+## Install
 
 ```bash
-npm install @saga/agent-context-explorer react
+npm install @saga/agent-context-explorer react antd @ant-design/x
 ```
+
+## Single exchange
 
 ```tsx
 import { normalizeContext, ContextExplorer } from '@saga/agent-context-explorer';
 
-const snapshot = normalizeContext(capturedRequest, capturedResponse, {
-  provider: 'openai-compatible',
-  redactSecrets: true,
-});
-
-<ContextExplorer snapshot={snapshot} previous={previousSnapshot} />;
+const snapshot = normalizeContext(request, response, { provider: 'openai-compatible' });
+<ContextExplorer snapshot={snapshot} />;
 ```
 
-The inspector uses Ant Design for layout, tabs, metadata, alerts and structured panels, and Ant Design X Bubble for conversational message rendering. The host application owns the global Ant Design theme and CSS reset.
+## Agent session debugger
 
-## Capture boundary
+```tsx
+import { ContextDebugger, type ContextSession } from '@saga/agent-context-explorer';
 
-Capture at the provider transport boundary whenever possible. This is the only reliable point to inspect the final serialized message list, tool schemas and parameters after host-side context assembly. If only application conversation history is available, label it as such; it may differ from the payload actually sent to the model.
+const session: ContextSession = {
+  id: 'session-123',
+  runs: [{ id: 'run-1', sequence: 1, startedAt, completedAt, status: 'completed', snapshot }],
+  events: [
+    { id: 'event-1', type: 'tool-call', timestamp, toolCallId: 'call-1', toolName: 'search', status: 'started' },
+    { id: 'event-2', type: 'tool-result', timestamp: resultAt, toolCallId: 'call-1', toolName: 'search', status: 'completed', output: result },
+  ],
+  compactions: [{ id: 'compact-1', timestamp, reason: 'Context budget threshold', before, after, strategy: 'summary-and-prune' }],
+};
+<ContextDebugger session={session} />;
+```
 
-The package intentionally does not depend on @saga/agent-tracing. The host can query its trace store, select a model-call event, extract request/response payloads and pass them to normalizeContext. Trace IDs, event relationships and persistence remain in the tracing layer.
+## Data model and responsibilities
+
+- `ContextRun` is one actual provider request/response, including the normalized snapshot and per-call usage.
+- `ContextEvent` carries runtime events that may not be present in provider payloads: tool lifecycle, retries, errors and custom trace events.
+- `ContextSession` groups ordered model calls, runtime events and compaction snapshots under one Agent session/trace.
+- `buildToolCallGraph` correlates tool calls and results using provider call IDs. It reports unmatched results rather than silently dropping them.
+- `buildContextTimeline` merges run, event and compaction records into chronological order.
+- `analyzeCompaction` compares before/after message sets and provider-reported input token counts. It does not estimate tokens.
+
+Capture at the provider transport boundary whenever possible. Runtime events should be emitted by the host or tracing integration; the explorer does not intercept SDKs, persist traces or infer missing events. The host owns event ordering, trace identity, permissions, retention and data classification.
 
 ## Privacy and limitations
 
-Secret-shaped object keys and Bearer values are redacted by default. Raw prompts and responses remain visible because they are the subject of inspection. Do not capture credentials, customer data or hidden reasoning unless the host's data policy permits it. Redaction is a defensive default, not authorization, retention control or encryption. Set includeRaw: false to omit raw provider payloads while retaining normalized messages.
+Secret-shaped keys and Bearer values are redacted by default during normalization. Raw prompts and responses remain visible because they are the subject of inspection. Redaction is a defensive default, not authorization, retention control or encryption. Hidden reasoning is displayed only if explicitly present in captured payloads; the package never retrieves or reconstructs it.
 
-Thinking/reasoning blocks are displayed only when present in captured payloads. The package does not retrieve hidden chain-of-thought. Unknown blocks are retained rather than silently discarded. Token counts are shown only when reported by the provider; no text-length estimate is presented as token usage. Images are represented by their URL/data reference and metadata; remote assets are not fetched.
+Tool correlation requires stable tool-call IDs. A missing result is shown as pending; a result with no matching call is surfaced as an orphan. Compaction analysis is only as accurate as the before/after snapshots supplied by the host. Token reduction is shown only when provider-reported usage exists.
 
-Diff is order/index based. It exposes insertions and deletions instead of guessing semantic identity.
+React, Ant Design and Ant Design X are peer dependencies. The host application owns global theme configuration and CSS reset.
 
 ## Development
 
