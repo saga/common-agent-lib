@@ -233,15 +233,23 @@ export function contextSessionFromTrajectoryEvents(
     const details = object(event.details);
     const status = ['started', 'completed', 'failed', 'waiting', 'info', 'cancelled'].includes(event.status ?? '')
       ? event.status as ContextEvent['status'] : undefined;
+    const requestId = string(details.requestId);
+    const toolCallId = string(details.toolCallId);
+    const parentToolCallId = string(details.parentToolCallId);
+    const agentId = string(details.agentId);
+    const mcpServerName = string(details.mcpServerName);
+    const mcpToolName = string(details.mcpToolName);
+    const toolName = string(details.toolName ?? details.tool ?? details.mcpToolName);
     return {
       id: event.id, type: trajectoryType(event.type), timestamp: event.timestamp,
       sessionId, turnId: event.turnId,
-      ...(string(details.requestId) ? { correlationId: string(details.requestId) } : {}),
-      ...(string(details.toolCallId) ? { toolCallId: string(details.toolCallId) } : {}),
-      ...(string(details.parentToolCallId) ? { parentToolCallId: string(details.parentToolCallId) } : {}),
-      ...(string(details.agentId) ? { agentId: string(details.agentId) } : {}),
-      ...(string(details.mcpServerName) ? { mcpServerName: string(details.mcpServerName) } : {}),
-      ...(string(details.mcpToolName ?? details.tool) ? { mcpToolName: string(details.mcpToolName ?? details.tool), toolName: string(details.toolName ?? details.tool ?? details.mcpToolName) } : {}),
+      ...(requestId ? { correlationId: requestId } : {}),
+      ...(toolCallId ? { toolCallId } : {}),
+      ...(parentToolCallId ? { parentToolCallId } : {}),
+      ...(agentId ? { agentId } : {}),
+      ...(mcpServerName ? { mcpServerName } : {}),
+      ...(mcpToolName ? { mcpToolName } : {}),
+      ...(toolName ? { toolName } : {}),
       ...(event.model ? { model: event.model } : {}),
       ...(status ? { status } : {}), ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
       summary: event.name,
