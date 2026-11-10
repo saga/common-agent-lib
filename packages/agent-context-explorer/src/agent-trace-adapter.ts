@@ -186,7 +186,7 @@ export function contextSessionsFromAgentEvents(
       ...(ordered[0]?.timestamp ? { startedAt: ordered[0].timestamp } : {}),
       ...(ordered.at(-1)?.timestamp ? { updatedAt: ordered.at(-1)!.timestamp } : {}),
       runs, events: ordered.map(toContextEvent),
-      compactions: [],
+      compactions: compactionsFromAgentEvents(ordered, options),
       metadata: { source: '@saga/agent-tracing', eventCount: ordered.length },
     };
   });
