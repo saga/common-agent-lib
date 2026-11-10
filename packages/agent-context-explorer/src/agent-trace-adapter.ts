@@ -253,7 +253,7 @@ export function contextSessionFromTrajectoryEvents(
     const details = object(event.details);
     const status = ['started', 'running', 'completed', 'failed', 'waiting', 'info', 'cancelled', 'aborted'].includes(event.status ?? '')
       ? event.status as ContextEvent['status'] : undefined;
-    const requestId = string(details.requestId ?? details.serviceRequestId);
+    const requestId = string(details.serviceRequestId ?? details.requestId ?? details.apiCallId ?? details.providerCallId);
     const toolCallId = string(details.toolCallId);
     const parentToolCallId = string(details.parentToolCallId);
     const agentId = string(details.agentId);
