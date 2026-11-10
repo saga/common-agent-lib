@@ -1,7 +1,7 @@
 {
   "name": "@saga/agent-context-explorer",
   "version": "0.1.0",
-  "description": "Provider-neutral LLM request, response and context inspection with reusable React views.",
+  "description": "Provider-neutral LLM context inspection, saga trace adapters and session-level Agent debugging UI.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
