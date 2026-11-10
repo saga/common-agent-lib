@@ -31,3 +31,13 @@ test('analyzes messages and token delta across compaction', () => {
   assert.equal(result.tokenReduction, 60);
   assert.equal(result.tokenReductionPercent, 60);
 });
+
+test('correlates out-of-order tool lifecycle events by stable call id', () => {
+  const graph = buildToolCallGraph([], [
+    { id: 'result', type: 'tool-result', timestamp: '2026-01-01T00:00:02Z', toolCallId: 'call-1', status: 'completed', output: 'ok' },
+    { id: 'call', type: 'tool-call', timestamp: '2026-01-01T00:00:01Z', toolCallId: 'call-1', toolName: 'search', status: 'started' },
+  ]);
+  assert.equal(graph.nodes[0]?.status, 'completed');
+  assert.equal(graph.nodes[0]?.result, 'ok');
+  assert.equal(graph.orphanResults.length, 0);
+});
