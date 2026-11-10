@@ -79,6 +79,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const usage = usageOf(event.usage) ?? usageOf(snapshot.usage);
   const contextUsage = contextUsageOf(event.contextUsage);
   const completed = response !== undefined || /completed|success|finished/i.test(event.status ?? '');
+  const runStatus: ContextRun['status'] = /fail|error/i.test(event.status ?? '') ? 'failed' : /cancel/i.test(event.status ?? '') ? 'cancelled' : /abort/i.test(event.status ?? '') ? 'aborted' : completed ? 'completed' : 'running';
   const attempt = number(data.attempt);
   const actualModel = snapshot.model ?? event.model;
   const requestId = string(data.requestId ?? data.serviceRequestId);
@@ -99,7 +100,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
     ...(string(data.initiator) ? { initiator: string(data.initiator) } : {}),
     startedAt: event.timestamp,
     ...(completed ? { completedAt: string(data.completedAt) ?? event.timestamp } : {}),
-    status: /fail|error/i.test(event.status ?? '') ? 'failed' : completed ? 'completed' : 'running',
+    status: runStatus,
     snapshot, ...(usage ? { usage } : {}), ...(contextUsage ? { contextUsage } : {}),
     payloadComplete: event.payloadComplete ?? (request !== undefined && response !== undefined || Object.keys(embedded).length > 0),
     ...(data.provenance && typeof data.provenance === 'object' ? { provenance: data.provenance } : {}),
@@ -154,7 +155,7 @@ function compactionsFromAgentEvents(events: readonly AgentTraceEventLike[], opti
 function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOptions): ContextEvent {
   const data = object(event.data);
   const mappedType = eventType(event.type);
-  const status = ['started', 'completed', 'failed', 'cancelled', 'waiting', 'info'].includes(event.status ?? '')
+  const status = ['started', 'running', 'completed', 'failed', 'cancelled', 'aborted', 'waiting', 'info'].includes(event.status ?? '')
     ? event.status as ContextEvent['status'] : undefined;
   return {
     id: event.id, type: mappedType, timestamp: event.timestamp,
@@ -249,7 +250,7 @@ export function contextSessionFromTrajectoryEvents(
     (sourceTurnIds[0] ? 'trajectory:' + sourceTurnIds[0] : 'trajectory:unscoped');
   const contextEvents: ContextEvent[] = ordered.map((event) => {
     const details = object(event.details);
-    const status = ['started', 'completed', 'failed', 'waiting', 'info', 'cancelled'].includes(event.status ?? '')
+    const status = ['started', 'running', 'completed', 'failed', 'waiting', 'info', 'cancelled', 'aborted'].includes(event.status ?? '')
       ? event.status as ContextEvent['status'] : undefined;
     const requestId = string(details.requestId ?? details.serviceRequestId);
     const toolCallId = string(details.toolCallId);
@@ -321,7 +322,7 @@ export function contextSessionFromTrajectoryEvents(
       provider: options.provider ?? snapshot.provider,
       startedAt: event.timestamp,
       ...(response !== undefined || event.status === 'completed' ? { completedAt: event.timestamp } : {}),
-      status: event.status === 'failed' ? 'failed' : response !== undefined || event.status === 'completed' ? 'completed' : 'running',
+      status: event.status === 'failed' ? 'failed' : event.status === 'cancelled' ? 'cancelled' : event.status === 'aborted' ? 'aborted' : response !== undefined || event.status === 'completed' ? 'completed' : 'running',
       snapshot, ...(usage ? { usage } : {}), ...(contextUsage ? { contextUsage } : {}),
       ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
       ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
