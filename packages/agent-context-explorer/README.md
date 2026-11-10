@@ -149,7 +149,7 @@ The package consumes records; it does not prescribe a storage engine. JSONL is a
 }
 ~~~
 
-Use one event envelope consistently across runtime events. Keep \`sessionId\`, \`traceId\`, \`turnId\`, \`requestId\`, provider call IDs and \`correlationId\` as distinct identities; do not put a turn ID into the trace or session field to fill a missing value. When a source has no session identity (the current Agentic Data Architect trajectory contract has \`turnId\` but no \`sessionId\`), the adapter creates an explicitly synthetic \`trajectory:<turnId>\` session key and retains original turn IDs in metadata.
+Use one event envelope consistently across runtime events. Keep `sessionId`, `traceId`, `turnId`, `requestId`, provider call IDs and `correlationId` as distinct identities; do not put a turn ID into the trace or session field to fill a missing value. When a source has no session identity (the current Agentic Data Architect trajectory contract has `turnId` but no `sessionId`), the adapter creates an explicitly synthetic `trajectory:<turnId>` session key and retains original turn IDs in metadata.
 
 The required minimum for lifecycle diagnosis is event identity, timestamp, event type, status, and available session/turn/tool correlation IDs. For request inspection, additionally capture the actual provider request and response. A complete replay/debug record should also include provider/model identity, request/response IDs, timing, usage, context-window occupancy, tool arguments/results, and provenance revisions. Missing fields stay absent; do not estimate token counts, cost, or model identity.
 
