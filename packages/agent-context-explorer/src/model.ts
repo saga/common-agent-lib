@@ -14,44 +14,90 @@ export interface ContextMessage {
   timestamp?: string; parts: ContentPart[]; raw: unknown; tokenCount?: number; metadata: Record<string, unknown>;
 }
 export interface ContextTool { name: string; description?: string; inputSchema?: unknown; raw: unknown }
-export interface ContextUsage { inputTokens?: number; outputTokens?: number; totalTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
+
+/** Provider-reported consumption for one model call. Missing measurements remain absent. */
+export interface ModelCallUsage {
+  model?: string; inputTokens?: number; outputTokens?: number; totalTokens?: number;
+  cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number;
+  premiumRequestCost?: number; totalNanoAiu?: number; providerCost?: number; providerCostUnit?: string;
+  durationMs?: number; finishReason?: string; reasoningEffort?: string;
+  timeToFirstTokenMs?: number; interTokenLatencyMs?: number;
+  source?: 'provider-event' | 'session-metrics' | 'unknown';
+  byModel?: Record<string, Omit<ModelCallUsage, 'model' | 'byModel'>>;
+}
+/** Context-window occupancy is a snapshot, not token consumption. */
+export interface ContextUsage {
+  currentTokens?: number; tokenLimit?: number; messagesLength?: number; percent?: number;
+}
+export interface ContextProvenance {
+  sourceRevision?: string; promptRevision?: string; pipelineVersion?: string;
+  configurationRevision?: string; memoryRevision?: string; contextHash?: string;
+  inputIds?: string[]; schemaVersion?: string; initiator?: string; scope?: string;
+}
 export interface ContextSnapshot {
   id: string; provider: string; model?: string; createdAt?: string;
   messages: ContextMessage[]; tools: ContextTool[]; parameters: Record<string, unknown>;
   system?: string; rawRequest: unknown; rawResponse?: unknown; responseMessages: ContextMessage[];
-  usage?: ContextUsage; warnings: string[];
+  usage?: ModelCallUsage; warnings: string[]; provenance?: ContextProvenance;
 }
-export interface NormalizeOptions { provider?: string; id?: string; redactSecrets?: boolean; includeRaw?: boolean }
+export interface NormalizeOptions { provider?: string; id?: string; redactSecrets?: boolean; includeRaw?: boolean; provenance?: ContextProvenance }
 export interface MessageChange {
   index: number; kind: 'added' | 'removed' | 'changed' | 'unchanged';
   before?: ContextMessage; after?: ContextMessage; changedFields?: string[];
 }
 export interface ContextDiff { added: number; removed: number; changed: number; unchanged: number; changes: MessageChange[] }
 
-export type ContextEventType = 'llm-request' | 'llm-response' | 'tool-call' | 'tool-result' | 'compaction' | 'retry' | 'error' | 'custom';
+export type ContextEventType =
+  | 'user-input' | 'turn-start' | 'turn-end' | 'assistant-turn-start' | 'assistant-turn-end'
+  | 'llm-request' | 'llm-response' | 'tool-call' | 'tool-progress' | 'tool-result'
+  | 'permission' | 'permission-completed' | 'user-input-requested' | 'user-input-completed'
+  | 'compaction' | 'context-changed' | 'retry' | 'checkpoint' | 'session-idle'
+  | 'session-error' | 'stage-gate' | 'error' | 'custom';
+export type ContextEventStatus = 'started' | 'completed' | 'failed' | 'cancelled' | 'waiting' | 'info';
 export interface ContextEvent {
-  id: string; type: ContextEventType; timestamp: string; sessionId?: string; runId?: string;
-  parentEventId?: string; toolCallId?: string; toolName?: string; status?: 'started' | 'completed' | 'failed' | 'cancelled';
-  durationMs?: number; summary?: string; input?: unknown; output?: unknown; metadata?: Record<string, unknown>;
+  id: string; type: ContextEventType; timestamp: string;
+  sessionId?: string; traceId?: string; turnId?: string; runId?: string;
+  correlationId?: string; parentEventId?: string; sequence?: number;
+  agentId?: string; category?: string; provider?: string; model?: string;
+  toolCallId?: string; parentToolCallId?: string; toolName?: string;
+  mcpServerName?: string; mcpToolName?: string;
+  status?: ContextEventStatus; durationMs?: number; summary?: string;
+  input?: unknown; output?: unknown; data?: unknown; metadata?: Record<string, unknown>;
+  usage?: ModelCallUsage; contextUsage?: ContextUsage; payloadComplete?: boolean;
 }
 export interface ContextRun {
-  id: string; sequence: number; startedAt: string; completedAt?: string;
-  status: 'running' | 'completed' | 'failed' | 'cancelled'; snapshot: ContextSnapshot;
-  inputTokens?: number; outputTokens?: number; metadata?: Record<string, unknown>;
+  id: string; sequence: number; sessionId?: string; turnId?: string;
+  requestId?: string; parentRunId?: string; stage?: string; attempt?: number;
+  provider?: string; model?: string; actualModel?: string;
+  startedAt: string; completedAt?: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled' | 'aborted';
+  snapshot: ContextSnapshot; usage?: ModelCallUsage; contextUsage?: ContextUsage;
+  provenance?: ContextProvenance; inputTokens?: number; outputTokens?: number;
+  metadata?: Record<string, unknown>;
 }
 export interface ContextCompaction {
   id: string; timestamp: string; reason?: string; strategy?: string;
   before: ContextSnapshot; after: ContextSnapshot; summary?: string;
-  removedMessageIds?: string[]; preservedMessageIds?: string[]; metadata?: Record<string, unknown>;
+  removedMessageIds?: string[]; preservedMessageIds?: string[];
+  preCompactionTokens?: number; postCompactionTokens?: number; tokensRemoved?: number;
+  messagesRemoved?: number; durationMs?: number; requestId?: string;
+  status?: 'completed' | 'failed'; error?: string; metadata?: Record<string, unknown>;
 }
 export interface ContextSession {
-  id: string; traceId?: string; startedAt?: string; updatedAt?: string;
-  runs: ContextRun[]; events: ContextEvent[]; compactions: ContextCompaction[];
-  metadata?: Record<string, unknown>;
+  id: string; traceId?: string; correlationId?: string; agentId?: string;
+  startedAt?: string; updatedAt?: string; runs: ContextRun[];
+  events: ContextEvent[]; compactions: ContextCompaction[];
+  provenance?: ContextProvenance; metadata?: Record<string, unknown>;
 }
 export interface ToolCallNode {
   id: string; name: string; arguments: unknown; messageId: string; messageIndex: number;
   result?: unknown; resultMessageId?: string; status: 'pending' | 'completed' | 'failed';
-  isError?: boolean; parentToolCallId?: string; durationMs?: number;
+  isError?: boolean; parentToolCallId?: string; agentId?: string;
+  mcpServerName?: string; mcpToolName?: string; startedAt?: string; completedAt?: string;
+  durationMs?: number; progress: Array<{ timestamp: string; message?: unknown; data?: unknown }>;
 }
-export interface ToolCallGraph { nodes: ToolCallNode[]; roots: string[]; orphanResults: Array<{ toolCallId?: string; messageId: string; content: unknown }> }
+export interface ToolCallGraph {
+  nodes: ToolCallNode[];
+  roots: string[];
+  orphanResults: Array<{ toolCallId?: string; messageId: string; content: unknown }>;
+}
