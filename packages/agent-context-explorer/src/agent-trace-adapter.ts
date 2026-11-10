@@ -292,11 +292,14 @@ export function contextSessionFromTrajectoryEvents(
     const eventRecord = contextEvents.find((item) => item.id === event.id);
     const usage = usageOf(eventRecord?.usage) ?? usageOf(snapshot.usage);
     const contextUsage = contextUsageOf(eventRecord?.contextUsage);
+    const requestId = string(details.serviceRequestId ?? details.requestId ?? details.apiCallId ?? details.providerCallId);
+    const actualModel = snapshot.model ?? event.model;
     runs.push({
       id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
       sequence: runs.length + 1, sessionId, turnId: event.turnId,
-      ...(string(details.requestId) ? { requestId: string(details.requestId)! } : {}),
-      ...(event.model ? { model: event.model, actualModel: snapshot.model ?? event.model } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(event.model ? { model: event.model } : {}),
+      ...(actualModel ? { actualModel } : {}),
       provider: options.provider ?? snapshot.provider,
       startedAt: event.timestamp,
       ...(response !== undefined || event.status === 'completed' ? { completedAt: event.timestamp } : {}),
