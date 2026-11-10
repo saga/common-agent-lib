@@ -53,7 +53,7 @@ export type ContextEventType =
   | 'permission' | 'permission-completed' | 'user-input-requested' | 'user-input-completed'
   | 'compaction' | 'context-changed' | 'retry' | 'checkpoint' | 'session-idle'
   | 'session-error' | 'stage-gate' | 'error' | 'custom';
-export type ContextEventStatus = 'started' | 'completed' | 'failed' | 'cancelled' | 'waiting' | 'info';
+export type ContextEventStatus = 'started' | 'running' | 'completed' | 'failed' | 'cancelled' | 'aborted' | 'waiting' | 'info';
 export interface ContextEvent {
   id: string; type: ContextEventType; timestamp: string;
   sessionId?: string; traceId?: string; turnId?: string; runId?: string;
