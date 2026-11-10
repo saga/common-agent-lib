@@ -148,3 +148,97 @@ export function contextSessionsFromAgentEvents(
     };
   });
 }
+
+
+/** Structural form of agentic-data-architect TrajectoryEvent. */
+export interface TrajectoryEventLike {
+  id: string; turnId: string; timestamp: string; type: string; name: string;
+  status?: string; durationMs?: number; model?: string; inputTokens?: number; outputTokens?: number;
+  premiumRequestCost?: number; details?: Record<string, unknown>;
+}
+function trajectoryType(type: string): ContextEventType {
+  const map: Record<string, ContextEventType> = {
+    user_input: 'user-input', turn_start: 'turn-start', assistant_turn_start: 'assistant-turn-start',
+    assistant_turn_end: 'assistant-turn-end', model_call: 'llm-request', tool_call: 'tool-call',
+    tool_progress: 'tool-progress', tool_result: 'tool-result', permission: 'permission',
+    permission_completed: 'permission-completed', user_input_requested: 'user-input-requested',
+    user_input_completed: 'user-input-completed', compaction: 'compaction',
+    session_idle: 'session-idle', session_error: 'session-error', context_changed: 'context-changed',
+    turn_end: 'turn-end', error: 'error', checkpoint: 'checkpoint', stage_gate: 'stage-gate',
+  };
+  return map[type] ?? 'custom';
+}
+/** Adapt agentic-data-architect trajectory records without pretending absent provider payloads are available. */
+export function contextSessionFromTrajectoryEvents(
+  events: readonly TrajectoryEventLike[],
+  options: { sessionId?: string; provider?: string; includeRaw?: boolean; redactSecrets?: boolean } = {},
+): ContextSession {
+  const ordered = [...events].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const firstDetails = object(ordered[0]?.details);
+  const sessionId = options.sessionId ?? string(firstDetails.sessionId) ?? ordered[0]?.turnId ?? 'trajectory-session';
+  const contextEvents: ContextEvent[] = ordered.map((event) => {
+    const details = object(event.details);
+    const status = ['started', 'completed', 'failed', 'waiting', 'info', 'cancelled'].includes(event.status ?? '')
+      ? event.status as ContextEvent['status'] : undefined;
+    return {
+      id: event.id, type: trajectoryType(event.type), timestamp: event.timestamp,
+      sessionId, turnId: event.turnId,
+      ...(string(details.requestId) ? { correlationId: string(details.requestId) } : {}),
+      ...(string(details.toolCallId) ? { toolCallId: string(details.toolCallId) } : {}),
+      ...(string(details.parentToolCallId) ? { parentToolCallId: string(details.parentToolCallId) } : {}),
+      ...(string(details.agentId) ? { agentId: string(details.agentId) } : {}),
+      ...(string(details.mcpServerName) ? { mcpServerName: string(details.mcpServerName) } : {}),
+      ...(string(details.mcpToolName ?? details.tool) ? { mcpToolName: string(details.mcpToolName ?? details.tool), toolName: string(details.toolName ?? details.tool ?? details.mcpToolName) } : {}),
+      ...(event.model ? { model: event.model } : {}),
+      ...(status ? { status } : {}), ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+      summary: event.name,
+      ...(details.arguments !== undefined ? { input: details.arguments } : {}),
+      ...(details.resultPreview !== undefined ? { output: details.resultPreview } : {}),
+      data: event.details,
+      ...(event.type === 'model_call' ? { usage: usageOf({
+        inputTokens: event.inputTokens, outputTokens: event.outputTokens,
+        premiumRequestCost: event.premiumRequestCost,
+        cachedInputTokens: details.cachedInputTokens, cacheWriteTokens: details.cacheWriteTokens,
+        reasoningTokens: details.reasoningTokens, totalNanoAiu: details.totalNanoAiu,
+        durationMs: event.durationMs, timeToFirstTokenMs: details.timeToFirstTokenMs,
+        interTokenLatencyMs: details.interTokenLatencyMs, finishReason: details.finishReason,
+        reasoningEffort: details.reasoningEffort, source: 'provider-event',
+      }) } : {}),
+    };
+  });
+  const runs: ContextRun[] = [];
+  for (const event of ordered) {
+    if (event.type !== 'model_call') continue;
+    const details = object(event.details);
+    const request = details.request ?? details.requestPayload ?? details.rawRequest;
+    const response = details.response ?? details.responsePayload ?? details.rawResponse;
+    const embedded = object(details.snapshot);
+    if (!request && !Object.keys(embedded).length) continue;
+    const snapshot = Object.keys(embedded).length ? embedded as unknown as ContextSnapshot : normalizeContext(request, response, {
+      provider: options.provider, id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
+      includeRaw: options.includeRaw, redactSecrets: options.redactSecrets,
+    });
+    const usage = usageOf(contextEvents.find((item) => item.id === event.id)?.usage) ?? usageOf(snapshot.usage);
+    runs.push({
+      id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
+      sequence: runs.length + 1, sessionId, turnId: event.turnId,
+      ...(string(details.requestId) ? { requestId: string(details.requestId) } : {}),
+      ...(event.model ? { model: event.model, actualModel: snapshot.model ?? event.model } : {}),
+      provider: options.provider ?? snapshot.provider,
+      startedAt: event.timestamp,
+      ...(response !== undefined || event.status === 'completed' ? { completedAt: event.timestamp } : {}),
+      status: event.status === 'failed' ? 'failed' : response !== undefined || event.status === 'completed' ? 'completed' : 'running',
+      snapshot, ...(usage ? { usage } : {}),
+      ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+      ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+    });
+  }
+  return {
+    id: sessionId, ...(ordered[0]?.turnId ? { traceId: ordered[0].turnId } : {}),
+    ...(ordered[0]?.timestamp ? { startedAt: ordered[0].timestamp } : {}),
+    ...(ordered.at(-1)?.timestamp ? { updatedAt: ordered.at(-1)!.timestamp } : {}),
+    runs, events: contextEvents,
+    compactions: [],
+    metadata: { source: 'agentic-data-architect-trajectory', eventCount: ordered.length },
+  };
+}
