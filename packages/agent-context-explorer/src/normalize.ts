@@ -88,8 +88,9 @@ export function normalizeContext(request: unknown, response?: unknown, options: 
   const parameterKeys = ['temperature', 'top_p', 'top_k', 'max_tokens', 'max_completion_tokens', 'stop', 'stream', 'response_format', 'tool_choice', 'reasoning_effort', 'effort'];
   const params = Object.fromEntries(parameterKeys.filter((key) => req[key] !== undefined).map((key) => [key, req[key]]));
   const finishReason = res.choices?.[0]?.finish_reason ?? res.stop_reason ?? res.status;
-  const usageData = typeof input === 'number' || typeof output === 'number' || typeof total === 'number' ? {
+  const usageData = [input, output, total, cached, cacheWrite, reasoning, usage.premium_request_cost, usage.premiumRequestCost, usage.total_nano_aiu, usage.totalNanoAiu, usage.provider_cost].some((value) => typeof value === 'number') ? {
     ...(typeof input === 'number' ? { inputTokens: input } : {}),
+    ...(typeof usage.new_input_tokens === 'number' ? { newInputTokens: usage.new_input_tokens } : {}),
     ...(typeof output === 'number' ? { outputTokens: output } : {}),
     ...(typeof total === 'number' ? { totalTokens: total } : {}),
     ...(typeof cached === 'number' ? { cachedInputTokens: cached } : {}),
