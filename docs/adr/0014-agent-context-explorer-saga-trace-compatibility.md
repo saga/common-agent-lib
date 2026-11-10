@@ -18,7 +18,7 @@ The explorer must consume these conventions without becoming another runtime, re
 
 Extend the explorer's model with the saga correlation and execution fields: session/trace/turn/request/parent IDs, sequence, provider and observed model, attempt/stage, richer statuses, tool parent/agent/MCP metadata, progress, permissions, user-input waits, checkpoints, idle/error and stage-gate events.
 
-Keep model-call usage and context occupancy separate. Preserve provider-reported cache counters, reasoning tokens, provider cost with unit, premium-request cost, nano-AIU, latency, finish reason and reasoning effort. Missing measurements remain absent; the package does not estimate tokens or currency.
+Keep model-call usage and context occupancy separate. Preserve provider-reported total/new input tokens, cache counters, reasoning tokens, provider cost with unit, premium-request cost, nano-AIU, latency, finish reason and reasoning effort. Map Agentic Data Architect's `contextTokensAtCall`, `contextTokenLimitAtCall`, `contextPercentAtCall` and `contextMessagesAtCall` to context occupancy. Missing measurements remain absent; the package does not estimate tokens or currency.
 
 Add `ContextProvenance` for source, prompt, pipeline, configuration and memory revisions, context hash, input IDs, schema version, initiator and scope. These are optional because not every runtime exposes them, but hosts should supply them when reproducibility depends on those values.
 
@@ -26,7 +26,7 @@ Add structural adapters for:
 - `@saga/agent-tracing` / `@saga/agent-contracts` AgentEvent envelopes.
 - `agentic-data-architect` TrajectoryEvent records.
 
-The adapters preserve original payloads and mark incomplete payloads. They only create a ContextRun when an actual request or normalized snapshot is available. A compact event summary is not treated as a complete prompt/response.
+The adapters preserve original payloads and mark incomplete payloads. They map service/provider request IDs, API call IDs, MCP tool metadata, progress, permissions, user-input waits, cancellation and aborted states. They only create a ContextRun when an actual request or normalized snapshot is available. A compact event summary is not treated as a complete prompt/response.
 
 ## Capture contract
 
