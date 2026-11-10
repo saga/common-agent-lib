@@ -211,6 +211,7 @@ export function contextSessionsFromAgentEvents(
 /** Structural form of agentic-data-architect TrajectoryEvent. */
 export interface TrajectoryEventLike {
   id: string; turnId: string; timestamp: string; type: string; name: string;
+  sessionId?: string; sequence?: number; provider?: string; payloadComplete?: boolean;
   status?: string; durationMs?: number; model?: string; inputTokens?: number; outputTokens?: number;
   premiumRequestCost?: number; details?: Record<string, unknown>;
 }
@@ -233,12 +234,15 @@ export function contextSessionFromTrajectoryEvents(
 ): ContextSession {
   const ordered = [...events].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   const firstDetails = object(ordered[0]?.details);
-  const sessionId = options.sessionId ?? string(firstDetails.sessionId) ?? ordered[0]?.turnId ?? 'trajectory-session';
+  const sourceTurnIds = [...new Set(ordered.map((event) => event.turnId).filter(Boolean))];
+  // TrajectoryEvent has turnId but no session identity. Do not silently relabel a turn as a session.
+  const sessionId = options.sessionId ?? string(firstDetails.sessionId) ?? ordered[0]?.sessionId ??
+    (sourceTurnIds[0] ? 'trajectory:' + sourceTurnIds[0] : 'trajectory:unscoped');
   const contextEvents: ContextEvent[] = ordered.map((event) => {
     const details = object(event.details);
     const status = ['started', 'completed', 'failed', 'waiting', 'info', 'cancelled'].includes(event.status ?? '')
       ? event.status as ContextEvent['status'] : undefined;
-    const requestId = string(details.serviceRequestId ?? details.requestId ?? details.apiCallId ?? details.providerCallId);
+    const requestId = string(details.requestId ?? details.serviceRequestId);
     const toolCallId = string(details.toolCallId);
     const parentToolCallId = string(details.parentToolCallId);
     const agentId = string(details.agentId);
@@ -248,7 +252,10 @@ export function contextSessionFromTrajectoryEvents(
     return {
       id: event.id, type: trajectoryType(event.type), timestamp: event.timestamp,
       sessionId, turnId: event.turnId,
-      ...(requestId ? { correlationId: requestId } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(string(details.providerCallId) ? { providerCallId: string(details.providerCallId) } : {}),
+      ...(string(details.serviceRequestId) ? { serviceRequestId: string(details.serviceRequestId) } : {}),
+      ...(string(details.initiator) ? { initiator: string(details.initiator) } : {}),
       ...(toolCallId ? { toolCallId } : {}),
       ...(parentToolCallId ? { parentToolCallId } : {}),
       ...(agentId ? { agentId } : {}),
@@ -256,6 +263,7 @@ export function contextSessionFromTrajectoryEvents(
       ...(mcpToolName ? { mcpToolName } : {}),
       ...(toolName ? { toolName } : {}),
       ...(event.model ? { model: event.model } : {}),
+      ...(event.provider ? { provider: event.provider } : {}),
       ...(status ? { status } : {}), ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
       ...(string(details.apiCallId ?? details.providerCallId) ? { runId: string(details.apiCallId ?? details.providerCallId) } : {}),
       summary: string(details.progressMessage ?? details.summary) ?? event.name,
@@ -275,6 +283,7 @@ export function contextSessionFromTrajectoryEvents(
         currentTokens: details.contextTokensAtCall, tokenLimit: details.contextTokenLimitAtCall,
         percent: details.contextPercentAtCall, messagesLength: details.contextMessagesAtCall,
       }) } : {}),
+      ...(event.payloadComplete !== undefined ? { payloadComplete: event.payloadComplete } : {}),
     };
   });
   const runs: ContextRun[] = [];
@@ -315,6 +324,6 @@ export function contextSessionFromTrajectoryEvents(
     ...(ordered.at(-1)?.timestamp ? { updatedAt: ordered.at(-1)!.timestamp } : {}),
     runs, events: contextEvents,
     compactions: [],
-    metadata: { source: 'agentic-data-architect-trajectory', eventCount: ordered.length },
+    metadata: { source: 'agentic-data-architect-trajectory', eventCount: ordered.length, sourceTurnIds },
   };
 }
