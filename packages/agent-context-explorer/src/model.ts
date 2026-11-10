@@ -58,7 +58,7 @@ export interface ContextActorReference { id: string; type?: string; displayName?
 export interface ContextEvent {
   id: string; type: ContextEventType; timestamp: string;
   sessionId?: string; traceId?: string; turnId?: string; runId?: string;
-  requestId?: string; providerCallId?: string; serviceRequestId?: string; correlationId?: string;
+  requestId?: string; apiCallId?: string; providerCallId?: string; serviceRequestId?: string; correlationId?: string;
   parentEventId?: string; sequence?: number; initiator?: string;
   agentId?: string; actor?: ContextActorReference; category?: string; provider?: string; model?: string;
   toolCallId?: string; parentToolCallId?: string; toolName?: string;
