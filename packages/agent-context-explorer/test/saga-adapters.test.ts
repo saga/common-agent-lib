@@ -61,6 +61,12 @@ test('maps Agentic Data Architect trajectory identifiers, usage and context occu
   assert.equal(run.usage?.interTokenLatencyMs, 25);
   assert.equal(run.contextUsage?.currentTokens, 18000);
   assert.equal(run.contextUsage?.percent, 9);
+  const modelEvent = session.events.find((event) => event.id === 'model-1')!;
+  assert.equal(modelEvent.requestId, 'request-9');
+  assert.equal(modelEvent.apiCallId, 'api-2');
+  assert.equal(modelEvent.providerCallId, 'provider-4');
+  assert.equal(modelEvent.serviceRequestId, 'service-5');
+  assert.equal(modelEvent.correlationId, undefined);
 
   const tool = session.events.find((event) => event.id === 'tool-1')!;
   assert.equal(tool.toolCallId, 'call-1');
