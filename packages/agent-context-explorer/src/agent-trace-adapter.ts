@@ -20,7 +20,7 @@ const number = (value: unknown): number | undefined => typeof value === 'number'
 
 function usageOf(value: unknown): ModelCallUsage | undefined {
   const usage = object(value);
-  const fields = ['inputTokens', 'outputTokens', 'totalTokens', 'cachedInputTokens', 'cacheWriteTokens', 'reasoningTokens', 'premiumRequestCost', 'totalNanoAiu', 'providerCost', 'durationMs', 'timeToFirstTokenMs', 'interTokenLatencyMs'] as const;
+  const fields = ['inputTokens', 'newInputTokens', 'outputTokens', 'totalTokens', 'cachedInputTokens', 'cacheWriteTokens', 'reasoningTokens', 'premiumRequestCost', 'totalNanoAiu', 'providerCost', 'durationMs', 'timeToFirstTokenMs', 'interTokenLatencyMs'] as const;
   const result: Record<string, unknown> = {};
   for (const field of fields) { const n = number(usage[field]); if (n !== undefined) result[field] = n; }
   for (const field of ['providerCostUnit', 'finishReason', 'reasoningEffort'] as const) { const s = string(usage[field]); if (s) result[field] = s; }
@@ -238,11 +238,11 @@ export function contextSessionFromTrajectoryEvents(
     const details = object(event.details);
     const status = ['started', 'completed', 'failed', 'waiting', 'info', 'cancelled'].includes(event.status ?? '')
       ? event.status as ContextEvent['status'] : undefined;
-    const requestId = string(details.requestId);
+    const requestId = string(details.serviceRequestId ?? details.requestId ?? details.apiCallId ?? details.providerCallId);
     const toolCallId = string(details.toolCallId);
     const parentToolCallId = string(details.parentToolCallId);
     const agentId = string(details.agentId);
-    const mcpServerName = string(details.mcpServerName);
+    const mcpServerName = string(details.mcpServerName ?? details.serverName);
     const mcpToolName = string(details.mcpToolName);
     const toolName = string(details.toolName ?? details.tool ?? details.mcpToolName);
     return {
@@ -257,18 +257,23 @@ export function contextSessionFromTrajectoryEvents(
       ...(toolName ? { toolName } : {}),
       ...(event.model ? { model: event.model } : {}),
       ...(status ? { status } : {}), ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+      ...(string(details.apiCallId ?? details.providerCallId) ? { runId: string(details.apiCallId ?? details.providerCallId) } : {}),
       summary: string(details.progressMessage ?? details.summary) ?? event.name,
       ...(details.arguments !== undefined ? { input: redactContextPayload(details.arguments, options.redactSecrets ?? true) } : {}),
       ...(details.resultPreview !== undefined ? { output: redactContextPayload(details.resultPreview, options.redactSecrets ?? true) } : {}),
       data: redactContextPayload(event.details, options.redactSecrets ?? true),
       ...(event.type === 'model_call' ? { usage: usageOf({
-        inputTokens: event.inputTokens, outputTokens: event.outputTokens,
+        inputTokens: event.inputTokens, newInputTokens: details.newInputTokens, outputTokens: event.outputTokens,
         premiumRequestCost: event.premiumRequestCost,
         cachedInputTokens: details.cachedInputTokens, cacheWriteTokens: details.cacheWriteTokens,
         reasoningTokens: details.reasoningTokens, totalNanoAiu: details.totalNanoAiu,
         durationMs: event.durationMs, timeToFirstTokenMs: details.timeToFirstTokenMs,
         interTokenLatencyMs: details.interTokenLatencyMs, finishReason: details.finishReason,
         reasoningEffort: details.reasoningEffort, source: 'provider-event',
+      }) } : {}),
+      ...(event.type === 'model_call' ? { contextUsage: contextUsageOf({
+        currentTokens: details.contextTokensAtCall, tokenLimit: details.contextTokenLimitAtCall,
+        percent: details.contextPercentAtCall, messagesLength: details.contextMessagesAtCall,
       }) } : {}),
     };
   });
@@ -284,7 +289,9 @@ export function contextSessionFromTrajectoryEvents(
       provider: options.provider, id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
       includeRaw: options.includeRaw, redactSecrets: options.redactSecrets,
     });
-    const usage = usageOf(contextEvents.find((item) => item.id === event.id)?.usage) ?? usageOf(snapshot.usage);
+    const eventRecord = contextEvents.find((item) => item.id === event.id);
+    const usage = usageOf(eventRecord?.usage) ?? usageOf(snapshot.usage);
+    const contextUsage = contextUsageOf(eventRecord?.contextUsage);
     runs.push({
       id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
       sequence: runs.length + 1, sessionId, turnId: event.turnId,
@@ -294,7 +301,7 @@ export function contextSessionFromTrajectoryEvents(
       startedAt: event.timestamp,
       ...(response !== undefined || event.status === 'completed' ? { completedAt: event.timestamp } : {}),
       status: event.status === 'failed' ? 'failed' : response !== undefined || event.status === 'completed' ? 'completed' : 'running',
-      snapshot, ...(usage ? { usage } : {}),
+      snapshot, ...(usage ? { usage } : {}), ...(contextUsage ? { contextUsage } : {}),
       ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
       ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
     });
