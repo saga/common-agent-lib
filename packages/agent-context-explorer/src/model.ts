@@ -57,8 +57,9 @@ export type ContextEventStatus = 'started' | 'completed' | 'failed' | 'cancelled
 export interface ContextEvent {
   id: string; type: ContextEventType; timestamp: string;
   sessionId?: string; traceId?: string; turnId?: string; runId?: string;
+  requestId?: string; providerCallId?: string; serviceRequestId?: string;
   correlationId?: string; parentEventId?: string; sequence?: number;
-  agentId?: string; category?: string; provider?: string; model?: string;
+  agentId?: string; category?: string; provider?: string; model?: string; initiator?: string;
   toolCallId?: string; parentToolCallId?: string; toolName?: string;
   mcpServerName?: string; mcpToolName?: string;
   status?: ContextEventStatus; durationMs?: number; summary?: string;
@@ -67,13 +68,14 @@ export interface ContextEvent {
 }
 export interface ContextRun {
   id: string; sequence: number; sessionId?: string; turnId?: string;
-  requestId?: string; parentRunId?: string; stage?: string; attempt?: number;
-  provider?: string; model?: string; actualModel?: string;
+  requestId?: string; apiCallId?: string; providerCallId?: string; serviceRequestId?: string;
+  parentRunId?: string; stage?: string; attempt?: number;
+  provider?: string; model?: string; actualModel?: string; initiator?: string;
   startedAt: string; completedAt?: string;
   status: 'running' | 'completed' | 'failed' | 'cancelled' | 'aborted';
   snapshot: ContextSnapshot; usage?: ModelCallUsage; contextUsage?: ContextUsage;
   provenance?: ContextProvenance; inputTokens?: number; outputTokens?: number;
-  metadata?: Record<string, unknown>;
+  payloadComplete?: boolean; metadata?: Record<string, unknown>;
 }
 export interface ContextCompaction {
   id: string; timestamp: string; reason?: string; strategy?: string;
