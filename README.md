@@ -353,6 +353,10 @@ npm run build
 当前 CodeBuddy SDK 官方仍标记为 Preview，所以 package 封装了可验证的 `query()` 使用路径，但没有把 unstable v2 Session API 包装成稳定承诺。高并发 Session Pool、EPUB/PDF 文档 Run、SQLite 持久化和翻译专用 task profile 先留在 local-agent-service，等多个项目证明契约稳定后再抽取。
 
 
+## Context capture and debugging
+
+`@saga/agent-context-explorer` consumes the shared `@saga/agent-tracing` event envelope and Agentic Data Architect trajectory records. Its capture contract distinguishes session, trace, turn and provider request identities; separates model-call usage from context-window occupancy; and marks payload completeness rather than implying that compact runtime logs can replay a provider exchange. See [the package guide](packages/agent-context-explorer/README.md) and [ADR 0014](docs/adr/0014-context-capture-contract-alignment.md).
+
 ## Agent tracing
 
 @saga/agent-tracing 提供跨 Agent SDK 的 trace recorder、span helper、Token Usage 规范化/聚合、内存 store 和 SQLite store。Token 统计直接采用 SDK / Provider 指标，不根据文本长度估算；上下文占用单独记录，费用只在计量单位一致时聚合。不同项目统一事件形状和查询方式，同时保留对 PostgreSQL、LangSmith、OpenTelemetry 或其它后端的适配空间。
