@@ -81,22 +81,27 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const completed = response !== undefined || /completed|success|finished/i.test(event.status ?? '');
   const attempt = number(data.attempt);
   const actualModel = snapshot.model ?? event.model;
-  const requestId = string(data.requestId);
+  const requestId = string(data.requestId ?? data.serviceRequestId);
   return {
     id: string(data.runId) ?? event.id, sequence: event.sequence ?? 1,
     ...(event.sessionId ? { sessionId: event.sessionId } : {}),
     ...(event.turnId ? { turnId: event.turnId } : {}),
     ...(requestId ? { requestId } : {}),
+    ...(string(data.apiCallId) ? { apiCallId: string(data.apiCallId) } : {}),
+    ...(string(data.providerCallId) ? { providerCallId: string(data.providerCallId) } : {}),
+    ...(string(data.serviceRequestId) ? { serviceRequestId: string(data.serviceRequestId) } : {}),
     ...(string(data.parentRunId) ? { parentRunId: string(data.parentRunId) } : {}),
     ...(string(data.stage) ? { stage: string(data.stage) } : {}),
     ...(attempt !== undefined ? { attempt } : {}),
     ...(event.provider ? { provider: event.provider } : {}),
     ...(event.model ? { model: event.model } : {}),
     ...(actualModel ? { actualModel } : {}),
+    ...(string(data.initiator) ? { initiator: string(data.initiator) } : {}),
     startedAt: event.timestamp,
     ...(completed ? { completedAt: string(data.completedAt) ?? event.timestamp } : {}),
     status: /fail|error/i.test(event.status ?? '') ? 'failed' : completed ? 'completed' : 'running',
     snapshot, ...(usage ? { usage } : {}), ...(contextUsage ? { contextUsage } : {}),
+    payloadComplete: event.payloadComplete ?? (request !== undefined && response !== undefined || Object.keys(embedded).length > 0),
     ...(data.provenance && typeof data.provenance === 'object' ? { provenance: data.provenance } : {}),
     ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
     ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
@@ -157,6 +162,9 @@ function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOp
     ...(event.traceId ? { traceId: event.traceId } : {}),
     ...(event.turnId ? { turnId: event.turnId } : {}),
     ...(string(data.runId) ? { runId: string(data.runId) } : {}),
+    ...(string(data.requestId ?? data.serviceRequestId) ? { requestId: string(data.requestId ?? data.serviceRequestId) } : {}),
+    ...(string(data.providerCallId) ? { providerCallId: string(data.providerCallId) } : {}),
+    ...(string(data.serviceRequestId) ? { serviceRequestId: string(data.serviceRequestId) } : {}),
     ...(event.correlationId ? { correlationId: event.correlationId } : {}),
     ...(event.parentEventId ? { parentEventId: event.parentEventId } : {}),
     ...(event.sequence !== undefined ? { sequence: event.sequence } : {}),
@@ -164,6 +172,7 @@ function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOp
     ...(event.category ? { category: event.category } : {}),
     ...(event.provider ? { provider: event.provider } : {}),
     ...(event.model ? { model: event.model } : {}),
+    ...(string(data.initiator) ? { initiator: string(data.initiator) } : {}),
     ...(string(data.toolCallId) ? { toolCallId: string(data.toolCallId) } : {}),
     ...(string(data.parentToolCallId) ? { parentToolCallId: string(data.parentToolCallId) } : {}),
     ...(string(data.tool ?? data.toolName) ? { toolName: string(data.tool ?? data.toolName) } : {}),
