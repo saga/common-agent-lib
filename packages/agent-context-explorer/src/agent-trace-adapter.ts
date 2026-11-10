@@ -1,5 +1,5 @@
 import type { ContextCompaction, ContextEvent, ContextEventType, ContextRun, ContextSession, ContextSnapshot, ModelCallUsage, ContextUsage } from './model.js';
-import { normalizeContext } from './normalize.js';
+import { normalizeContext, redactContextPayload } from './normalize.js';
 
 /** Structural subset of @saga/agent-contracts AgentEvent; no runtime dependency is required. */
 export interface AgentTraceEventLike {
@@ -56,6 +56,7 @@ function eventType(type: string): ContextEventType {
     'session-error', 'stage-gate', 'error', 'custom',
   ];
   if (known.includes(normalized as ContextEventType)) return normalized as ContextEventType;
+  if (normalized === 'context-compaction') return 'compaction';
   if (normalized === 'model-call' || normalized === 'model-request') return 'llm-request';
   if (normalized === 'model-response') return 'llm-response';
   if (normalized === 'status' || normalized === 'intent') return 'custom';
@@ -68,7 +69,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const response = data.response ?? data.responsePayload ?? data.rawResponse;
   if (!Object.keys(embedded).length && request === undefined) return undefined;
   const snapshot = Object.keys(embedded).length
-    ? embedded as unknown as ContextSnapshot
+    ? redactContextPayload(embedded, options.redactSecrets ?? true) as unknown as ContextSnapshot
     : normalizeContext(request, response, {
       provider: options.provider ?? event.provider,
       id: string(data.requestId) ?? event.id,
@@ -141,7 +142,7 @@ function compactionsFromAgentEvents(events: readonly AgentTraceEventLike[], opti
   }
   return result;
 }
-function toContextEvent(event: AgentTraceEventLike): ContextEvent {
+function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOptions): ContextEvent {
   const data = object(event.data);
   const mappedType = eventType(event.type);
   const status = ['started', 'completed', 'failed', 'cancelled', 'waiting', 'info'].includes(event.status ?? '')
@@ -166,9 +167,9 @@ function toContextEvent(event: AgentTraceEventLike): ContextEvent {
     ...(string(data.mcpToolName) ? { mcpToolName: string(data.mcpToolName) } : {}),
     ...(status ? { status } : {}), ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
     ...(string(data.summary ?? data.progressMessage ?? data.message ?? data.error) ? { summary: string(data.summary ?? data.progressMessage ?? data.message ?? data.error) } : {}),
-    ...(data.arguments !== undefined ? { input: data.arguments } : data.input !== undefined ? { input: data.input } : {}),
-    ...(data.result !== undefined ? { output: data.result } : data.output !== undefined ? { output: data.output } : {}),
-    data: event.data, ...(event.metadata ? { metadata: event.metadata } : {}),
+    ...(data.arguments !== undefined ? { input: redactContextPayload(data.arguments, options.redactSecrets ?? true) } : data.input !== undefined ? { input: redactContextPayload(data.input, options.redactSecrets ?? true) } : {}),
+    ...(data.result !== undefined ? { output: redactContextPayload(data.result, options.redactSecrets ?? true) } : data.output !== undefined ? { output: redactContextPayload(data.output, options.redactSecrets ?? true) } : {}),
+    data: redactContextPayload(event.data, options.redactSecrets ?? true), ...(event.metadata ? { metadata: event.metadata } : {}),
     ...(usageOf(event.usage) ? { usage: usageOf(event.usage) } : {}),
     ...(contextUsageOf(event.contextUsage) ? { contextUsage: contextUsageOf(event.contextUsage) } : {}),
     ...(event.payloadComplete !== undefined ? { payloadComplete: event.payloadComplete } : {}),
@@ -195,7 +196,7 @@ export function contextSessionsFromAgentEvents(
       ...(ordered[0]?.agentId ? { agentId: ordered[0].agentId } : {}),
       ...(ordered[0]?.timestamp ? { startedAt: ordered[0].timestamp } : {}),
       ...(ordered.at(-1)?.timestamp ? { updatedAt: ordered.at(-1)!.timestamp } : {}),
-      runs, events: ordered.map(toContextEvent),
+      runs, events: ordered.map((event) => toContextEvent(event, options)),
       compactions: compactionsFromAgentEvents(ordered, options),
       metadata: { source: '@saga/agent-tracing', eventCount: ordered.length },
     };
@@ -253,9 +254,9 @@ export function contextSessionFromTrajectoryEvents(
       ...(event.model ? { model: event.model } : {}),
       ...(status ? { status } : {}), ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
       summary: event.name,
-      ...(details.arguments !== undefined ? { input: details.arguments } : {}),
-      ...(details.resultPreview !== undefined ? { output: details.resultPreview } : {}),
-      data: event.details,
+      ...(details.arguments !== undefined ? { input: redactContextPayload(details.arguments, options.redactSecrets ?? true) } : {}),
+      ...(details.resultPreview !== undefined ? { output: redactContextPayload(details.resultPreview, options.redactSecrets ?? true) } : {}),
+      data: redactContextPayload(event.details, options.redactSecrets ?? true),
       ...(event.type === 'model_call' ? { usage: usageOf({
         inputTokens: event.inputTokens, outputTokens: event.outputTokens,
         premiumRequestCost: event.premiumRequestCost,
