@@ -2,7 +2,7 @@ import type { ContextDiff, ContextMessage, MessageChange } from './model.js';
 function stable(value: unknown): string {
   if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
   if (value && typeof value === 'object') return '{' + Object.keys(value as object).sort().map((key) => JSON.stringify(key) + ':' + stable((value as Record<string, unknown>)[key])).join(',') + '}';
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? String(value);
 }
 /** Index-based diff preserves conversation order and makes insertions/deletions explicit. */
 export function diffContext(before: readonly ContextMessage[], after: readonly ContextMessage[]): ContextDiff {
