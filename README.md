@@ -11,7 +11,7 @@
 | `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、Token Usage 聚合、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
 | **@saga/document-core** | 文档统一契约、预算分批、逻辑分页、翻译结果校验 | 无 |
 | `@saga/agent-context` | 确定性 Context 组装、预算控制、来源保留、重复项和省略原因 | 无 |
-| `@saga/agent-context-explorer` | LLM 请求/响应结构化检查、Message/Tool/多模态内容展示、Context Diff、Ant Design + Ant Design X Inspector | React, antd, @ant-design/x (peer) |
+| `@saga/agent-context-explorer` | LLM 请求/响应检查、Session 时间轴、Tool Call 链路、Context Compaction 分析、Context Diff、Ant Design + Ant Design X Debugger | React, antd, @ant-design/x (peer) |
 | `@saga/agent-knowledge` | Knowledge schema、provenance、抽取契约、catalog、deterministic retrieval、safe rendering | `zod` |
 | `@saga/markdown-workflow` | Markdown → AST → validate → facts → Journey state / route | 无 |
 | `@saga/agent-skill` | SKILL.md manifest、`metadata.kind`、Skill discovery 和 capability/workflow 边界 | `yaml` + `zod` |
