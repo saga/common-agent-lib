@@ -31,7 +31,8 @@ test('adapts agentic-data-architect trajectory tool lifecycle and usage', () => 
   assert.equal(session.events[0]?.toolCallId, 'call-1');
   assert.equal(session.events[1]?.type, 'tool-progress');
   assert.equal(session.events[3]?.usage?.cachedInputTokens, 20);
-  assert.equal(session.events[3]?.correlationId, 'svc-1');
+  assert.equal(session.events[3]?.serviceRequestId, 'svc-1');
+  assert.equal(session.events[3]?.correlationId, undefined);
   assert.equal(session.events[3]?.contextUsage?.percent, 11.25);
   assert.equal(session.runs.length, 0, 'trajectory summaries without actual provider payload must not fabricate a context snapshot');
 });
