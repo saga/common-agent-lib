@@ -355,7 +355,7 @@ npm run build
 
 ## Context capture and debugging
 
-`@saga/agent-context-explorer` consumes the shared `@saga/agent-tracing` event envelope and Agentic Data Architect trajectory records. Its capture contract distinguishes session, trace, turn and provider request identities; separates model-call usage from context-window occupancy; and marks payload completeness rather than implying that compact runtime logs can replay a provider exchange. See [the package guide](packages/agent-context-explorer/README.md) and [ADR 0014](docs/adr/0014-context-capture-contract-alignment.md).
+`@saga/agent-context-explorer` consumes the shared `@saga/agent-tracing` event envelope and Agentic Data Architect trajectory records. Its capture contract distinguishes session, trace, turn and provider request identities; separates model-call usage from context-window occupancy; and marks payload completeness rather than implying that compact runtime logs can replay a provider exchange. See [the package guide](packages/agent-context-explorer/README.md) and [ADR 0014](docs/adr/0014-agent-context-explorer-saga-trace-compatibility.md).
 
 ## Agent tracing
 
