@@ -43,20 +43,20 @@ function ToolDetails({ nodes }: { nodes: ToolCallNode[] }) {
   const node = nodes.find((item) => item.id === selected);
   return <Space direction="vertical" style={{ display: 'flex' }}>
     {nodes.length ? <Tree showLine defaultExpandAll treeData={ToolTree({ nodes, roots: nodes.filter((n) => !n.parentToolCallId || !nodes.some((x) => x.id === n.parentToolCallId)).map((n) => n.id) })} onSelect={(keys) => setSelected(String(keys[0] ?? ''))} /> : <Empty description="No tool calls captured" />}
-    {node && <Card size="small" title={node.name}><Descriptions size="small" column={1} items={[{ key: 'id', label: 'Call ID', children: node.id }, { key: 'status', label: 'Status', children: node.status }, { key: 'duration', label: 'Duration', children: node.durationMs === undefined ? '—' : node.durationMs + ' ms' }]} /><JsonPanel title="Arguments" value={node.arguments} />{node.result !== undefined && <JsonPanel title="Result" value={node.result} />}</Card>}
+    {node && <Card size="small" title={node.name}><Descriptions size="small" column={1} items={[{ key: 'id', label: 'Call ID', children: node.id }, { key: 'status', label: 'Status', children: node.status }, { key: 'duration', label: 'Duration', children: node.durationMs === undefined ? '—' : node.durationMs + ' ms' }, { key: 'agent', label: 'Agent', children: node.agentId ?? '—' }, { key: 'MCP server', label: 'MCP server', children: node.mcpServerName ?? '—' }, { key: 'MCP tool', label: 'MCP tool', children: node.mcpToolName ?? '—' }]} /><JsonPanel title="Arguments" value={node.arguments} />{node.progress.length > 0 && <List size="small" header="Progress" dataSource={node.progress} renderItem={(item) => <List.Item>{item.timestamp} · {String(item.message ?? json(item.data))}</List.Item>} />}{node.result !== undefined && <JsonPanel title="Result" value={node.result} />}</Card>}
   </Space>;
 }
 function CompactionView({ item }: { item: ContextCompaction }) {
   const analysis = analyzeCompaction(item);
   return <Card size="small" title={<Space><Tag color="purple">Compaction</Tag>{item.strategy ?? 'Context transformation'}</Space>} extra={<Text type="secondary">{new Date(item.timestamp).toLocaleString()}</Text>}>
-    {item.reason && <Paragraph>{item.reason}</Paragraph>}
+    {item.reason && <Paragraph>{item.reason}</Paragraph>}{item.error && <Alert type="error" showIcon message="Compaction failed" description={item.error} />}
     <Space wrap size="large">
       <Statistic title="Messages before" value={item.before.messages.length} />
       <Statistic title="Messages after" value={item.after.messages.length} />
       <Statistic title="Removed" value={analysis.removedMessageIds.length} />
       <Statistic title="Preserved" value={analysis.preservedMessageIds.length} />
       {analysis.beforeTokens !== undefined && <Statistic title="Input tokens before" value={analysis.beforeTokens} />}
-      {analysis.afterTokens !== undefined && <Statistic title="Input tokens after" value={analysis.afterTokens} />}
+      {analysis.afterTokens !== undefined && <Statistic title="Input tokens after" value={analysis.afterTokens} />}{item.messagesRemoved !== undefined && <Statistic title="Reported messages removed" value={item.messagesRemoved} />}{item.tokensRemoved !== undefined && <Statistic title="Reported tokens removed" value={item.tokensRemoved} />}
     </Space>
     {analysis.tokenReduction !== undefined && <div style={{ marginTop: 12 }}><Text type="secondary">Token reduction: {analysis.tokenReduction.toLocaleString()} ({analysis.tokenReductionPercent?.toFixed(1)}%)</Text><Progress percent={Math.max(0, Math.min(100, analysis.tokenReductionPercent ?? 0))} /></div>}
     {item.summary && <Card size="small" title="Compaction summary" style={{ marginTop: 12 }}><Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{item.summary}</Paragraph></Card>}
@@ -87,18 +87,18 @@ export function ContextDebugger({ snapshot, previous, session, className }: Cont
   const allMessages = runs.flatMap((run) => [...run.snapshot.messages, ...run.snapshot.responseMessages]);
   const toolGraph = useMemo(() => buildToolCallGraph(allMessages, events), [allMessages, events]);
   const contextDiff = previous && selected ? diffContext(previous.messages, selected.messages) : undefined;
-  const totalInput = runs.reduce((sum, run) => sum + (run.inputTokens ?? run.snapshot.usage?.inputTokens ?? 0), 0);
-  const totalOutput = runs.reduce((sum, run) => sum + (run.outputTokens ?? run.snapshot.usage?.outputTokens ?? 0), 0);
+  const totalInput = runs.reduce((sum, run) => sum + (run.usage?.inputTokens ?? run.inputTokens ?? run.snapshot.usage?.inputTokens ?? 0), 0);
+  const totalOutput = runs.reduce((sum, run) => sum + (run.usage?.outputTokens ?? run.outputTokens ?? run.snapshot.usage?.outputTokens ?? 0), 0);
   if (!selected && !session) return <Empty description="Provide a ContextSnapshot or ContextSession" />;
   const tabs = [
     { key: 'timeline', label: <>Timeline <Tag>{timeline.length}</Tag></>, children: timeline.length ? <Timeline items={timeline.map((item) => ({ key: item.id, color: item.status === 'failed' ? 'red' : item.type === 'compaction' ? 'purple' : item.type.startsWith('tool') ? 'green' : 'blue', children: <Space direction="vertical" size={2}><Space wrap><Text strong>{item.title}</Text><Tag>{item.type}</Tag>{item.status && <Tag color={item.status === 'failed' ? 'red' : item.status === 'completed' ? 'green' : 'default'}>{item.status}</Tag>}{item.durationMs !== undefined && <Text type="secondary">{item.durationMs} ms</Text>}</Space><Text type="secondary">{new Date(item.timestamp).toLocaleString()}{item.description ? ' · ' + item.description : ''}</Text></Space> }))} /> : <Empty description="No session events or model calls captured" /> },
     { key: 'tools', label: <>Tool chain <Tag>{toolGraph.nodes.length}</Tag></>, children: <ToolDetails nodes={toolGraph.nodes} /> },
     { key: 'compaction', label: <>Compaction <Tag>{compactions.length}</Tag></>, children: compactions.length ? <Space direction="vertical" style={{ display: 'flex' }}>{compactions.map((item) => <CompactionView key={item.id} item={item} />)}</Space> : <Empty description="No compaction snapshots captured" /> },
     { key: 'runs', label: <>LLM calls <Tag>{runs.length}</Tag></>, children: runs.length ? <Table size="small" rowKey="id" dataSource={runs} pagination={{ pageSize: 10 }} columns={[
-      { title: '#', dataIndex: 'sequence' }, { title: 'Model', render: (_: unknown, run: ContextRun) => run.snapshot.model ?? '—' },
+      { title: '#', dataIndex: 'sequence' }, { title: 'Provider', render: (_: unknown, run: ContextRun) => run.provider ?? run.snapshot.provider }, { title: 'Model', render: (_: unknown, run: ContextRun) => run.actualModel ?? run.snapshot.model ?? run.model ?? '—' },
       { title: 'Status', dataIndex: 'status', render: (value: string) => <Tag color={value === 'failed' ? 'red' : value === 'completed' ? 'green' : 'processing'}>{value}</Tag> },
-      { title: 'Input', render: (_: unknown, run: ContextRun) => run.inputTokens ?? run.snapshot.usage?.inputTokens ?? '—' },
-      { title: 'Output', render: (_: unknown, run: ContextRun) => run.outputTokens ?? run.snapshot.usage?.outputTokens ?? '—' },
+      { title: 'Input', render: (_: unknown, run: ContextRun) => run.usage?.inputTokens ?? run.inputTokens ?? run.snapshot.usage?.inputTokens ?? '—' },
+      { title: 'Output', render: (_: unknown, run: ContextRun) => run.usage?.outputTokens ?? run.outputTokens ?? run.snapshot.usage?.outputTokens ?? '—' }, { title: 'Cached', render: (_: unknown, run: ContextRun) => run.usage?.cachedInputTokens ?? run.snapshot.usage?.cachedInputTokens ?? '—' }, { title: 'Reasoning', render: (_: unknown, run: ContextRun) => run.usage?.reasoningTokens ?? run.snapshot.usage?.reasoningTokens ?? '—' }, { title: 'Context', render: (_: unknown, run: ContextRun) => run.contextUsage?.percent === undefined ? '—' : run.contextUsage.percent + '%' },
       { title: 'Messages', render: (_: unknown, run: ContextRun) => run.snapshot.messages.length },
       { title: 'Started', dataIndex: 'startedAt', render: (value: string) => new Date(value).toLocaleString() },
     ]} /> : <Empty description="No LLM calls captured" /> },
