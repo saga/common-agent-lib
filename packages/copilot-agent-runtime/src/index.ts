@@ -514,7 +514,7 @@ export class CopilotAgentRuntime {
         // Do not rely solely on the SDK timeout: some SDK/tool-loop failure modes have
         // been observed to keep sendAndWait pending beyond its requested timeout.
         // The watchdog rejects the application turn; the catch below then aborts the session.
-        let watchdog: NodeJS.Timeout | undefined;
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
         let finalEvent: Awaited<typeof send>;
         try {
           finalEvent = input.timeoutMs
@@ -584,7 +584,7 @@ export class CopilotAgentRuntime {
 
   private async abortAndWaitIdle(session: CopilotSession): Promise<void> {
     const idle = this.watchIdle(session, this.abortIdleGraceMs);
-    let abortTimer: NodeJS.Timeout | undefined;
+    let abortTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         session.abort(),
@@ -611,7 +611,7 @@ export class CopilotAgentRuntime {
     session: CopilotSession,
     timeoutMs: number,
   ): { promise: Promise<boolean>; cancel: () => void } {
-    let timer: NodeJS.Timeout | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
     let off = () => {};
 
