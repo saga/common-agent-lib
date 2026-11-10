@@ -102,7 +102,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
     ...(completed ? { completedAt: string(data.completedAt) ?? event.timestamp } : {}),
     status: runStatus,
     snapshot, ...(usage ? { usage } : {}), ...(contextUsage ? { contextUsage } : {}),
-    payloadComplete: event.payloadComplete ?? (request !== undefined && response !== undefined || Object.keys(embedded).length > 0),
+    payloadComplete: event.payloadComplete ?? (request !== undefined && response !== undefined || embedded.rawRequest != null && embedded.rawResponse !== undefined || Array.isArray(embedded.messages) && Array.isArray(embedded.responseMessages) && embedded.responseMessages.length > 0),
     ...(data.provenance && typeof data.provenance === 'object' ? { provenance: data.provenance } : {}),
     ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
     ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
@@ -253,7 +253,7 @@ export function contextSessionFromTrajectoryEvents(
     const details = object(event.details);
     const status = ['started', 'running', 'completed', 'failed', 'waiting', 'info', 'cancelled', 'aborted'].includes(event.status ?? '')
       ? event.status as ContextEvent['status'] : undefined;
-    const requestId = string(details.serviceRequestId ?? details.requestId ?? details.apiCallId ?? details.providerCallId);
+    const requestId = string(details.requestId);
     const toolCallId = string(details.toolCallId);
     const parentToolCallId = string(details.parentToolCallId);
     const agentId = string(details.agentId);
@@ -265,7 +265,8 @@ export function contextSessionFromTrajectoryEvents(
       sessionId, turnId: event.turnId,
       ...(event.sequence !== undefined ? { sequence: event.sequence } : {}),
       ...(event.provider ? { provider: event.provider } : {}),
-      ...(requestId ? { requestId, correlationId: requestId } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(string(details.apiCallId) ? { apiCallId: string(details.apiCallId) } : {}),
       ...(string(details.providerCallId) ? { providerCallId: string(details.providerCallId) } : {}),
       ...(string(details.serviceRequestId) ? { serviceRequestId: string(details.serviceRequestId) } : {}),
       ...(string(details.initiator) ? { initiator: string(details.initiator) } : {}),
@@ -332,7 +333,7 @@ export function contextSessionFromTrajectoryEvents(
       ...(response !== undefined || event.status === 'completed' ? { completedAt: string(details.completedAt) ?? event.timestamp } : {}),
       status: /fail|error/i.test(event.status ?? '') ? 'failed' : event.status === 'cancelled' ? 'cancelled' : event.status === 'aborted' ? 'aborted' : response !== undefined || event.status === 'completed' ? 'completed' : 'running',
       snapshot, ...(usage ? { usage } : {}), ...(contextUsage ? { contextUsage } : {}),
-      payloadComplete: event.payloadComplete ?? (request !== undefined && response !== undefined || Object.keys(embedded).length > 0),
+      payloadComplete: event.payloadComplete ?? (request !== undefined && response !== undefined || embedded.rawRequest != null && embedded.rawResponse !== undefined || Array.isArray(embedded.messages) && Array.isArray(embedded.responseMessages) && embedded.responseMessages.length > 0),
       ...(snapshot.provenance ? { provenance: snapshot.provenance } : {}),
       ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
       ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
