@@ -69,7 +69,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const response = data.response ?? data.responsePayload ?? data.rawResponse;
   if (!Object.keys(embedded).length && request === undefined) return undefined;
   const snapshot = Object.keys(embedded).length
-    ? redactContextPayload(embedded, options.redactSecrets ?? true) as unknown as ContextSnapshot
+    ? snapshotOf(embedded, options)!
     : normalizeContext(request, response, {
       provider: options.provider ?? event.provider,
       id: string(data.requestId) ?? event.id,
@@ -107,7 +107,11 @@ function snapshotOf(value: unknown, options: AgentTraceAdapterOptions): ContextS
   const record = object(value);
   if (!Object.keys(record).length) return undefined;
   if (Array.isArray(record.messages) && Array.isArray(record.responseMessages) && typeof record.provider === 'string') {
-    return redactContextPayload(record, options.redactSecrets ?? true) as unknown as ContextSnapshot;
+    const safeRecord = redactContextPayload(record, options.redactSecrets ?? true) as unknown as ContextSnapshot;
+    if (options.includeRaw !== false) return safeRecord;
+    const { rawResponse: omittedResponse, ...withoutResponse } = safeRecord;
+    void omittedResponse;
+    return { ...withoutResponse, rawRequest: null, warnings: [...safeRecord.warnings, 'Raw provider payloads were omitted by configuration.'] };
   }
   if (Array.isArray(record.messages) || Array.isArray(record.input) || Array.isArray(record.contents)) {
     return normalizeContext(record, undefined, { provider: options.provider, includeRaw: options.includeRaw, redactSecrets: options.redactSecrets });
