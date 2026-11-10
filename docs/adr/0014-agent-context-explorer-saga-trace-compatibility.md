@@ -16,7 +16,7 @@ The explorer must consume these conventions without becoming another runtime, re
 
 ## Decision
 
-Extend the explorer's model with the saga correlation and execution fields: session/trace/turn/request/parent IDs, sequence, provider and observed model, attempt/stage, richer statuses, tool parent/agent/MCP metadata, progress, permissions, user-input waits, checkpoints, idle/error and stage-gate events.
+Extend the explorer's model with the saga correlation and execution fields: session/trace/turn/request/parent IDs, sequence, provider and observed model, attempt/stage, richer statuses, actor and agent identity, tool parent/agent/MCP metadata, progress, permissions, user-input waits, checkpoints, idle/error and stage-gate events.
 
 Keep model-call usage and context occupancy separate. Preserve provider-reported total/new input tokens, cache counters, reasoning tokens, provider cost with unit, premium-request cost, nano-AIU, latency, finish reason and reasoning effort. Map Agentic Data Architect's `contextTokensAtCall`, `contextTokenLimitAtCall`, `contextPercentAtCall` and `contextMessagesAtCall` to context occupancy. Missing measurements remain absent; the package does not estimate tokens or currency.
 
