@@ -1,7 +1,7 @@
 import type { ContentPart, ContextMessage, ContextSnapshot, ContextTool, MessageRole, NormalizeOptions } from './model.js';
 
 const SECRET_KEY = /authorization|(^|[_-])token($|[_-])|api[_-]?key|password|secret|cookie|credential|private[_-]?key/i;
-const BEARER = /\\bBearer\\s+[A-Za-z0-9._~+/-]+=*/gi;
+const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const obj = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
 const stringify = (value: unknown): string => { try { return typeof value === 'string' ? value : JSON.stringify(value, null, 2); } catch { return String(value); } };
 function safe(value: unknown, redact: boolean, key = ''): unknown {
