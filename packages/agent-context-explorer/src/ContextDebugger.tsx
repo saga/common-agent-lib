@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Alert, Card, Collapse, Descriptions, Empty, List, Progress, Space, Statistic, Table, Tabs, Tag, Timeline, Tree, Typography } from 'antd';
-import type { DataNode } from 'antd/es/tree';
 import { Bubble } from '@ant-design/x';
 import type { ContextCompaction, ContextEvent, ContextMessage, ContextRun, ContextSession, ContextSnapshot, ContentPart, ToolCallNode } from './model.js';
 import { analyzeCompaction, buildContextTimeline, buildToolCallGraph } from './session.js';
 import { diffContext } from './diff.js';
 
 const { Text, Paragraph } = Typography;
+type DataNode = { key: string; title: React.ReactNode; children?: DataNode[] };
 const json = (value: unknown): string => { try { return JSON.stringify(value, null, 2) ?? String(value); } catch { return String(value); } };
 function PartView({ part }: { part: ContentPart }) {
   if (part.kind === 'text') return <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{part.text}</Paragraph>;
