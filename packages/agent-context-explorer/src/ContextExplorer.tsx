@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import * as React from 'react';
+import { useMemo, useState } from 'react';
 import type { ContextMessage, ContextSnapshot, ContentPart } from './model.js';
 import { diffContext } from './diff.js';
 export interface ContextExplorerProps { snapshot: ContextSnapshot; previous?: ContextSnapshot; className?: string }
