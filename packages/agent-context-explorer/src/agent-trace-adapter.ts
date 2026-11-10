@@ -87,7 +87,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
     id: string(data.runId ?? data.apiCallId ?? data.providerCallId) ?? event.id, sequence: event.sequence ?? 1,
     ...(event.sessionId ? { sessionId: event.sessionId } : {}),
     ...(event.turnId ? { turnId: event.turnId } : {}),
-    ...(requestId ? { requestId } : {}),
+    ...(requestId ? { requestId, correlationId: requestId } : {}),
     ...(string(data.apiCallId) ? { apiCallId: string(data.apiCallId) } : {}),
     ...(string(data.providerCallId) ? { providerCallId: string(data.providerCallId) } : {}),
     ...(string(data.serviceRequestId) ? { serviceRequestId: string(data.serviceRequestId) } : {}),
@@ -253,7 +253,7 @@ export function contextSessionFromTrajectoryEvents(
     const details = object(event.details);
     const status = ['started', 'running', 'completed', 'failed', 'waiting', 'info', 'cancelled', 'aborted'].includes(event.status ?? '')
       ? event.status as ContextEvent['status'] : undefined;
-    const requestId = string(details.requestId ?? details.serviceRequestId);
+    const requestId = string(details.serviceRequestId ?? details.requestId ?? details.apiCallId ?? details.providerCallId);
     const toolCallId = string(details.toolCallId);
     const parentToolCallId = string(details.parentToolCallId);
     const agentId = string(details.agentId);
@@ -263,6 +263,8 @@ export function contextSessionFromTrajectoryEvents(
     return {
       id: event.id, type: trajectoryType(event.type), timestamp: event.timestamp,
       sessionId, turnId: event.turnId,
+      ...(event.sequence !== undefined ? { sequence: event.sequence } : {}),
+      ...(event.provider ? { provider: event.provider } : {}),
       ...(requestId ? { requestId } : {}),
       ...(string(details.providerCallId) ? { providerCallId: string(details.providerCallId) } : {}),
       ...(string(details.serviceRequestId) ? { serviceRequestId: string(details.serviceRequestId) } : {}),
@@ -281,6 +283,7 @@ export function contextSessionFromTrajectoryEvents(
       ...(details.arguments !== undefined ? { input: redactContextPayload(details.arguments, options.redactSecrets ?? true) } : {}),
       ...(details.resultPreview !== undefined ? { output: redactContextPayload(details.resultPreview, options.redactSecrets ?? true) } : {}),
       data: redactContextPayload(event.details, options.redactSecrets ?? true),
+      ...(event.payloadComplete !== undefined ? { payloadComplete: event.payloadComplete } : {}),
       ...(event.type === 'model_call' ? { usage: usageOf({
         inputTokens: event.inputTokens, newInputTokens: details.newInputTokens, outputTokens: event.outputTokens,
         premiumRequestCost: event.premiumRequestCost,
