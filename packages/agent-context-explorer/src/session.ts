@@ -46,8 +46,8 @@ export function buildToolCallGraph(messages: readonly ContextMessage[], events: 
     } else if (event.type === 'tool-result' && event.toolCallId) {
       const node = nodes.get(event.toolCallId);
       if (node) Object.assign(node, {
-        result: event.output ?? event.data, status: event.status === 'failed' ? 'failed' : 'completed',
-        isError: event.status === 'failed', completedAt: event.timestamp,
+        result: event.output ?? event.data, status: ['failed', 'cancelled', 'aborted'].includes(event.status ?? '') ? 'failed' : 'completed',
+        isError: ['failed', 'cancelled', 'aborted'].includes(event.status ?? ''), completedAt: event.timestamp,
         ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
       });
       else orphanResults.push({ toolCallId: event.toolCallId, messageId: event.id, content: event.output ?? event.data });
