@@ -83,7 +83,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const actualModel = snapshot.model ?? event.model;
   const requestId = string(data.requestId ?? data.serviceRequestId);
   return {
-    id: string(data.runId) ?? event.id, sequence: event.sequence ?? 1,
+    id: string(data.runId ?? data.apiCallId ?? data.providerCallId) ?? event.id, sequence: event.sequence ?? 1,
     ...(event.sessionId ? { sessionId: event.sessionId } : {}),
     ...(event.turnId ? { turnId: event.turnId } : {}),
     ...(requestId ? { requestId } : {}),
@@ -161,11 +161,11 @@ function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOp
     ...(event.sessionId ? { sessionId: event.sessionId } : {}),
     ...(event.traceId ? { traceId: event.traceId } : {}),
     ...(event.turnId ? { turnId: event.turnId } : {}),
-    ...(string(data.runId) ? { runId: string(data.runId) } : {}),
+    ...(string(data.runId ?? data.apiCallId ?? data.providerCallId) ? { runId: string(data.runId ?? data.apiCallId ?? data.providerCallId) } : {}),
     ...(string(data.requestId ?? data.serviceRequestId) ? { requestId: string(data.requestId ?? data.serviceRequestId) } : {}),
     ...(string(data.providerCallId) ? { providerCallId: string(data.providerCallId) } : {}),
     ...(string(data.serviceRequestId) ? { serviceRequestId: string(data.serviceRequestId) } : {}),
-    ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+    ...(event.correlationId ? { correlationId: event.correlationId } : string(data.requestId ?? data.serviceRequestId) ? { correlationId: string(data.requestId ?? data.serviceRequestId) } : {}),
     ...(event.parentEventId ? { parentEventId: event.parentEventId } : {}),
     ...(event.sequence !== undefined ? { sequence: event.sequence } : {}),
     ...(event.agentId ? { agentId: event.agentId } : {}),
