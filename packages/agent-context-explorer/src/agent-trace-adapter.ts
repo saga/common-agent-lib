@@ -111,7 +111,7 @@ function snapshotOf(value: unknown, options: AgentTraceAdapterOptions): ContextS
     if (options.includeRaw !== false) return safeRecord;
     const { rawResponse: omittedResponse, ...withoutResponse } = safeRecord;
     void omittedResponse;
-    return { ...withoutResponse, rawRequest: null, warnings: [...safeRecord.warnings, 'Raw provider payloads were omitted by configuration.'] };
+    return { ...withoutResponse, rawRequest: null, warnings: [...(safeRecord.warnings ?? []), 'Raw provider payloads were omitted by configuration.'] };
   }
   if (Array.isArray(record.messages) || Array.isArray(record.input) || Array.isArray(record.contents)) {
     return normalizeContext(record, undefined, { provider: options.provider, includeRaw: options.includeRaw, redactSecrets: options.redactSecrets });
@@ -280,7 +280,7 @@ export function contextSessionFromTrajectoryEvents(
     const response = details.response ?? details.responsePayload ?? details.rawResponse;
     const embedded = object(details.snapshot);
     if (!request && !Object.keys(embedded).length) continue;
-    const snapshot = Object.keys(embedded).length ? embedded as unknown as ContextSnapshot : normalizeContext(request, response, {
+    const snapshot = Object.keys(embedded).length ? snapshotOf(embedded, options)! : normalizeContext(request, response, {
       provider: options.provider, id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
       includeRaw: options.includeRaw, redactSecrets: options.redactSecrets,
     });
@@ -288,7 +288,7 @@ export function contextSessionFromTrajectoryEvents(
     runs.push({
       id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
       sequence: runs.length + 1, sessionId, turnId: event.turnId,
-      ...(string(details.requestId) ? { requestId: string(details.requestId) } : {}),
+      ...(string(details.requestId) ? { requestId: string(details.requestId)! } : {}),
       ...(event.model ? { model: event.model, actualModel: snapshot.model ?? event.model } : {}),
       provider: options.provider ?? snapshot.provider,
       startedAt: event.timestamp,
