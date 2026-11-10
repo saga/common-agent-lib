@@ -34,11 +34,11 @@ function partsOf(content: unknown): ContentPart[] {
 }
 function messageOf(input: unknown, index: number, prefix: string, redact: boolean): ContextMessage {
   const m = obj(input);
-  const inferredRole = m.role ?? (m.type === 'tool_use' ? 'assistant' : m.type === 'tool_result' ? 'tool' : m.type);
-  const parts = partsOf(m.content ?? m.text ?? m.input);
+  const inferredRole = m.role ?? (['tool_use', 'function_call'].includes(m.type) ? 'assistant' : ['tool_result', 'function_call_output'].includes(m.type) ? 'tool' : m.type);
+  const parts = partsOf(m.content ?? m.text ?? m.input ?? m.output);
   for (const call of Array.isArray(m.tool_calls) ? m.tool_calls : []) { const fn = obj(call.function); parts.push({ kind: 'tool-call', id: call.id, name: String(fn.name ?? call.name ?? 'unknown'), arguments: fn.arguments ?? call.arguments ?? {} }); }
-  if (m.type === 'tool_use' && !parts.some((part) => part.kind === 'tool-call')) parts.push({ kind: 'tool-call', id: m.id, name: String(m.name ?? 'unknown'), arguments: m.input ?? {} });
-  if ((m.type === 'tool_result' || (m.role === 'tool' && (m.tool_call_id || m.tool_use_id))) && !parts.some((part) => part.kind === 'tool-result')) parts.splice(0, parts.length, { kind: 'tool-result', toolCallId: m.tool_use_id ?? m.tool_call_id, name: m.name, content: m.content ?? m.output, isError: Boolean(m.is_error) });
+  if (['tool_use', 'function_call'].includes(m.type) && !parts.some((part) => part.kind === 'tool-call')) parts.push({ kind: 'tool-call', id: m.id ?? m.call_id, name: String(m.name ?? 'unknown'), arguments: m.input ?? m.arguments ?? {} });
+  if ((['tool_result', 'function_call_output'].includes(m.type) || (m.role === 'tool' && (m.tool_call_id || m.tool_use_id))) && !parts.some((part) => part.kind === 'tool-result')) parts.splice(0, parts.length, { kind: 'tool-result', toolCallId: m.tool_use_id ?? m.tool_call_id ?? m.call_id, name: m.name, content: m.content ?? m.output, isError: Boolean(m.is_error) });
   return {
     id: String(m.id ?? m.message_id ?? m.tool_call_id ?? (prefix + '-' + index)), index, role: roleOf(inferredRole),
     ...(m.name ? { name: String(m.name) } : {}), ...(m.recipient ?? m.to ? { recipient: String(m.recipient ?? m.to) } : {}),
@@ -51,6 +51,7 @@ function messageOf(input: unknown, index: number, prefix: string, redact: boolea
 function requestMessages(req: Record<string, any>): unknown[] {
   if (Array.isArray(req.messages)) return req.messages;
   if (Array.isArray(req.input)) return req.input;
+  if (typeof req.input === 'string') return [{ role: 'user', content: req.input }];
   if (Array.isArray(req.contents)) return req.contents;
   return [];
 }
@@ -94,8 +95,10 @@ export function normalizeContext(request: unknown, response?: unknown, options: 
     ...(typeof cached === 'number' ? { cachedInputTokens: cached } : {}),
     ...(typeof cacheWrite === 'number' ? { cacheWriteTokens: cacheWrite } : {}),
     ...(typeof reasoning === 'number' ? { reasoningTokens: reasoning } : {}),
-    ...(typeof usage.premium_request_cost === 'number' ? { premiumRequestCost: usage.premium_request_cost } : {}),
-    ...(typeof usage.total_nano_aiu === 'number' ? { totalNanoAiu: usage.total_nano_aiu } : {}),
+    ...(typeof (usage.premium_request_cost ?? usage.premiumRequestCost) === 'number' ? { premiumRequestCost: usage.premium_request_cost ?? usage.premiumRequestCost } : {}),
+    ...(typeof (usage.total_nano_aiu ?? usage.totalNanoAiu) === 'number' ? { totalNanoAiu: usage.total_nano_aiu ?? usage.totalNanoAiu } : {}),
+    ...(typeof usage.provider_cost === 'number' ? { providerCost: usage.provider_cost } : {}),
+    ...(typeof usage.provider_cost_unit === 'string' ? { providerCostUnit: usage.provider_cost_unit } : {}),
     source: 'provider-event' as const,
   } : undefined;
   return {
