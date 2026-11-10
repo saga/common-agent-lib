@@ -54,12 +54,13 @@ export type ContextEventType =
   | 'compaction' | 'context-changed' | 'retry' | 'checkpoint' | 'session-idle'
   | 'session-error' | 'stage-gate' | 'error' | 'custom';
 export type ContextEventStatus = 'started' | 'running' | 'completed' | 'failed' | 'cancelled' | 'aborted' | 'waiting' | 'info';
+export interface ContextActorReference { id: string; type?: string; displayName?: string }
 export interface ContextEvent {
   id: string; type: ContextEventType; timestamp: string;
   sessionId?: string; traceId?: string; turnId?: string; runId?: string;
   requestId?: string; providerCallId?: string; serviceRequestId?: string; correlationId?: string;
   parentEventId?: string; sequence?: number; initiator?: string;
-  agentId?: string; category?: string; provider?: string; model?: string;
+  agentId?: string; actor?: ContextActorReference; category?: string; provider?: string; model?: string;
   toolCallId?: string; parentToolCallId?: string; toolName?: string;
   mcpServerName?: string; mcpToolName?: string;
   status?: ContextEventStatus; durationMs?: number; summary?: string;
