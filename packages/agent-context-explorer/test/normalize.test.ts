@@ -11,6 +11,11 @@ test('normalizes Anthropic-style blocks and redacts secrets', () => {
   const value = normalizeContext({ model: 'claude', system: 'Rules', api_key: 'secret-value', messages: [{ role: 'assistant', content: [{ type: 'thinking', thinking: 'internal' }, { type: 'text', text: 'answer' }] }] }, { content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 10, output_tokens: 2 } });
   assert.equal(value.messages[0]?.parts[0]?.kind, 'thinking'); assert.equal((value.rawRequest as Record<string, unknown>).api_key, '[REDACTED]'); assert.equal(value.usage?.totalTokens, undefined);
 });
+test('redacts bearer credentials embedded in captured message text', () => {
+  const value = normalizeContext({ messages: [{ role: 'user', content: 'Authorization: Bearer abc.def-123' }] });
+  const part = value.messages[0]?.parts[0];
+  assert.equal(part?.kind === 'text' ? part.text : '', 'Authorization: Bearer [REDACTED]');
+});
 test('diff identifies appended and changed messages', () => {
   const before = normalizeContext({ messages: [{ role: 'user', content: 'A' }] }); const after = normalizeContext({ messages: [{ role: 'user', content: 'B' }, { role: 'assistant', content: 'C' }] });
   const diff = diffContext(before.messages, after.messages); assert.equal(diff.changed, 1); assert.equal(diff.added, 1);
