@@ -38,3 +38,17 @@ test('normalizes extended provider usage without estimating missing metrics', ()
   assert.equal(value.usage?.reasoningEffort, 'high');
   assert.equal(value.usage?.cacheWriteTokens, undefined);
 });
+
+test('normalizes Responses API string input and function call outputs', () => {
+  const value = normalizeContext(
+    { model: 'responses-model', input: 'find a file', tools: [{ type: 'function', name: 'search', parameters: { type: 'object' } }] },
+    { output: [
+      { type: 'function_call', call_id: 'call-1', name: 'search', arguments: '{"q":"x"}' },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] },
+    ] },
+  );
+  assert.equal(value.messages[0]?.parts[0]?.kind, 'text');
+  assert.equal(value.messages[0]?.parts[0]?.kind === 'text' ? value.messages[0].parts[0].text : '', 'find a file');
+  assert.equal(value.responseMessages[0]?.parts[0]?.kind, 'tool-call');
+  assert.equal(value.responseMessages[0]?.parts[0]?.kind === 'tool-call' ? value.responseMessages[0].parts[0].id : '', 'call-1');
+});
