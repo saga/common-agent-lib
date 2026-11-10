@@ -90,14 +90,68 @@ For other runtimes, implement the same mapping at the host boundary. Keep the or
 Capture the actual provider request after the host has injected system/developer instructions, history, retrieved memory, tool schemas and context-budget transformations. Capturing only the user's initial prompt or an application-side draft does not establish what the model received.
 
 For useful cross-project debugging, retain:
-- Stable `sessionId`, `traceId`, `turnId`, `requestId`, `parentEventId`, and store-assigned `sequence`.
+- Stable `sessionId`, `traceId`, `turnId`, `requestId`, `apiCallId`, `providerCallId`, `serviceRequestId`, `parentEventId`, and store-assigned `sequence`; these identifiers have different meanings and must not be substituted for one another.
 - Actual provider/model identity, request/response payloads, status, timestamps and duration.
 - Tool call IDs, parent IDs, arguments/results when permitted, progress and failure status.
 - Permission and user-input request/completion events, including waiting and timeout states.
-- Provider-reported usage and context occupancy, with their source.
+- Provider-reported usage (including cached/new input, cache writes, reasoning, cost, TTFT and inter-token latency when available) and context occupancy, with their source.
 - Context/prompt/configuration/memory revisions or hashes when those inputs affect reproducibility.
 
 A runtime event stream may not expose provider payloads. Mark incomplete payloads with `payloadComplete: false`; do not claim a Session can be fully replayed if the SDK only provides truncated event summaries. Diagram Studio's compact SDK event logs are useful for lifecycle diagnosis but are not a substitute for transport-boundary request capture.
+
+## Recommended event log shape
+
+The package consumes records; it does not prescribe a storage engine. JSONL is a convenient interchange format because each line is independently appendable and can be streamed:
+
+~~~json
+{
+  "sequence": 42,
+  "timestamp": "2026-11-10T08:30:00.000Z",
+  "type": "model_call",
+  "sessionId": "session-123",
+  "traceId": "trace-456",
+  "turnId": "turn-7",
+  "correlationId": "correlation-9",
+  "status": "completed",
+  "provider": "anthropic",
+  "model": "claude-sonnet",
+  "usage": {
+    "inputTokens": 18000,
+    "newInputTokens": 12000,
+    "outputTokens": 900,
+    "cachedInputTokens": 6000,
+    "reasoningTokens": 250,
+    "timeToFirstTokenMs": 420,
+    "interTokenLatencyMs": 25,
+    "source": "provider-event"
+  },
+  "contextUsage": {
+    "currentTokens": 18000,
+    "tokenLimit": 200000,
+    "messagesLength": 24,
+    "percent": 9
+  },
+  "payloadComplete": true,
+  "data": {
+    "requestId": "request-1",
+    "apiCallId": "api-call-1",
+    "providerCallId": "provider-call-1",
+    "serviceRequestId": "service-request-1",
+    "initiator": "planner",
+    "request": { "model": "claude-sonnet", "messages": [] },
+    "response": { "content": [] },
+    "provenance": {
+      "promptRevision": "prompt-v3",
+      "configurationRevision": "config-42",
+      "contextHash": "sha256:..."
+    }
+  }
+}
+~~~
+
+Use one event envelope consistently across runtime events. Keep \`sessionId\`, \`traceId\`, \`turnId\`, \`requestId\`, provider call IDs and \`correlationId\` as distinct identities; do not put a turn ID into the trace or session field to fill a missing value. When a source has no session identity (the current Agentic Data Architect trajectory contract has \`turnId\` but no \`sessionId\`), the adapter creates an explicitly synthetic \`trajectory:<turnId>\` session key and retains original turn IDs in metadata.
+
+The required minimum for lifecycle diagnosis is event identity, timestamp, event type, status, and available session/turn/tool correlation IDs. For request inspection, additionally capture the actual provider request and response. A complete replay/debug record should also include provider/model identity, request/response IDs, timing, usage, context-window occupancy, tool arguments/results, and provenance revisions. Missing fields stay absent; do not estimate token counts, cost, or model identity.
 
 ## Boundaries and persistence
 
