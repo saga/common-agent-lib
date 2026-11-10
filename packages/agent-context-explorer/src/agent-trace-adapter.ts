@@ -1,4 +1,4 @@
-import type { ContextEvent, ContextEventType, ContextRun, ContextSession, ContextSnapshot, ModelCallUsage, ContextUsage } from './model.js';
+import type { ContextCompaction, ContextEvent, ContextEventType, ContextRun, ContextSession, ContextSnapshot, ModelCallUsage, ContextUsage } from './model.js';
 import { normalizeContext } from './normalize.js';
 
 /** Structural subset of @saga/agent-contracts AgentEvent; no runtime dependency is required. */
@@ -25,6 +25,10 @@ function usageOf(value: unknown): ModelCallUsage | undefined {
   for (const field of fields) { const n = number(usage[field]); if (n !== undefined) result[field] = n; }
   for (const field of ['providerCostUnit', 'finishReason', 'reasoningEffort'] as const) { const s = string(usage[field]); if (s) result[field] = s; }
   if (usage.source === 'provider-event' || usage.source === 'session-metrics' || usage.source === 'unknown') result.source = usage.source;
+  if (usage.byModel && typeof usage.byModel === 'object' && !Array.isArray(usage.byModel)) {
+    result.byModel = Object.fromEntries(Object.entries(usage.byModel as Record<string, unknown>)
+      .map(([model, counts]) => [model, usageOf(counts)]).filter((entry) => entry[1] !== undefined));
+  }
   if (Object.keys(result).length) return result as ModelCallUsage;
   return undefined;
 }
@@ -87,6 +91,45 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
     ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
     metadata: { ...(event.metadata ?? {}), sourceEventType: event.type, ...(event.payloadComplete === false ? { payloadComplete: false } : {}) },
   };
+}
+function snapshotOf(value: unknown, options: AgentTraceAdapterOptions): ContextSnapshot | undefined {
+  const record = object(value);
+  if (!Object.keys(record).length) return undefined;
+  if (Array.isArray(record.messages) && Array.isArray(record.responseMessages) && typeof record.provider === 'string') {
+    return record as unknown as ContextSnapshot;
+  }
+  if (Array.isArray(record.messages) || Array.isArray(record.input) || Array.isArray(record.contents)) {
+    return normalizeContext(record, undefined, { provider: options.provider, includeRaw: options.includeRaw, redactSecrets: options.redactSecrets });
+  }
+  return undefined;
+}
+function compactionsFromAgentEvents(events: readonly AgentTraceEventLike[], options: AgentTraceAdapterOptions): ContextCompaction[] {
+  const result: ContextCompaction[] = [];
+  for (const event of events) {
+    if (!/compaction/i.test(event.type)) continue;
+    const data = object(event.data);
+    const before = snapshotOf(data.before ?? data.beforeSnapshot, options);
+    const after = snapshotOf(data.after ?? data.afterSnapshot, options);
+    if (!before || !after) continue;
+    result.push({
+      id: string(data.compactionId) ?? event.id, timestamp: event.timestamp,
+      ...(string(data.reason) ? { reason: string(data.reason) } : {}),
+      ...(string(data.strategy) ? { strategy: string(data.strategy) } : {}),
+      before, after,
+      ...(string(data.summary) ? { summary: string(data.summary) } : {}),
+      ...(Array.isArray(data.removedMessageIds) ? { removedMessageIds: data.removedMessageIds.filter((v: unknown): v is string => typeof v === 'string') } : {}),
+      ...(Array.isArray(data.preservedMessageIds) ? { preservedMessageIds: data.preservedMessageIds.filter((v: unknown): v is string => typeof v === 'string') } : {}),
+      ...(number(data.preCompactionTokens) !== undefined ? { preCompactionTokens: number(data.preCompactionTokens) } : {}),
+      ...(number(data.postCompactionTokens) !== undefined ? { postCompactionTokens: number(data.postCompactionTokens) } : {}),
+      ...(number(data.tokensRemoved) !== undefined ? { tokensRemoved: number(data.tokensRemoved) } : {}),
+      ...(number(data.messagesRemoved) !== undefined ? { messagesRemoved: number(data.messagesRemoved) } : {}),
+      ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+      ...(string(data.requestId) ? { requestId: string(data.requestId) } : {}),
+      ...(event.status === 'failed' ? { status: 'failed' as const, error: string(data.error) ?? 'Compaction failed' } : { status: 'completed' as const }),
+      metadata: { sourceEventId: event.id },
+    });
+  }
+  return result;
 }
 function toContextEvent(event: AgentTraceEventLike): ContextEvent {
   const data = object(event.data);
