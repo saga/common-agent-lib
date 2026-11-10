@@ -63,7 +63,7 @@ function eventType(type: string): ContextEventType {
   return 'custom';
 }
 function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOptions): ContextRun | undefined {
-  const data = object(event.data);
+  const data = object(redactContextPayload(event.data, options.redactSecrets ?? true));
   const embedded = object(data.snapshot);
   const request = data.request ?? data.requestPayload ?? data.rawRequest;
   const response = data.response ?? data.responsePayload ?? data.rawResponse;
@@ -100,14 +100,14 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
     ...(data.provenance && typeof data.provenance === 'object' ? { provenance: data.provenance } : {}),
     ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
     ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
-    metadata: { ...(event.metadata ?? {}), sourceEventType: event.type, ...(event.payloadComplete === false ? { payloadComplete: false } : {}) },
+    metadata: { ...(redactContextPayload(event.metadata ?? {}, options.redactSecrets ?? true)), sourceEventType: event.type, ...(event.payloadComplete === false ? { payloadComplete: false } : {}) },
   };
 }
 function snapshotOf(value: unknown, options: AgentTraceAdapterOptions): ContextSnapshot | undefined {
   const record = object(value);
   if (!Object.keys(record).length) return undefined;
   if (Array.isArray(record.messages) && Array.isArray(record.responseMessages) && typeof record.provider === 'string') {
-    return record as unknown as ContextSnapshot;
+    return redactContextPayload(record, options.redactSecrets ?? true) as unknown as ContextSnapshot;
   }
   if (Array.isArray(record.messages) || Array.isArray(record.input) || Array.isArray(record.contents)) {
     return normalizeContext(record, undefined, { provider: options.provider, includeRaw: options.includeRaw, redactSecrets: options.redactSecrets });
@@ -118,7 +118,7 @@ function compactionsFromAgentEvents(events: readonly AgentTraceEventLike[], opti
   const result: ContextCompaction[] = [];
   for (const event of events) {
     if (!/compaction/i.test(event.type)) continue;
-    const data = object(event.data);
+    const data = object(redactContextPayload(event.data, options.redactSecrets ?? true));
     const before = snapshotOf(data.before ?? data.beforeSnapshot, options);
     const after = snapshotOf(data.after ?? data.afterSnapshot, options);
     if (!before || !after) continue;
@@ -169,7 +169,7 @@ function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOp
     ...(string(data.summary ?? data.progressMessage ?? data.message ?? data.error) ? { summary: string(data.summary ?? data.progressMessage ?? data.message ?? data.error) } : {}),
     ...(data.arguments !== undefined ? { input: redactContextPayload(data.arguments, options.redactSecrets ?? true) } : data.input !== undefined ? { input: redactContextPayload(data.input, options.redactSecrets ?? true) } : {}),
     ...(data.result !== undefined ? { output: redactContextPayload(data.result, options.redactSecrets ?? true) } : data.output !== undefined ? { output: redactContextPayload(data.output, options.redactSecrets ?? true) } : {}),
-    data: redactContextPayload(event.data, options.redactSecrets ?? true), ...(event.metadata ? { metadata: event.metadata } : {}),
+    data: redactContextPayload(event.data, options.redactSecrets ?? true), ...(event.metadata ? { metadata: redactContextPayload(event.metadata, options.redactSecrets ?? true) } : {}),
     ...(usageOf(event.usage) ? { usage: usageOf(event.usage) } : {}),
     ...(contextUsageOf(event.contextUsage) ? { contextUsage: contextUsageOf(event.contextUsage) } : {}),
     ...(event.payloadComplete !== undefined ? { payloadComplete: event.payloadComplete } : {}),
