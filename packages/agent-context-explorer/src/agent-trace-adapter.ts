@@ -244,10 +244,12 @@ export function contextSessionFromTrajectoryEvents(
   options: { sessionId?: string; provider?: string; includeRaw?: boolean; redactSecrets?: boolean } = {},
 ): ContextSession {
   const ordered = [...events].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  const firstDetails = object(ordered[0]?.details);
   const sourceTurnIds = [...new Set(ordered.map((event) => event.turnId).filter(Boolean))];
+  const declaredSessionId = ordered
+    .map((event) => string(object(event.details).sessionId) ?? event.sessionId)
+    .find((value): value is string => Boolean(value));
   // TrajectoryEvent has turnId but no session identity. Do not silently relabel a turn as a session.
-  const sessionId = options.sessionId ?? string(firstDetails.sessionId) ?? ordered[0]?.sessionId ??
+  const sessionId = options.sessionId ?? declaredSessionId ??
     (sourceTurnIds[0] ? 'trajectory:' + sourceTurnIds[0] : 'trajectory:unscoped');
   const contextEvents: ContextEvent[] = ordered.map((event) => {
     const details = object(event.details);
