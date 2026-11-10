@@ -7,7 +7,7 @@ export interface AgentTraceEventLike {
   correlationId?: string; traceId?: string; turnId?: string; parentEventId?: string;
   sequence?: number; category?: string; status?: string; durationMs?: number;
   provider?: string; model?: string; payloadComplete?: boolean;
-  data?: unknown; metadata?: Record<string, unknown>;
+  data?: unknown; metadata?: Record<string, unknown>; actor?: { id: string; type?: string; displayName?: string };
   usage?: unknown; contextUsage?: unknown;
 }
 export interface AgentTraceAdapterOptions {
@@ -170,6 +170,7 @@ function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOp
     ...(event.parentEventId ? { parentEventId: event.parentEventId } : {}),
     ...(event.sequence !== undefined ? { sequence: event.sequence } : {}),
     ...(event.agentId ? { agentId: event.agentId } : {}),
+    ...(event.actor ? { actor: redactContextPayload(event.actor, options.redactSecrets ?? true) } : {}),
     ...(event.category ? { category: event.category } : {}),
     ...(event.provider ? { provider: event.provider } : {}),
     ...(event.model ? { model: event.model } : {}),
