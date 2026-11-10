@@ -15,3 +15,21 @@ test('diff identifies appended and changed messages', () => {
   const before = normalizeContext({ messages: [{ role: 'user', content: 'A' }] }); const after = normalizeContext({ messages: [{ role: 'user', content: 'B' }, { role: 'assistant', content: 'C' }] });
   const diff = diffContext(before.messages, after.messages); assert.equal(diff.changed, 1); assert.equal(diff.added, 1);
 });
+
+test('normalizes extended provider usage without estimating missing metrics', () => {
+  const value = normalizeContext(
+    { model: 'model-a', reasoning_effort: 'high', messages: [{ role: 'user', content: 'hello' }] },
+    { choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }], usage: {
+      prompt_tokens: 100, completion_tokens: 20, total_tokens: 120,
+      prompt_tokens_details: { cached_tokens: 40 }, output_tokens_details: { reasoning_tokens: 5 },
+    } },
+  );
+  assert.equal(value.usage?.inputTokens, 100);
+  assert.equal(value.usage?.outputTokens, 20);
+  assert.equal(value.usage?.totalTokens, 120);
+  assert.equal(value.usage?.cachedInputTokens, 40);
+  assert.equal(value.usage?.reasoningTokens, 5);
+  assert.equal(value.usage?.finishReason, 'stop');
+  assert.equal(value.usage?.reasoningEffort, 'high');
+  assert.equal(value.usage?.cacheWriteTokens, undefined);
+});
