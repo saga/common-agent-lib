@@ -11,32 +11,36 @@ export function buildToolCallGraph(messages: readonly ContextMessage[], events: 
     nodes.set(id, node);
     return node;
   };
+  // Register every call before resolving results so out-of-order event batches still correlate.
   for (const message of messages) for (const part of message.parts) {
-    if (part.kind === 'tool-call') {
-      const id = part.id ?? message.id + ':' + part.name + ':' + nodes.size;
-      const parent = message.metadata.parentToolCallId;
-      ensureNode(id, part.name, part.arguments, message.id, message.index, {
-        ...(typeof parent === 'string' ? { parentToolCallId: parent } : {}),
-      });
-    } else if (part.kind === 'tool-result') {
-      const node = part.toolCallId ? nodes.get(part.toolCallId) : undefined;
-      if (node) Object.assign(node, { result: part.content, resultMessageId: message.id, status: part.isError ? 'failed' : 'completed', isError: part.isError });
-      else orphanResults.push({ toolCallId: part.toolCallId, messageId: message.id, content: part.content });
-    }
+    if (part.kind !== 'tool-call') continue;
+    const id = part.id ?? message.id + ':' + part.name + ':' + nodes.size;
+    const parent = message.metadata.parentToolCallId;
+    ensureNode(id, part.name, part.arguments, message.id, message.index, {
+      ...(typeof parent === 'string' ? { parentToolCallId: parent } : {}),
+    });
   }
   for (const event of events) {
-    if (event.type === 'tool-call' && event.toolCallId) {
-      const node = ensureNode(event.toolCallId, event.toolName ?? event.mcpToolName ?? 'unknown', event.input, event.id, -1, {
-        ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
-        ...(event.agentId ? { agentId: event.agentId } : {}),
-        ...(event.mcpServerName ? { mcpServerName: event.mcpServerName } : {}),
-        ...(event.mcpToolName ? { mcpToolName: event.mcpToolName } : {}),
-        ...(event.timestamp ? { startedAt: event.timestamp } : {}),
-      });
-      node.durationMs = event.durationMs ?? node.durationMs;
-      if (event.status === 'failed' || event.status === 'cancelled') node.status = 'failed';
-      if (event.status === 'completed') node.status = 'completed';
-    } else if (event.type === 'tool-progress' && event.toolCallId) {
+    if (event.type !== 'tool-call' || !event.toolCallId) continue;
+    const node = ensureNode(event.toolCallId, event.toolName ?? event.mcpToolName ?? 'unknown', event.input, event.id, -1, {
+      ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
+      ...(event.agentId ? { agentId: event.agentId } : {}),
+      ...(event.mcpServerName ? { mcpServerName: event.mcpServerName } : {}),
+      ...(event.mcpToolName ? { mcpToolName: event.mcpToolName } : {}),
+      ...(event.timestamp ? { startedAt: event.timestamp } : {}),
+    });
+    node.durationMs = event.durationMs ?? node.durationMs;
+    if (event.status === 'failed' || event.status === 'cancelled') node.status = 'failed';
+    if (event.status === 'completed') node.status = 'completed';
+  }
+  for (const message of messages) for (const part of message.parts) {
+    if (part.kind !== 'tool-result') continue;
+    const node = part.toolCallId ? nodes.get(part.toolCallId) : undefined;
+    if (node) Object.assign(node, { result: part.content, resultMessageId: message.id, status: part.isError ? 'failed' : 'completed', isError: part.isError });
+    else orphanResults.push({ toolCallId: part.toolCallId, messageId: message.id, content: part.content });
+  }
+  for (const event of events) {
+    if (event.type === 'tool-progress' && event.toolCallId) {
       const node = nodes.get(event.toolCallId);
       if (node) node.progress.push({ timestamp: event.timestamp, message: event.summary, data: event.data });
     } else if (event.type === 'tool-result' && event.toolCallId) {
@@ -53,7 +57,6 @@ export function buildToolCallGraph(messages: readonly ContextMessage[], events: 
   const roots = values.filter((node) => !node.parentToolCallId || !nodes.has(node.parentToolCallId)).map((node) => node.id);
   return { nodes: values, roots, orphanResults };
 }
-
 export function buildContextTimeline(session: Pick<ContextSession, 'runs' | 'events' | 'compactions'>): Array<{
   id: string; timestamp: string; type: string; title: string; description?: string; status?: string; durationMs?: number;
 }> {
