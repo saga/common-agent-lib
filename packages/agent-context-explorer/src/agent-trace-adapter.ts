@@ -253,7 +253,7 @@ export function contextSessionFromTrajectoryEvents(
     const details = object(event.details);
     const status = ['started', 'running', 'completed', 'failed', 'waiting', 'info', 'cancelled', 'aborted'].includes(event.status ?? '')
       ? event.status as ContextEvent['status'] : undefined;
-    const requestId = string(details.serviceRequestId ?? details.requestId ?? details.apiCallId ?? details.providerCallId);
+    const requestId = string(details.requestId ?? details.serviceRequestId);
     const toolCallId = string(details.toolCallId);
     const parentToolCallId = string(details.parentToolCallId);
     const agentId = string(details.agentId);
@@ -321,13 +321,21 @@ export function contextSessionFromTrajectoryEvents(
       id: string(details.apiCallId ?? details.providerCallId) ?? event.id,
       sequence: runs.length + 1, sessionId, turnId: event.turnId,
       ...(requestId ? { requestId } : {}),
-      ...(event.model ? { model: event.model } : {}),
-      ...(actualModel ? { actualModel } : {}),
-      provider: options.provider ?? snapshot.provider,
+      ...(string(details.apiCallId) ? { apiCallId: string(details.apiCallId) } : {}),
+      ...(string(details.providerCallId) ? { providerCallId: string(details.providerCallId) } : {}),
+      ...(string(details.serviceRequestId) ? { serviceRequestId: string(details.serviceRequestId) } : {}),
+      ...(string(details.parentRunId) ? { parentRunId: string(details.parentRunId) } : {}),
+      ...(string(details.stage) ? { stage: string(details.stage) } : {}),
+      ...(number(details.attempt) !== undefined ? { attempt: number(details.attempt) } : {}),
+      ...(event.model || snapshot.model ? { model: event.model ?? snapshot.model, actualModel: snapshot.model ?? event.model } : {}),
+      provider: options.provider ?? event.provider ?? string(details.provider) ?? snapshot.provider,
+      ...(string(details.initiator) ? { initiator: string(details.initiator) } : {}),
       startedAt: event.timestamp,
-      ...(response !== undefined || event.status === 'completed' ? { completedAt: event.timestamp } : {}),
+      ...(response !== undefined || event.status === 'completed' ? { completedAt: string(details.completedAt) ?? event.timestamp } : {}),
       status: event.status === 'failed' ? 'failed' : event.status === 'cancelled' ? 'cancelled' : event.status === 'aborted' ? 'aborted' : response !== undefined || event.status === 'completed' ? 'completed' : 'running',
       snapshot, ...(usage ? { usage } : {}), ...(contextUsage ? { contextUsage } : {}),
+      payloadComplete: event.payloadComplete ?? (request !== undefined && response !== undefined || Object.keys(embedded).length > 0),
+      ...(snapshot.provenance ? { provenance: snapshot.provenance } : {}),
       ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
       ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
     });
