@@ -67,13 +67,17 @@ export function buildContextTimeline(session: Pick<ContextSession, 'runs' | 'eve
     status: run.status,
     durationMs: run.completedAt ? Math.max(0, Date.parse(run.completedAt) - Date.parse(run.startedAt)) : run.usage?.durationMs,
   });
-  for (const event of session.events) items.push({
+  const runEventIds = new Set(session.runs.flatMap((run) => [run.id, run.requestId].filter((id): id is string => Boolean(id))));
+  for (const event of session.events) {
+    if ((event.type === 'llm-request' || event.type === 'llm-response') && (runEventIds.has(event.id) || (event.runId && runEventIds.has(event.runId)))) continue;
+    items.push({
     id: event.id, timestamp: event.timestamp, type: event.type,
     title: event.summary ?? event.toolName ?? event.mcpToolName ?? event.type,
     description: [event.runId ? 'Run ' + event.runId : undefined, event.turnId ? 'Turn ' + event.turnId : undefined,
       event.provider, event.model, event.payloadComplete === false ? 'payload incomplete' : undefined].filter(Boolean).join(' · ') || undefined,
     status: event.status, durationMs: event.durationMs,
-  });
+    });
+  }
   for (const compaction of session.compactions) items.push({
     id: 'compaction:' + compaction.id, timestamp: compaction.timestamp, type: 'compaction',
     title: 'Context compaction', description: compaction.reason ?? compaction.strategy ?? 'Context changed',
