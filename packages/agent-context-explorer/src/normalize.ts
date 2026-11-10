@@ -112,3 +112,8 @@ export function normalizeContext(request: unknown, response?: unknown, options: 
     warnings,
   };
 }
+
+/** Apply the package's default credential redaction to runtime event payloads as well as provider exchanges. */
+export function redactContextPayload<T>(value: T, enabled = true): T {
+  return safe(value, enabled) as T;
+}
