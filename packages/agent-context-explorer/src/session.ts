@@ -30,7 +30,13 @@ export function buildToolCallGraph(messages: readonly ContextMessage[], events: 
       ...(event.timestamp ? { startedAt: event.timestamp } : {}),
     });
     node.durationMs = event.durationMs ?? node.durationMs;
-    if (event.status === 'failed' || event.status === 'cancelled') node.status = 'failed';
+    node.parentToolCallId ??= event.parentToolCallId;
+    node.agentId ??= event.agentId;
+    node.mcpServerName ??= event.mcpServerName;
+    node.mcpToolName ??= event.mcpToolName;
+    node.startedAt ??= event.timestamp;
+    if (node.arguments === undefined) node.arguments = event.input;
+    if (event.status === 'failed' || event.status === 'cancelled' || event.status === 'aborted') node.status = 'failed';
     if (event.status === 'completed') node.status = 'completed';
   }
   for (const message of messages) for (const part of message.parts) {
