@@ -28,6 +28,14 @@ Add structural adapters for:
 
 The adapters preserve original payloads and mark incomplete payloads. They map service/provider request IDs, API call IDs, MCP tool metadata, progress, permissions, user-input waits, cancellation and aborted states. They only create a ContextRun when an actual request or normalized snapshot is available. A compact event summary is not treated as a complete prompt/response.
 
+## Identity semantics
+
+The adapter must preserve source identifiers independently: `sessionId`, `traceId`, `turnId`, host `requestId`, `apiCallId`, `providerCallId`, `serviceRequestId` and `correlationId` are not interchangeable. Parent event/run/tool-call IDs express causality; sequence expresses source ordering. A provider/service request ID must not be copied into `correlationId` unless the source explicitly defines it as that correlation key.
+
+Agentic Data Architect's current TrajectoryEvent contract supplies `turnId` but not a top-level `sessionId`. The adapter uses a synthetic `trajectory:<turnId>` key when no session identity is available and records the source turn IDs in metadata. It does not label the turn ID as a trace ID.
+
+`payloadComplete` describes whether the source captured the actual provider request and response. A completed runtime event can still have an incomplete payload; lifecycle completion is not proof of replay completeness.
+
 ## Capture contract
 
 For a model call that needs to be inspected or reproduced, the host should capture the final request at the provider transport boundary, after system/developer prompt injection, history selection, memory retrieval, tool-schema injection and context compression. The matching response, provider/model identity, request ID, usage and timing should be captured when available.
