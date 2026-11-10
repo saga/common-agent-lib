@@ -34,8 +34,8 @@ function partsOf(content: unknown): ContentPart[] {
 function messageOf(input: unknown, index: number, prefix: string, redact: boolean): ContextMessage {
   const m = obj(input); const parts = partsOf(m.content ?? m.text ?? m.input);
   for (const call of Array.isArray(m.tool_calls) ? m.tool_calls : []) { const fn = obj(call.function); parts.push({ kind: 'tool-call', id: call.id, name: String(fn.name ?? call.name ?? 'unknown'), arguments: fn.arguments ?? call.arguments ?? {} }); }
-  if (m.type === 'tool_use' && !parts.length) parts.push({ kind: 'tool-call', id: m.id, name: String(m.name ?? 'unknown'), arguments: m.input ?? {} });
-  if (m.type === 'tool_result' && !parts.length) parts.push({ kind: 'tool-result', toolCallId: m.tool_use_id, content: m.content, isError: Boolean(m.is_error) });
+  if (m.type === 'tool_use' && !parts.some((part) => part.kind === 'tool-call')) parts.push({ kind: 'tool-call', id: m.id, name: String(m.name ?? 'unknown'), arguments: m.input ?? {} });
+  if ((m.type === 'tool_result' || (m.role === 'tool' && m.tool_call_id)) && !parts.some((part) => part.kind === 'tool-result')) parts.splice(0, parts.length, { kind: 'tool-result', toolCallId: m.tool_use_id ?? m.tool_call_id, name: m.name, content: m.content ?? m.output, isError: Boolean(m.is_error) });
   return {
     id: String(m.id ?? m.message_id ?? m.tool_call_id ?? (prefix + '-' + index)), index, role: roleOf(m.role ?? m.type),
     ...(m.name ? { name: String(m.name) } : {}), ...(m.recipient ?? m.to ? { recipient: String(m.recipient ?? m.to) } : {}),
