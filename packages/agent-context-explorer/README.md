@@ -1,10 +1,10 @@
 # @saga/agent-context-explorer
 
-Provider-neutral inspection models and reusable React UI for understanding what an LLM request contains and what the provider returned.
+Provider-neutral inspection models and reusable Ant Design and Ant Design X UI for understanding what an LLM request contains and what the provider returned.
 
 The package normalizes OpenAI Chat Completions, Responses-style arrays, Anthropic-style messages/content blocks and generic message payloads. It renders roles, channels, text, thinking blocks, images, tool calls/results, refusals, JSON and unknown multimodal blocks while retaining their raw representation. It exposes tool schemas, model parameters, usage, raw request/response and message-level context diffing.
 
-This is a viewer and normalization layer, not an Agent runtime, trace backend, prompt builder or model SDK wrapper. It has no dependency on provider SDKs, databases or tracing vendors. React is a peer dependency; the normalized model can be used without rendering the component.
+This is a viewer and normalization layer, not an Agent runtime, trace backend, prompt builder or model SDK wrapper. It has no dependency on provider SDKs, databases or tracing vendors. React, Ant Design and Ant Design X are peer dependencies; the normalized model can be used without rendering the component.
 
 ## Install and use
 
@@ -23,7 +23,7 @@ const snapshot = normalizeContext(capturedRequest, capturedResponse, {
 <ContextExplorer snapshot={snapshot} previous={previousSnapshot} />;
 ```
 
-The component uses inline styles and CSS custom properties prefixed with --context- so hosts can theme it without adopting a CSS framework.
+The inspector uses Ant Design for layout, tabs, metadata, alerts and structured panels, and Ant Design X Bubble for conversational message rendering. The host application owns the global Ant Design theme and CSS reset.
 
 ## Capture boundary
 
