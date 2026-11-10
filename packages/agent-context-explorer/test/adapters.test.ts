@@ -26,11 +26,13 @@ test('adapts agentic-data-architect trajectory tool lifecycle and usage', () => 
     { id: 't1', turnId: 'turn-1', timestamp: '2026-01-01T00:00:00.000Z', type: 'tool_call', name: 'Search', status: 'started', details: { toolCallId: 'call-1', tool: 'search', arguments: { q: 'x' }, agentId: 'researcher', parentToolCallId: 'call-parent' } },
     { id: 't2', turnId: 'turn-1', timestamp: '2026-01-01T00:00:01.000Z', type: 'tool_progress', name: 'Reading result', status: 'info', details: { toolCallId: 'call-1', progressMessage: 'page 1' } },
     { id: 't3', turnId: 'turn-1', timestamp: '2026-01-01T00:00:02.000Z', type: 'tool_result', name: 'Search complete', status: 'completed', details: { toolCallId: 'call-1', resultPreview: 'found' } },
-    { id: 't4', turnId: 'turn-1', timestamp: '2026-01-01T00:00:03.000Z', type: 'model_call', name: 'Model call', status: 'completed', model: 'model-a', inputTokens: 50, outputTokens: 10, details: { cachedInputTokens: 20, reasoningTokens: 4 } },
+    { id: 't4', turnId: 'turn-1', timestamp: '2026-01-01T00:00:03.000Z', type: 'model_call', name: 'Model call', status: 'completed', model: 'model-a', inputTokens: 50, outputTokens: 10, details: { cachedInputTokens: 20, reasoningTokens: 4, serviceRequestId: 'svc-1', contextTokensAtCall: 900, contextTokenLimitAtCall: 8000, contextPercentAtCall: 11.25, contextMessagesAtCall: 9 } },
   ]);
   assert.equal(session.events[0]?.toolCallId, 'call-1');
   assert.equal(session.events[1]?.type, 'tool-progress');
   assert.equal(session.events[3]?.usage?.cachedInputTokens, 20);
+  assert.equal(session.events[3]?.correlationId, 'svc-1');
+  assert.equal(session.events[3]?.contextUsage?.percent, 11.25);
   assert.equal(session.runs.length, 0, 'trajectory summaries without actual provider payload must not fabricate a context snapshot');
 });
 
