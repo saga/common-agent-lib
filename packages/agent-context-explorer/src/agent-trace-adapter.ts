@@ -257,7 +257,7 @@ export function contextSessionFromTrajectoryEvents(
       ...(toolName ? { toolName } : {}),
       ...(event.model ? { model: event.model } : {}),
       ...(status ? { status } : {}), ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
-      summary: event.name,
+      summary: string(details.progressMessage ?? details.summary) ?? event.name,
       ...(details.arguments !== undefined ? { input: redactContextPayload(details.arguments, options.redactSecrets ?? true) } : {}),
       ...(details.resultPreview !== undefined ? { output: redactContextPayload(details.resultPreview, options.redactSecrets ?? true) } : {}),
       data: redactContextPayload(event.details, options.redactSecrets ?? true),
@@ -300,7 +300,7 @@ export function contextSessionFromTrajectoryEvents(
     });
   }
   return {
-    id: sessionId, ...(ordered[0]?.turnId ? { traceId: ordered[0].turnId } : {}),
+    id: sessionId,
     ...(ordered[0]?.timestamp ? { startedAt: ordered[0].timestamp } : {}),
     ...(ordered.at(-1)?.timestamp ? { updatedAt: ordered.at(-1)!.timestamp } : {}),
     runs, events: contextEvents,
