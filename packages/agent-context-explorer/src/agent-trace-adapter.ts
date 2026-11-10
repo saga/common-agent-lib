@@ -8,7 +8,7 @@ export interface AgentTraceEventLike {
   sequence?: number; category?: string; status?: string; durationMs?: number;
   provider?: string; model?: string; payloadComplete?: boolean;
   data?: unknown; metadata?: Record<string, unknown>;
-  usage?: Record<string, unknown>; contextUsage?: Record<string, unknown>;
+  usage?: unknown; contextUsage?: unknown;
 }
 export interface AgentTraceAdapterOptions {
   sessionId?: string; provider?: string; includeRaw?: boolean; redactSecrets?: boolean;
@@ -77,7 +77,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
     ...(number(data.attempt) !== undefined ? { attempt: number(data.attempt) } : {}),
     ...(event.provider ? { provider: event.provider } : {}),
     ...(event.model ? { model: event.model } : {}),
-    ...(snapshot.model ? { actualModel: snapshot.model } : {}),
+    ...((snapshot.model ?? event.model) ? { actualModel: snapshot.model ?? event.model } : {}),
     startedAt: event.timestamp,
     ...(completed ? { completedAt: string(data.completedAt) ?? event.timestamp } : {}),
     status: /fail|error/i.test(event.status ?? '') ? 'failed' : completed ? 'completed' : 'running',
