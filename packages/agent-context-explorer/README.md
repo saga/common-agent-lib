@@ -77,7 +77,7 @@ For other runtimes, implement the same mapping at the host boundary. Keep the or
 
 - `ContextSession` groups runs, events and compaction snapshots. Correlation supports session, trace, turn, request, parent-event and sequence identifiers.
 - `ContextRun` represents one actual model exchange. It records requested and observed model identity, provider, attempt/stage, timing, status, usage, context occupancy and provenance.
-- `ContextEvent` covers turn lifecycle, model calls, tool lifecycle/progress, permissions, user-input waits, retry, checkpoint, compaction, context changes, idle and errors. Unknown runtime events remain `custom`.
+- `ContextEvent` covers turn lifecycle, model calls, tool lifecycle/progress, agent and actor identity, permissions, user-input waits, retry, checkpoint, compaction, context changes, idle and errors. Unknown runtime events remain `custom`.
 - `ContextCompaction` records before/after snapshots and provider/runtime reported token and message reductions, duration and failure details.
 - `ModelCallUsage` is consumption for a provider call. It keeps reported total input and uncached/new input separate, alongside cache, reasoning, latency and provider billing metrics. `ContextUsage` is a point-in-time context-window measurement. They are deliberately separate and neither is inferred from text length.
 - `ContextProvenance` associates captured context with source, prompt, pipeline, configuration and memory revisions, hashes and input IDs.
