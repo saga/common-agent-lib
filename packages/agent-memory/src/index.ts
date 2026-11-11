@@ -139,7 +139,13 @@ export function buildWorkingMemory(records: MemoryRecord[], policy: WorkingMemor
   const maxItems = Math.max(1, Math.trunc(policy.maxItems));
   const maxChars = Math.max(1, Math.trunc(policy.maxChars));
   const threshold = policy.keepImportanceAtLeast ?? 0.8;
-  const now = Date.parse(policy.now ?? new Date().toISOString());\n  if (!Number.isFinite(now)) throw new Error('Working memory policy now must be a valid ISO date.');\n  const ordered = [...records].sort((a, b) => b.sequence - a.sequence);\n  const eligible = ordered.filter((record) =>\n    record.lifecycle === 'active' &&\n    record.status !== 'superseded' &&\n    (!record.validUntil || Date.parse(record.validUntil) > now),\n  );
+  const now = Date.parse(policy.now ?? new Date().toISOString());
+  if (!Number.isFinite(now)) throw new Error('Working memory policy now must be a valid ISO date.');
+  const ordered = [...records].sort((a, b) => b.sequence - a.sequence);
+  const eligible = ordered.filter((record) =>\n    record.lifecycle === 'active' &&
+    record.status !== 'superseded' &&
+    (!record.validUntil || Date.parse(record.validUntil) > now),
+  );
   const kept: MemoryRecord[] = [];
   const keptIds = new Set<string>();
   let chars = 0;
@@ -148,7 +154,7 @@ export function buildWorkingMemory(records: MemoryRecord[], policy: WorkingMemor
     if (kept.length >= maxItems || chars + record.content.length > maxChars) continue;
     kept.push(record); keptIds.add(record.id); chars += record.content.length;
   }
-  for (const record of ordered) {
+  for (const record of eligible) {
     if (keptIds.has(record.id)) continue;
     if (kept.length >= maxItems || chars + record.content.length > maxChars) continue;
     kept.push(record); keptIds.add(record.id); chars += record.content.length;
