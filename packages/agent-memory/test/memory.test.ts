@@ -27,7 +27,7 @@ test('超过活跃窗口时返回旧记录作为 archive 候选', () => {
 test('旧版 MemoryRecord 仍可解析，新语义字段采用可选兼容扩展', () => {
   const parsed = MemoryRecordSchema.parse({ ...record(1, 'experience'), status: undefined });
   assert.equal(parsed.memoryType, undefined);
-  assert.equal(parsed.status, 'candidate');
+  assert.equal(parsed.status, undefined);
 });
 
 test('Memory 记录支持 episodic / semantic / procedural 分类与验证元数据', () => {
