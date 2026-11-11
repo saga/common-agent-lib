@@ -25,7 +25,7 @@ export const MemoryRecordSchema = z.object({
   /** Optional semantic classification; existing records remain valid. */
   memoryType: MemoryTypeSchema.optional(),
   /** Host-owned state. LLM output must not directly promote this field. */
-  status: MemoryStatusSchema.default('candidate'),
+  status: MemoryStatusSchema.optional(),
   /** Calibrated by the host from evidence, never trusted from a model claim alone. */
   confidence: z.number().min(0).max(1).optional(),
   lastAccessedAt: z.string().datetime().optional(),
