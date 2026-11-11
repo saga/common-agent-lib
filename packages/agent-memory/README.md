@@ -8,7 +8,7 @@ Provider-neutral memory contracts and deterministic working-memory helpers. The 
 - **Semantic**: reusable facts and concepts learned across experiences.
 - **Procedural**: a useful method or heuristic for future tasks.
 
-These semantic types are separate from the original record kind and the storage lifecycle. `candidate / confirmed / superseded` is a host-owned status; a model suggestion cannot promote its own output to confirmed.
+These semantic types are separate from the original record kind and the storage lifecycle. `candidate / confirmed / superseded` is a host-owned status; a model suggestion cannot promote its own output to confirmed. A missing status on a legacy record remains unclassified and must not be silently treated as confirmed.
 
 ## Consolidation contracts
 
@@ -29,7 +29,7 @@ Memory relationships support `supports`, `contradicts`, `derived_from`, `superse
 
 - `MemoryStore` and `MemoryArchiveStore` define persistence boundaries.
 - Cursor pagination and archive summaries keep old records accessible.
-- `buildWorkingMemory()` selects a bounded prompt-ready subset.
+- `buildWorkingMemory()` selects a bounded prompt-ready subset and excludes archived, superseded and expired records. Candidate records remain eligible unless the host filters them before calling the helper.
 - `selectArchiveCandidates()` identifies old active records for host-managed archival.
 
 The default working-memory budget is character-based, not a model token count. Hosts should use `@saga/agent-context` with their target model's tokenizer for final prompt assembly.
