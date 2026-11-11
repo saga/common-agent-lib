@@ -131,7 +131,7 @@ export interface MemoryArchiveStore {
   pageArchives(scope: string, request: MemoryPageRequest): Promise<MemoryPage<MemoryArchive>>;
 }
 
-export interface WorkingMemoryPolicy { maxItems: number; maxChars: number; keepImportanceAtLeast?: number; }
+export interface WorkingMemoryPolicy { maxItems: number; maxChars: number; keepImportanceAtLeast?: number; /** Fixed clock for deterministic expiry filtering; defaults to now. */ now?: string; }
 export interface WorkingMemoryResult { included: MemoryRecord[]; omitted: MemoryRecord[]; includedChars: number; omittedCount: number; }
 
 /** 从持久化记忆中构造有界工作记忆；被排除的记录仍可通过分页再次读取。 */
@@ -139,7 +139,7 @@ export function buildWorkingMemory(records: MemoryRecord[], policy: WorkingMemor
   const maxItems = Math.max(1, Math.trunc(policy.maxItems));
   const maxChars = Math.max(1, Math.trunc(policy.maxChars));
   const threshold = policy.keepImportanceAtLeast ?? 0.8;
-  const ordered = [...records].sort((a, b) => b.sequence - a.sequence);
+  const now = Date.parse(policy.now ?? new Date().toISOString());\n  if (!Number.isFinite(now)) throw new Error('Working memory policy now must be a valid ISO date.');\n  const ordered = [...records].sort((a, b) => b.sequence - a.sequence);\n  const eligible = ordered.filter((record) =>\n    record.lifecycle === 'active' &&\n    record.status !== 'superseded' &&\n    (!record.validUntil || Date.parse(record.validUntil) > now),\n  );
   const kept: MemoryRecord[] = [];
   const keptIds = new Set<string>();
   let chars = 0;
