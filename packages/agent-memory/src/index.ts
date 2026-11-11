@@ -5,6 +5,13 @@ export type MemoryKind = z.infer<typeof MemoryKindSchema>;
 export const MemoryLifecycleSchema = z.enum(['active', 'archived']);
 export type MemoryLifecycle = z.infer<typeof MemoryLifecycleSchema>;
 
+/** 记忆的语义类型；与原始记录 kind、存储 lifecycle 相互独立。 */
+export const MemoryTypeSchema = z.enum(['episodic', 'semantic', 'procedural']);
+export type MemoryType = z.infer<typeof MemoryTypeSchema>;
+/** status 是宿主维护的权威状态，不是模型自行声明即可生效的信任等级。 */
+export const MemoryStatusSchema = z.enum(['candidate', 'confirmed', 'superseded']);
+export type MemoryStatus = z.infer<typeof MemoryStatusSchema>;
+
 /** 一条可持久化的 Agent 工作记忆；原始内容由宿主应用保存。 */
 export const MemoryRecordSchema = z.object({
   id: z.string().min(1),
@@ -15,11 +22,81 @@ export const MemoryRecordSchema = z.object({
   createdAt: z.string().datetime(),
   lifecycle: MemoryLifecycleSchema.default('active'),
   importance: z.number().min(0).max(1).default(0.5),
+  /** Optional semantic classification; existing records remain valid. */
+  memoryType: MemoryTypeSchema.optional(),
+  /** Host-owned state. LLM output must not directly promote this field. */
+  status: MemoryStatusSchema.default('candidate'),
+  /** Calibrated by the host from evidence, never trusted from a model claim alone. */
+  confidence: z.number().min(0).max(1).optional(),
+  lastAccessedAt: z.string().datetime().optional(),
+  lastValidatedAt: z.string().datetime().optional(),
+  validUntil: z.string().datetime().optional(),
+  supersededBy: z.string().min(1).optional(),
   tags: z.array(z.string()).default([]),
   sourceRefs: z.array(z.string()).default([]),
   metadata: z.record(z.string(), z.unknown()).default({}),
 }).strict();
 export type MemoryRecord = z.infer<typeof MemoryRecordSchema>;
+
+export const MemoryRelationshipKindSchema = z.enum([
+  'supports', 'contradicts', 'derived_from', 'supersedes', 'related_to',
+]);
+export type MemoryRelationshipKind = z.infer<typeof MemoryRelationshipKindSchema>;
+export const MemoryRelationshipSchema = z.object({
+  id: z.string().min(1),
+  scope: z.string().min(1),
+  fromId: z.string().min(1),
+  toId: z.string().min(1),
+  kind: MemoryRelationshipKindSchema,
+  createdAt: z.string().datetime(),
+  sourceRefs: z.array(z.string()).default([]),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+}).strict();
+export type MemoryRelationship = z.infer<typeof MemoryRelationshipSchema>;
+
+/** Structured suggestion from a consolidator. The host validates and commits it. */
+export const MemoryChangeProposalSchema = z.object({
+  id: z.string().min(1),
+  scope: z.string().min(1),
+  operation: z.enum(['add', 'update', 'merge', 'supersede', 'archive']),
+  targetRecordIds: z.array(z.string()).default([]),
+  proposedRecord: MemoryRecordSchema.optional(),
+  relationships: z.array(MemoryRelationshipSchema).default([]),
+  rationale: z.string().min(1),
+  evidenceRefs: z.array(z.string()).default([]),
+  createdAt: z.string().datetime(),
+}).strict().superRefine((proposal, ctx) => {
+  if (proposal.operation === 'add' && !proposal.proposedRecord) {
+    ctx.addIssue({ code: 'custom', path: ['proposedRecord'], message: 'add proposals require proposedRecord.' });
+  }
+  if (proposal.operation !== 'add' && proposal.targetRecordIds.length === 0) {
+    ctx.addIssue({ code: 'custom', path: ['targetRecordIds'], message: 'non-add proposals require at least one targetRecordId.' });
+  }
+  if (['update', 'merge', 'supersede'].includes(proposal.operation) && !proposal.proposedRecord) {
+    ctx.addIssue({ code: 'custom', path: ['proposedRecord'], message: 'this operation requires proposedRecord.' });
+  }
+});
+export type MemoryChangeProposal = z.infer<typeof MemoryChangeProposalSchema>;
+
+export interface MemoryConsolidationInput {
+  scope: string;
+  records: readonly MemoryRecord[];
+  existingMemories: readonly MemoryRecord[];
+  relationships?: readonly MemoryRelationship[];
+  /** Optional task/domain context supplied by the host. */
+  context?: Readonly<Record<string, unknown>>;
+}
+export interface MemoryConsolidationResult {
+  proposals: MemoryChangeProposal[];
+  /** IDs considered by the consolidator; useful for coverage and traceability. */
+  processedRecordIds: string[];
+  /** Human-readable notes, not authoritative state changes. */
+  notes: string[];
+}
+/** Model-backed implementations live in host applications, not this package. */
+export interface MemoryConsolidator {
+  consolidate(input: MemoryConsolidationInput): Promise<MemoryConsolidationResult>;
+}
 
 /** 分页请求；cursor 的具体编码方式由存储实现决定。 */
 export const MemoryPageRequestSchema = z.object({
