@@ -54,6 +54,12 @@ export const MemoryRelationshipSchema = z.object({
 }).strict();
 export type MemoryRelationship = z.infer<typeof MemoryRelationshipSchema>;
 
+/** Optional persistence boundary for explicit memory-to-memory relationships. */
+export interface MemoryRelationshipStore {
+  append(relationship: MemoryRelationship): Promise<void>;
+  page(scope: string, request: MemoryPageRequest): Promise<MemoryPage<MemoryRelationship>>;
+}
+
 /** Structured suggestion from a consolidator. The host validates and commits it. */
 export const MemoryChangeProposalSchema = z.object({
   id: z.string().min(1),
