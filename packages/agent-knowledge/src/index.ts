@@ -73,7 +73,8 @@ export const KnowledgeMaintenanceProposalSchema = z.object({
 }).strict().superRefine((proposal, ctx) => {
   if (proposal.operation === 'merge' && proposal.targetEntryIds.length < 2) {
     ctx.addIssue({ code: 'custom', path: ['targetEntryIds'], message: 'merge proposals require at least two targetEntryIds.' });
-  }\n  if (['merge', 'revise'].includes(proposal.operation) && !proposal.proposedEntry) {
+  }
+  if (['merge', 'revise'].includes(proposal.operation) && !proposal.proposedEntry) {
     ctx.addIssue({ code: 'custom', path: ['proposedEntry'], message: 'merge and revise proposals require proposedEntry.' });
   }
 });
