@@ -74,7 +74,8 @@ export const MemoryChangeProposalSchema = z.object({
   }
   if (proposal.operation === 'merge' && proposal.targetRecordIds.length < 2) {
     ctx.addIssue({ code: 'custom', path: ['targetRecordIds'], message: 'merge proposals require at least two targetRecordIds.' });
-  }\n  if (['update', 'merge', 'supersede'].includes(proposal.operation) && !proposal.proposedRecord) {
+  }
+  if (['update', 'merge', 'supersede'].includes(proposal.operation) && !proposal.proposedRecord) {
     ctx.addIssue({ code: 'custom', path: ['proposedRecord'], message: 'this operation requires proposedRecord.' });
   }
 });
