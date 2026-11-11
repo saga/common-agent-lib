@@ -168,3 +168,22 @@ test('section required marks every non-empty item as required', () => {
   assert.deepEqual(result.includedItems.map((entry) => entry.item.id), ['a', 'b']);
   assert.equal(result.budget.exceeded, true);
 });
+
+test('source type, calibrated confidence and freshness metadata pass through unchanged', () => {
+  const result = assembleContext({
+    sections: [{ id: 'memory', items: [{
+      id: 'long-term-rule',
+      text: 'Check the source timezone before joining dates.',
+      sourceType: 'long-term-memory',
+      confidence: 0.92,
+      lastValidatedAt: '2026-11-10T00:00:00.000Z',
+      validUntil: '2027-01-01T00:00:00.000Z',
+      sources: [{ id: 'trace:tr-1:event:ev-2', kind: 'trace-event' }],
+    }] }],
+    budget: { maxUnits: 500 },
+  });
+  assert.equal(result.includedItems[0]?.item.sourceType, 'long-term-memory');
+  assert.equal(result.includedItems[0]?.item.confidence, 0.92);
+  assert.equal(result.includedItems[0]?.item.lastValidatedAt, '2026-11-10T00:00:00.000Z');
+  assert.equal(result.includedItems[0]?.item.validUntil, '2027-01-01T00:00:00.000Z');
+});
