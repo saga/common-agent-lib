@@ -27,7 +27,7 @@ Memory relationships support `supports`, `contradicts`, `derived_from`, `superse
 
 ## Existing helpers
 
-- `MemoryStore` and `MemoryArchiveStore` define persistence boundaries.
+- `MemoryStore`, `MemoryArchiveStore` and optional `MemoryRelationshipStore` define persistence boundaries.
 - Cursor pagination and archive summaries keep old records accessible.
 - `buildWorkingMemory()` selects a bounded prompt-ready subset and excludes archived, superseded and expired records. Candidate records remain eligible unless the host filters them before calling the helper.
 - `selectArchiveCandidates()` identifies old active records for host-managed archival.
