@@ -47,6 +47,36 @@ export const KnowledgeEntrySchema = z.object({
 }).strict();
 export type KnowledgeEntry = z.infer<typeof KnowledgeEntrySchema>;
 
+export const KnowledgeRelationshipKindSchema = z.enum([
+  'related_to', 'supports', 'contradicts', 'derived_from', 'supersedes',
+]);
+export type KnowledgeRelationshipKind = z.infer<typeof KnowledgeRelationshipKindSchema>;
+export const KnowledgeRelationshipSchema = z.object({
+  id: z.string().min(1),
+  fromId: z.string().min(1),
+  toId: z.string().min(1),
+  kind: KnowledgeRelationshipKindSchema,
+  sourceRefs: z.array(z.string()).default([]),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+}).strict();
+export type KnowledgeRelationship = z.infer<typeof KnowledgeRelationshipSchema>;
+
+/** Maintenance is proposed as data; the host resolves references and commits changes. */
+export const KnowledgeMaintenanceProposalSchema = z.object({
+  id: z.string().min(1),
+  operation: z.enum(['merge', 'deprecate', 'link', 'revise']),
+  targetEntryIds: z.array(z.string()).min(1),
+  proposedEntry: KnowledgeEntrySchema.optional(),
+  relationships: z.array(KnowledgeRelationshipSchema).default([]),
+  rationale: z.string().min(1),
+  evidenceRefs: z.array(z.string()).default([]),
+}).strict().superRefine((proposal, ctx) => {
+  if (['merge', 'revise'].includes(proposal.operation) && !proposal.proposedEntry) {
+    ctx.addIssue({ code: 'custom', path: ['proposedEntry'], message: 'merge and revise proposals require proposedEntry.' });
+  }
+});
+export type KnowledgeMaintenanceProposal = z.infer<typeof KnowledgeMaintenanceProposalSchema>;
+
 export const KnowledgeBankSchema = z.array(KnowledgeEntrySchema);
 export type KnowledgeBank = z.infer<typeof KnowledgeBankSchema>;
 
@@ -63,13 +93,6 @@ export interface KnowledgeExtractor<T = unknown> {
   extract(input: KnowledgeExtractionInput): Promise<T>;
 }
 
-/**
- * Extraction 只定义契约，不绑定 LLM。
- * 调用方可以用 Copilot、其它模型或规则脚本实现 extract。
- *
- * schema 是真正的边界：模型返回的对象只有通过 schema.parse()
- * 才能进入后面的 KnowledgeEntry / Catalog。
- */
 export async function extractKnowledge<T>(
   extractor: KnowledgeExtractor<unknown>,
   input: KnowledgeExtractionInput,
@@ -79,7 +102,6 @@ export async function extractKnowledge<T>(
   return schema.parse(raw);
 }
 
-/** 直接抽取一个公共 KnowledgeEntry 的便捷封装。 */
 export async function extractKnowledgeEntry(
   extractor: KnowledgeExtractor<unknown>,
   input: KnowledgeExtractionInput,
@@ -138,10 +160,6 @@ export function toKnowledgeDocument(entry: KnowledgeEntry): KnowledgeDocument {
   };
 }
 
-/**
- * 小规模知识库默认使用确定性检索。
- * 不引入 vector DB，也不要求 embedding；项目以后可以在外面替换 index。
- */
 export class KnowledgeCatalog {
   private readonly documents: KnowledgeDocument[];
 
@@ -155,9 +173,7 @@ export class KnowledgeCatalog {
     return new KnowledgeCatalog(KnowledgeBankSchema.parse(value));
   }
 
-  get size(): number {
-    return this.documents.length;
-  }
+  get size(): number { return this.documents.length; }
 
   find(id: string): KnowledgeDocument | undefined {
     return this.documents.find((document) => document.id === id);
@@ -167,16 +183,10 @@ export class KnowledgeCatalog {
     const limit = Math.max(1, query.limit ?? 5);
     const terms = tokenize(query.query);
     const requiredTags = new Set(query.tags ?? []);
-
     const hits = this.documents
       .filter((document) => {
         if (query.kind && document.kind !== query.kind) return false;
-        if (
-          requiredTags.size > 0 &&
-          ![...requiredTags].every((tag) => document.tags.includes(tag))
-        ) {
-          return false;
-        }
+        if (requiredTags.size > 0 && ![...requiredTags].every((tag) => document.tags.includes(tag))) return false;
         if (query.metadata) {
           for (const [key, value] of Object.entries(query.metadata)) {
             if (document.metadata[key] !== value) return false;
@@ -187,43 +197,28 @@ export class KnowledgeCatalog {
       .map((document) => {
         const haystack = new Set(tokenize(document.text));
         let lexical = 0;
-        for (const term of terms) {
-          if (haystack.has(term)) lexical += 1;
-        }
-
+        for (const term of terms) if (haystack.has(term)) lexical += 1;
         const queryText = query.query.trim().toLocaleLowerCase();
         const lower = document.text.toLocaleLowerCase();
         const exactPhrase = queryText.length > 0 && lower.includes(queryText);
         const tagHit = document.tags.some((tag) => terms.includes(tag.toLocaleLowerCase()));
-
-        const score = lexical + (exactPhrase ? 1.5 : 0) + (tagHit ? 0.5 : 0);
-        return { document, score };
+        return { document, score: lexical + (exactPhrase ? 1.5 : 0) + (tagHit ? 0.5 : 0) };
       })
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || a.document.id.localeCompare(b.document.id))
       .slice(0, limit)
       .map(({ document, score }) => ({
-        id: document.id,
-        title: document.title,
-        kind: document.kind,
+        id: document.id, title: document.title, kind: document.kind,
         content: document.text,
         ...(document.restrictedText ? { restrictedContent: document.restrictedText } : {}),
-        score,
-        tags: document.tags,
-        metadata: document.metadata,
-        sources: document.sources,
+        score, tags: document.tags, metadata: document.metadata, sources: document.sources,
       }));
-
     return { query: query.query, hits };
   }
 
-  render(
-    hit: KnowledgeHit | KnowledgeDocument,
-    mode: KnowledgeRenderMode = 'public',
-  ): string {
+  render(hit: KnowledgeHit | KnowledgeDocument, mode: KnowledgeRenderMode = 'public'): string {
     const publicText = 'content' in hit ? hit.content : hit.text;
     if (mode === 'public') return publicText;
-
     const restricted = 'restrictedText' in hit ? hit.restrictedText : undefined;
     return restricted ? publicText + '\n' + restricted : publicText;
   }
@@ -231,17 +226,10 @@ export class KnowledgeCatalog {
 
 function tokenize(value: string): string[] {
   const normalized = value.toLocaleLowerCase();
-  const wordTokens = normalized
-    .split(/[^\p{L}\p{N}]+/u)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2);
-
+  const wordTokens = normalized.split(/[^\p{L}\p{N}]+/u).map((token) => token.trim()).filter((token) => token.length >= 2);
   const cjkChars = [...normalized].filter((char) => /[\u3400-\u9fff]/u.test(char));
   const cjkTokens: string[] = [];
-  for (let index = 0; index < cjkChars.length - 1; index += 1) {
-    cjkTokens.push(cjkChars[index] + cjkChars[index + 1]);
-  }
-
+  for (let index = 0; index < cjkChars.length - 1; index += 1) cjkTokens.push(cjkChars[index] + cjkChars[index + 1]);
   return [...new Set([...wordTokens, ...cjkTokens])];
 }
 
@@ -253,16 +241,8 @@ export function formatKnowledgeSources(sources: KnowledgeSource[]): string[] {
   });
 }
 
-/**
- * 给 Agent 或 UI 生成带来源的知识片段。
- * 这不是 Evidence renderer；它只是明确告诉使用方“这是 Knowledge，以及来源是什么”。
- */
-export function renderKnowledgeEvidence(
-  evidence: KnowledgeEvidence,
-  mode: KnowledgeRenderMode = 'public',
-): string {
+export function renderKnowledgeEvidence(evidence: KnowledgeEvidence, mode: KnowledgeRenderMode = 'public'): string {
   if (!evidence.hits.length) return '';
-
   return [
     '## Knowledge',
     ...evidence.hits.map((hit) => {
@@ -276,12 +256,7 @@ export function renderKnowledgeEvidence(
   ].join('\n\n');
 }
 
-function renderHitContent(
-  hit: KnowledgeHit,
-  mode: KnowledgeRenderMode,
-): string {
+function renderHitContent(hit: KnowledgeHit, mode: KnowledgeRenderMode): string {
   if (mode === 'public') return hit.content;
-  return hit.restrictedContent
-    ? hit.content + '\\n' + hit.restrictedContent
-    : hit.content;
+  return hit.restrictedContent ? hit.content + '\n' + hit.restrictedContent : hit.content;
 }
