@@ -142,7 +142,8 @@ export function buildWorkingMemory(records: MemoryRecord[], policy: WorkingMemor
   const now = Date.parse(policy.now ?? new Date().toISOString());
   if (!Number.isFinite(now)) throw new Error('Working memory policy now must be a valid ISO date.');
   const ordered = [...records].sort((a, b) => b.sequence - a.sequence);
-  const eligible = ordered.filter((record) =>\n    record.lifecycle === 'active' &&
+  const eligible = ordered.filter((record) =>
+    record.lifecycle === 'active' &&
     record.status !== 'superseded' &&
     (!record.validUntil || Date.parse(record.validUntil) > now),
   );
