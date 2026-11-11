@@ -912,3 +912,21 @@ vocal-saga 的 contextGraph.ts、voiceContext.ts 和 literary.ts 显示，上下
 它不执行检索、数据库读写、模型摘要或事实核验，也不能改变 candidate / confirmed 状态、数据权限或章节知识边界。vocal-saga 的 Context Graph、人物声音记忆和防剧透过滤仍由应用控制。
 
 来源与详细 API：[packages/agent-context/README.md](packages/agent-context/README.md)。
+
+
+---
+
+## Pattern 32：Agent Memory 应从存储升级为可审查的持续整理契约
+
+Anthropic 的 Agent Memory 研究把原始经历、提炼后的记忆、结构化知识和任务注入上下文区分开。common-agent-lib 不需要复制其运行时，而应让已有 package 能表达这几层：
+
+- `@saga/agent-tracing` 保存受控的执行事件与可解析的来源引用；它是经历证据，不是长期记忆本身。
+- `@saga/agent-memory` 区分 episodic / semantic / procedural，表达 candidate / confirmed / superseded 状态、置信度、验证时间和记忆关系。
+- `@saga/agent-knowledge` 表达长期知识条目及 supports / contradicts / derived_from / supersedes 等关系。
+- `@saga/agent-context` 只组装宿主已经检索、授权并筛选的候选内容；来源类型、置信度和时效元数据随结果保留。
+
+Dreaming / Consolidation 是宿主执行的后台工作模式，不是新增的公共 Runtime：收集经历 → 提炼候选 → 核对证据与冲突 → 提出新增/更新/合并/废弃建议 → 宿主验证并提交 → 更新检索索引。所有变更都应能回溯到原始记录或 trace event。
+
+LLM 只能提出变更，不能自行把记忆或知识提升为 confirmed，也不能自行覆盖权威状态。公共库提供 Schema、Interface 和确定性边界；模型调用、调度、数据库、可信度校准、权限和领域判断留在宿主。
+
+参考：[Anthropic – The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory)。
