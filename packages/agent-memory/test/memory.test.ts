@@ -65,3 +65,16 @@ test('Consolidation 只产生经过 Schema 验证的提议，不直接修改权�
     createdAt: '2026-11-11T00:00:00.000Z',
   }));
 });
+
+test('working memory excludes archived, superseded and expired records', () => {
+  const now = '2026-11-11T00:00:00.000Z';
+  const archived = { ...record(5, 'archived'), lifecycle: 'archived' as const };
+  const superseded = { ...record(6, 'old rule'), status: 'superseded' as const };
+  const expired = { ...record(7, 'expired'), validUntil: '2026-11-10T00:00:00.000Z' };
+  const current = { ...record(8, 'current'), status: 'confirmed' as const };
+  const result = buildWorkingMemory([archived, superseded, expired, current], {
+    maxItems: 10, maxChars: 1000, now,
+  });
+  assert.deepEqual(result.included.map((item) => item.id), ['m-8']);
+  assert.equal(result.omittedCount, 3);
+});
