@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   buildWorkingMemory,
   MemoryChangeProposalSchema,
+  parseMemoryConsolidationResult,
   MemoryRecordSchema,
   MemoryRelationshipSchema,
   selectArchiveCandidates,
@@ -77,4 +78,20 @@ test('working memory excludes archived, superseded and expired records', () => {
   });
   assert.deepEqual(result.included.map((item) => item.id), ['m-8']);
   assert.equal(result.omittedCount, 3);
+});
+
+test('consolidation result envelope validates proposals and processed source coverage', () => {
+  const result = parseMemoryConsolidationResult({
+    proposals: [{
+      id: 'p1', scope: 'session-1', operation: 'add', targetRecordIds: [],
+      proposedRecord: record(9, 'Reusable rule.'),
+      rationale: 'Repeated evidence.',
+      evidenceRefs: ['trace:tr-1:event:ev-9'],
+      createdAt: '2026-11-11T00:00:00.000Z',
+    }],
+    processedRecordIds: ['m-1', 'm-2'],
+    notes: [],
+  });
+  assert.deepEqual(result.processedRecordIds, ['m-1', 'm-2']);
+  assert.throws(() => parseMemoryConsolidationResult({ proposals: [], processedRecordIds: 'bad', notes: [] }));
 });
