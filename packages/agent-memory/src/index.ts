@@ -78,6 +78,18 @@ export const MemoryChangeProposalSchema = z.object({
 });
 export type MemoryChangeProposal = z.infer<typeof MemoryChangeProposalSchema>;
 
+export const MemoryConsolidationResultSchema = z.object({
+  proposals: z.array(MemoryChangeProposalSchema),
+  processedRecordIds: z.array(z.string()),
+  notes: z.array(z.string()),
+}).strict();
+export type MemoryConsolidationResult = z.infer<typeof MemoryConsolidationResultSchema>;
+
+/** Validate model/provider output before the host considers applying any proposal. */
+export function parseMemoryConsolidationResult(value: unknown): MemoryConsolidationResult {
+  return MemoryConsolidationResultSchema.parse(value);
+}
+
 export interface MemoryConsolidationInput {
   scope: string;
   records: readonly MemoryRecord[];
