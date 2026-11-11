@@ -95,3 +95,15 @@ The storage adapter owns atomic sequence assignment, durability, indexes, retent
 - Persistence errors propagate. Applications may explicitly catch them for best-effort telemetry; workflows where a recorded event is a required guarantee should not silently swallow errors.
 - Do not use traces as the sole regulatory/business audit record. A span, LangSmith trace or tool result does not prove that an actor was authorized or an external side effect succeeded.
 - SQLite is local persistence, not multi-user access control, backup or tamper-proof storage. Protect files and define retention.
+
+
+## Linking durable memory to execution evidence
+
+When a memory is derived from a trace, keep a stable reference to the source event or artifact in the host's `MemoryRecord.sourceRefs`, `MemoryRelationship.sourceRefs` or consolidation proposal `evidenceRefs`. A readable convention is:
+
+```text
+trace:<traceId>:event:<eventId>
+trace:<traceId>:artifact:<artifactId>
+```
+
+These are references, not a request to copy full event payloads into memory. Resolve them through the host's authorized trace/artifact store when validating a proposal. Keep event payloads bounded and redacted; never persist hidden reasoning just to make a memory explainable.
