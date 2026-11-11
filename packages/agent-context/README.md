@@ -2,6 +2,10 @@
 
 A small, provider-neutral context assembler for TypeScript agent applications. It does not retrieve data, call an LLM, store memories, or make authorization decisions.
 
+## Context sources
+
+Hosts may label items with `sourceType` (`recent-memory`, `long-term-memory`, `knowledge`, `evidence`, etc.) and carry calibrated `confidence`, `lastValidatedAt` and `validUntil` metadata. These fields are returned unchanged with included and omitted items. They are descriptive only: the host must decide whether a source is authorized, current and relevant before assembly, and assign priority accordingly.
+
 ## Install
 
 This package currently lives in the [common-agent-lib workspace](https://github.com/saga/common-agent-lib/tree/main/packages/agent-context). It is not yet published to the npm registry.
@@ -20,6 +24,7 @@ const result = assembleContext({
       items: [{
         id: 'must-follow',
         text: 'Follow the task instructions and do not invent source facts.',
+        sourceType: 'instruction',
         sources: [{ id: 'translation-policy-v3', kind: 'policy' }],
       }],
     },
@@ -30,6 +35,9 @@ const result = assembleContext({
       items: retrievedMemory.map((memory) => ({
         id: memory.id,
         text: memory.text,
+        sourceType: 'long-term-memory',
+        confidence: memory.confidence,
+        lastValidatedAt: memory.lastValidatedAt,
         dedupeKey: memory.canonicalKey,
         sources: memory.sources,
         priority: memory.relevance,
@@ -42,6 +50,7 @@ const result = assembleContext({
       items: currentSegments.map((segment) => ({
         id: segment.id,
         text: segment.text,
+        sourceType: 'document',
         sources: [{ id: segment.id, kind: 'source-segment' }],
       })),
     },
@@ -65,13 +74,7 @@ console.log(result.budget, result.omittedItems, result.issues);
 
 ## Length budgets
 
-The default estimator is JavaScript string length in UTF-16 code units. It is deterministic but is **not a model token count**. For token budgets, inject the tokenizer/estimator used by the target model and set budget.unit, for example:
-
-~~~ts
-measure: (rendered) => tokenizer.count(rendered)
-~~~
-
-The estimator measures the complete rendered context (including section headers and separators). It must return a finite, non-negative number.
+The default estimator is JavaScript string length in UTF-16 code units. It is deterministic but is **not a model token count**. For token budgets, inject the tokenizer/estimator used by the target model and set budget.unit.
 
 ## Deliberate non-goals
 
