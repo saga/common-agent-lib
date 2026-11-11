@@ -143,7 +143,7 @@ export function buildWorkingMemory(records: MemoryRecord[], policy: WorkingMemor
   const kept: MemoryRecord[] = [];
   const keptIds = new Set<string>();
   let chars = 0;
-  for (const record of ordered) {
+  for (const record of eligible) {
     if (record.importance < threshold) continue;
     if (kept.length >= maxItems || chars + record.content.length > maxChars) continue;
     kept.push(record); keptIds.add(record.id); chars += record.content.length;
