@@ -394,12 +394,17 @@ export class AgentTraceRecorder {
   async record(input: TraceEventInput): Promise<AgentEvent> {
     const payload = boundedPayload(input.data, this.maxPayloadBytes, this.previewChars, this.redactSecrets);
     const metadata = this.redactSecrets ? redactValue(input.metadata ?? {}) : input.metadata ?? {};
+    const artifactRefs = (input.artifactRefs ?? []).map((artifact) => ({
+      ...artifact,
+      metadata: this.redactSecrets ? redactValue(artifact.metadata ?? {}) as Record<string, unknown> : artifact.metadata ?? {},
+    }));
     const event = AgentEventSchema.parse({
       ...input,
       id: input.id ?? randomUUID(),
       timestamp: input.timestamp ?? new Date().toISOString(),
       traceId: input.traceId ?? input.sessionId ?? input.correlationId ?? randomUUID(),
       data: payload.data,
+      artifactRefs,
       payloadComplete: payload.payloadComplete,
       metadata,
     });
