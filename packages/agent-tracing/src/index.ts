@@ -6,6 +6,7 @@ import {
   AgentEventSchema,
   AgentTokenUsageSchema,
   type AgentEvent,
+  type AgentArtifactRefInput,
   type AgentModelTokenUsage,
   type AgentTokenUsage,
 } from '@saga/agent-contracts';
@@ -14,7 +15,7 @@ export type TraceEventInput = Omit<AgentEvent, 'id' | 'timestamp' | 'sequence' |
   id?: string;
   timestamp?: string;
   metadata?: AgentEvent['metadata'];
-  artifactRefs?: AgentEvent['artifactRefs'];
+  artifactRefs?: AgentArtifactRefInput[];
 };
 
 export interface TraceQuery {
