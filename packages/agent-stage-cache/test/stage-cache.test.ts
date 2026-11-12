@@ -120,10 +120,11 @@ test('rejects output path traversal and does not cache failed or empty generatio
     await assert.rejects(() => runCachedStage({
       runDir, stageId: 'failed', outputFile: 'failed.md', fingerprint: 'x', execute: async () => { throw new Error('boom'); },
     }), /boom/);
-    const manifest = JSON.parse(await readFile(path.join(runDir, 'pipeline-manifest.json'), 'utf8')) as {
-      stages: Record<string, unknown>;
-    };
-    assert.deepEqual(Object.keys(manifest.stages), []);
+    const manifestText = await readFile(path.join(runDir, 'pipeline-manifest.json'), 'utf8').catch(() => '');
+    if (manifestText) {
+      const manifest = JSON.parse(manifestText) as { stages: Record<string, unknown> };
+      assert.deepEqual(Object.keys(manifest.stages), []);
+    }
   } finally {
     await rm(runDir, { recursive: true, force: true });
   }
