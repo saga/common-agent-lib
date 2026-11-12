@@ -9,6 +9,7 @@
 | `@saga/copilot-agent-runtime` | Copilot SDK client / session / turn / streaming / reasoning / timeout / abort / concurrency / usage delta / session recovery / permission 与 MCP auth 回调契约 | `@github/copilot-sdk` |
 | `@saga/codebuddy-agent-runtime` | CodeBuddy/WorkBuddy SDK query、无工具安全默认值、结构化 JSON、timeout/abort、显式 session resume、上下文窗口档位校验、session ID 与 token 用量规范化 | `@tencent-ai/agent-sdk` |
 | `@saga/agent-tracing` | Agent 轨迹记录、trace/span 关联、Token Usage 聚合、敏感信息脱敏、事件载荷限制、SQLite 持久化与查询 | `@saga/agent-contracts` + `node:sqlite` |
+| `@saga/agent-stage-cache` | 阶段级输入指纹、输出完整性、语义校验、原子写入、并发去重与 Manifest 更新 | 无 |
 | **@saga/document-core** | 文档统一契约、预算分批、逻辑分页、翻译结果校验 | 无 |
 | `@saga/agent-context` | 确定性 Context 组装、预算控制、来源保留、重复项和省略原因 | 无 |
 | `@saga/agent-context-explorer` | LLM 请求/响应检查、saga AgentEvent / Trajectory 适配、Session 时间轴、Tool 生命周期、Usage / Context Usage、Provenance、Compaction 分析、Ant Design + Ant Design X Debugger | React, antd, @ant-design/x (peer) |
@@ -60,6 +61,7 @@ capability or workflow
 - Context assembly：先保持来源检索、权限边界和领域事实在宿主；轻量确定性组装器的设计见 [Context Assembly proposal](docs/context-assembly-design.md)。当前不实现 CLM 式自主改写 Context 的运行时，也不把 memory、retrieval 和 prompt orchestration 合成一个大框架。
 - Human-in-the-loop / interrupt：模式很通用，但 checkpoint、审批对象、授权和持久化都与业务强相关，暂不做通用执行引擎。
 - Tracing / Audit：使用 @saga/agent-tracing 统一事件记录、脱敏、载荷限额和本地持久化；不自己再造托管 tracing backend，也不把 runtime trace 当业务审计。
+- Stage cache：使用 @saga/agent-stage-cache 管理同一 Run 内的阶段结果复用和文件完整性；执行顺序、模型重试、业务状态、审批与跨主机调度仍由宿主负责。
 - Tool registry / dynamic tool search：工具发现方式正在快速变化，先保留 Tool contract / naming / schema 规范，不做新的通用 registry。
 - Multi-agent handoff / agents-as-tools：这是编排模式，不是公共业务对象；保留在具体 runtime / application 层。
 - Workflow orchestration engine：不要因为出现多个 Workflow 就建立 Registry、通用编排器或 BPMN engine。当前只需要 Skill 内的高层路线 + 一个小型 parser/runtime。
@@ -356,6 +358,12 @@ npm run build
 ## Context capture and debugging
 
 `@saga/agent-context-explorer` consumes the shared `@saga/agent-tracing` event envelope and Agentic Data Architect trajectory records. Its capture contract distinguishes session, trace, turn and provider request identities; separates model-call usage from context-window occupancy; and marks payload completeness rather than implying that compact runtime logs can replay a provider exchange. See [the package guide](packages/agent-context-explorer/README.md) and [ADR 0014](docs/adr/0014-agent-context-explorer-saga-trace-compatibility.md).
+
+## Agent stage cache
+
+@saga/agent-stage-cache 提供本地 Run 目录中的确定性阶段缓存。它按调用方提供的完整输入指纹判断缓存是否可复用，校验输出 SHA-256，并在读取缓存与新生成时都执行宿主提供的语义 Validator。每个阶段使用独立锁，同一 Run 的不同阶段可并行完成，Manifest 更新另有锁保护。它不是跨主机 Durable Execution Engine，也不接管 Workflow、审批或业务状态。
+
+API、并发边界和失败语义见 [packages/agent-stage-cache/README.md](packages/agent-stage-cache/README.md)。
 
 ## Agent tracing
 
