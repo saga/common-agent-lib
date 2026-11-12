@@ -244,7 +244,8 @@ export class SqliteTraceStore implements AgentTraceStore {
         data_json TEXT NOT NULL,
         metadata_json TEXT NOT NULL,
         usage_json TEXT,
-        context_usage_json TEXT
+        context_usage_json TEXT,
+        artifact_refs_json TEXT NOT NULL DEFAULT '[]'
       );
       CREATE INDEX IF NOT EXISTS idx_trace_session_time ON trace_events(session_id, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_trace_id_sequence ON trace_events(trace_id, sequence);
@@ -258,6 +259,7 @@ export class SqliteTraceStore implements AgentTraceStore {
     );
     if (!existingColumns.has('usage_json')) this.database.exec('ALTER TABLE trace_events ADD COLUMN usage_json TEXT');
     if (!existingColumns.has('context_usage_json')) this.database.exec('ALTER TABLE trace_events ADD COLUMN context_usage_json TEXT');
+    if (!existingColumns.has('artifact_refs_json')) this.database.exec("ALTER TABLE trace_events ADD COLUMN artifact_refs_json TEXT NOT NULL DEFAULT '[]'");
     if (options.filename !== ':memory:') {
       try { chmodSync(options.filename, 0o600); } catch { /* File permissions vary by platform. */ }
     }
@@ -280,10 +282,10 @@ export class SqliteTraceStore implements AgentTraceStore {
         INSERT INTO trace_events
           (id, timestamp, session_id, agent_id, correlation_id, trace_id, turn_id, parent_event_id,
            sequence, category, type, status, duration_ms, provider, model, payload_complete,
-           actor_json, data_json, metadata_json, usage_json, context_usage_json)
+           actor_json, data_json, metadata_json, usage_json, context_usage_json, artifact_refs_json)
         VALUES ($id, $timestamp, $session_id, $agent_id, $correlation_id, $trace_id, $turn_id, $parent_event_id,
            $sequence, $category, $type, $status, $duration_ms, $provider, $model, $payload_complete,
-           $actor_json, $data_json, $metadata_json, $usage_json, $context_usage_json)
+           $actor_json, $data_json, $metadata_json, $usage_json, $context_usage_json, $artifact_refs_json)
       `).run({
         $id: persisted.id,
         $timestamp: persisted.timestamp,
@@ -306,6 +308,7 @@ export class SqliteTraceStore implements AgentTraceStore {
         $metadata_json: serialize(persisted.metadata),
         $usage_json: persisted.usage === undefined ? null : JSON.stringify(persisted.usage),
         $context_usage_json: persisted.contextUsage === undefined ? null : JSON.stringify(persisted.contextUsage),
+        $artifact_refs_json: JSON.stringify(persisted.artifactRefs ?? []),
       });
       this.database.exec('COMMIT');
       return persisted;
@@ -358,6 +361,7 @@ export class SqliteTraceStore implements AgentTraceStore {
       ...(row.actor_json !== null ? { actor: JSON.parse(String(row.actor_json)) } : {}),
       ...(row.usage_json !== null ? { usage: JSON.parse(String(row.usage_json)) } : {}),
       ...(row.context_usage_json !== null ? { contextUsage: JSON.parse(String(row.context_usage_json)) } : {}),
+      artifactRefs: row.artifact_refs_json === null ? [] : JSON.parse(String(row.artifact_refs_json)),
       data: JSON.parse(String(row.data_json)),
       metadata: JSON.parse(String(row.metadata_json)),
     }));
