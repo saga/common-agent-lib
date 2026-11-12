@@ -151,7 +151,7 @@ async function withFileLock<T>(
       handle = await open(lockPath, 'wx', 0o600);
       created = true;
       const owner: LockOwner = { pid: process.pid, host: hostname(), createdAt: new Date().toISOString() };
-      ownLockContent = JSON.stringify(owner) + '\\n';
+      ownLockContent = JSON.stringify(owner) + '\n';
       await handle.writeFile(ownLockContent, 'utf8');
       await handle.close();
       handle = undefined;
