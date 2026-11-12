@@ -1,0 +1,24 @@
+{
+  "name": "@saga/agent-stage-cache",
+  "version": "0.1.0",
+  "description": "Deterministic, file-backed stage cache for resumable multi-step agent workflows.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
