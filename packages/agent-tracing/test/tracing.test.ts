@@ -78,7 +78,7 @@ test('SQLite store persists events and assigns sequence inside a transaction', a
         modelCalls: 1, source: 'provider-event', byModel: { 'model-a': { inputTokens: 120, outputTokens: 35 } },
       },
       contextUsage: { currentTokens: 900, tokenLimit: 8000, messagesLength: 12, percent: 11 },
-      artifactRefs: [{ id: 'prompt-1', uri: 'file:///run/prompt.txt', mediaType: 'text/plain', sha256: 'c'.repeat(64), sizeBytes: 123 }],
+      artifactRefs: [{ id: 'prompt-1', uri: 'file:///run/prompt.txt', mediaType: 'text/plain', sha256: 'c'.repeat(64), sizeBytes: 123, metadata: { access_token: 'secret-value' } }],
     });
     await trace.record({ sessionId: 's1', traceId: 't1', type: 'turn.completed', durationMs: 10 });
     const rows = await trace.query({ traceId: 't1' });
@@ -87,6 +87,7 @@ test('SQLite store persists events and assigns sequence inside a transaction', a
     assert.equal(rows[0].usage?.totalTokens, 155);
     assert.equal(rows[0].contextUsage?.percent, 11);
     assert.equal(rows[0].artifactRefs[0]?.uri, 'file:///run/prompt.txt');
+    assert.equal(rows[0].artifactRefs[0]?.metadata.access_token, '[REDACTED]');
     await trace.close();
 
     const reopened = new SqliteTraceStore({ filename });
