@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 export type StageCacheStatus = 'executed' | 'cache_hit';
 
 export interface StageCacheEntry {
-  fingerprintHash: string;
+  inputHash: string;
   outputFile: string;
   outputHash: string;
   completedAt: string;
@@ -22,7 +22,7 @@ export interface StageCacheResult {
   status: StageCacheStatus;
   output: string;
   stageId: string;
-  fingerprintHash: string;
+  inputHash: string;
   outputHash: string;
   completedAt: string;
 }
@@ -259,7 +259,7 @@ export async function runCachedStage(input: RunCachedStageInput): Promise<StageC
 
       const manifest = await readManifest(manifestPath);
       const previous = manifest.stages[input.stageId] ?? manifest.stages[stageId];
-      if (previous && previous.fingerprintHash === fingerprintHash && previous.outputFile === outputFile) {
+      if (previous && previous.inputHash === fingerprintHash && previous.outputFile === outputFile) {
         try {
           const cached = await readFile(outputPath, 'utf8');
           if (sha256(cached) === previous.outputHash && cached.trim()) {
@@ -271,7 +271,7 @@ export async function runCachedStage(input: RunCachedStageInput): Promise<StageC
                 status: 'cache_hit',
                 output: value,
                 stageId: input.stageId,
-                fingerprintHash,
+                inputHash: fingerprintHash,
                 outputHash: previous.outputHash,
                 completedAt: previous.completedAt,
               };
@@ -286,7 +286,7 @@ export async function runCachedStage(input: RunCachedStageInput): Promise<StageC
           await event('cache_missing');
         }
       } else {
-        await event('cache_miss', { previousInputHash: previous?.fingerprintHash ?? null });
+        await event('cache_miss', { previousInputHash: previous?.inputHash ?? null });
       }
 
       await event('started');
@@ -299,7 +299,7 @@ export async function runCachedStage(input: RunCachedStageInput): Promise<StageC
         const outputHash = sha256(output);
         const completedAt = new Date().toISOString();
         await updateManifest(manifestPath, input.stageId, {
-          fingerprintHash,
+          inputHash: fingerprintHash,
           outputFile,
           outputHash,
           completedAt,
@@ -309,7 +309,7 @@ export async function runCachedStage(input: RunCachedStageInput): Promise<StageC
           status: 'executed',
           output: generated,
           stageId: input.stageId,
-          fingerprintHash,
+          inputHash: fingerprintHash,
           outputHash,
           completedAt,
         };
