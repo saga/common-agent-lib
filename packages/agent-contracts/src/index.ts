@@ -303,6 +303,21 @@ export const AgentTokenUsageSchema = z.object({
 });
 export type AgentTokenUsage = z.infer<typeof AgentTokenUsageSchema>;
 
+/** Stable pointer to a separately stored execution artifact; the payload is not embedded in an AgentEvent. */
+export const AgentArtifactRefSchema = z.object({
+  id: z.string().min(1).max(160),
+  uri: z.string().min(1).max(2048),
+  mediaType: z.string().min(1).max(160).optional(),
+  fileName: z.string().min(1).max(512).optional(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  createdAt: z.string().datetime().optional(),
+  /** False means the referenced file is a bounded preview or partial capture. */
+  payloadComplete: z.boolean().default(true),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+});
+export type AgentArtifactRef = z.infer<typeof AgentArtifactRefSchema>;
+
 /**
  * Provider-neutral agent event. This is a runtime-observability envelope, not a business audit record.
  * Event data should be redacted and size-bounded by the application before persistence.
@@ -322,6 +337,8 @@ export const AgentEventSchema = z.object({
   model: z.string().optional(),
   usage: AgentTokenUsageSchema.optional(),
   contextUsage: AgentContextUsageSchema.optional(),
+  /** Pointers to separately stored prompts, responses, source snapshots or other artifacts. */
+  artifactRefs: z.array(AgentArtifactRefSchema).default([]),
   payloadComplete: z.boolean().optional(),
   data: z.unknown().optional(),
   metadata: z.record(z.string(), z.unknown()).default({}),
