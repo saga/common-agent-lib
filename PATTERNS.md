@@ -930,3 +930,37 @@ Dreaming / Consolidation 是宿主执行的后台工作模式，不是新增的�
 LLM 只能提出变更，不能自行把记忆或知识提升为 confirmed，也不能自行覆盖权威状态。公共库提供 Schema、Interface 和确定性边界；模型调用、调度、数据库、可信度校准、权限和领域判断留在宿主。
 
 参考：[Anthropic – The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory)。
+
+
+---
+
+## Pattern 20：Agent Stage Cache 与执行产物引用
+
+长时间、多阶段 Agent 应用反复需要两个相邻但不同的能力：
+
+- **Stage Cache**：判断某个阶段的输入是否完全相同、输出文件是否完整、旧结果是否仍通过当前 Validator。
+- **Artifact Reference**：将完整 Prompt、Response、Source Snapshot 等产物保存在独立的受控位置，并通过稳定 ID、URI、SHA-256 和完整性标记关联到 Trace。
+
+公共实现边界：
+
+~~~text
+Host workflow / domain service
+  ├─ stage order / retry / approval / business state
+  ├─ exact input fingerprint
+  ├─ semantic validator
+  └─ artifact authorization / retention
+            |
+            +---- @saga/agent-stage-cache
+            |       ├─ per-stage lock
+            |       ├─ fingerprint + output SHA-256
+            |       ├─ atomic output / manifest
+            |       └─ cache event ledger
+            |
+            +---- @saga/agent-tracing
+                    ├─ AgentEvent
+                    ├─ AgentArtifactRef
+                    └─ trace / span correlation
+~~~
+
+Stage Cache 不应等同于 Workflow Runtime：它只回答某个阶段的产物是否可复用，不决定下一阶段、业务动作或人工审批。Artifact Ref 也不是 Artifact Store；公共契约不决定 URI 的访问权限和留存期限。完整 Prompt / Response 的保留必须由宿主基于隐私、版权和许可策略明确启用。
+
