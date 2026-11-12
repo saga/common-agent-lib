@@ -61,8 +61,13 @@ function sha256(value: string): string {
 }
 
 function safeName(value: string): string {
-  const name = value.trim().replace(/[^a-zA-Z0-9._-]/g, '_');
-  if (!name || name === '.' || name === '..') throw new StageCacheError('stageId must contain at least one safe character.');
+  const name = value.trim();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name)) {
+    throw new StageCacheError('stageId must be 1-128 characters using letters, numbers, dot, underscore or hyphen.');
+  }
+  if (name === 'constructor' || name === 'prototype' || name === '__proto__') {
+    throw new StageCacheError('stageId uses a reserved object property name.');
+  }
   return name;
 }
 
@@ -137,18 +142,23 @@ async function withFileLock<T>(
 ): Promise<T> {
   await mkdir(path.dirname(lockPath), { recursive: true });
   const deadline = Date.now() + options.timeoutMs;
+  let ownLockContent = '';
 
   for (;;) {
     let handle: Awaited<ReturnType<typeof open>> | undefined;
+    let created = false;
     try {
       handle = await open(lockPath, 'wx', 0o600);
+      created = true;
       const owner: LockOwner = { pid: process.pid, host: hostname(), createdAt: new Date().toISOString() };
-      await handle.writeFile(JSON.stringify(owner) + '\n', 'utf8');
+      ownLockContent = JSON.stringify(owner) + '\\n';
+      await handle.writeFile(ownLockContent, 'utf8');
       await handle.close();
       handle = undefined;
       break;
     } catch (error) {
       await handle?.close().catch(() => undefined);
+      if (created) await rm(lockPath, { force: true }).catch(() => undefined);
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       if (await isStaleLock(lockPath, options.staleLockMs)) {
         await rm(lockPath, { force: true }).catch(() => undefined);
@@ -164,10 +174,10 @@ async function withFileLock<T>(
   try {
     return await task();
   } finally {
-    await rm(lockPath, { force: true });
+    const current = await readFile(lockPath, 'utf8').catch(() => '');
+    if (current === ownLockContent) await rm(lockPath, { force: true });
   }
 }
-
 async function readManifest(filename: string): Promise<StageCacheManifest> {
   try {
     const parsed: unknown = JSON.parse(await readFile(filename, 'utf8'));
