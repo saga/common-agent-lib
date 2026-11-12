@@ -10,9 +10,11 @@ import {
   type AgentTokenUsage,
 } from '@saga/agent-contracts';
 
-export type TraceEventInput = Omit<AgentEvent, 'id' | 'timestamp' | 'sequence' | 'payloadComplete'> & {
+export type TraceEventInput = Omit<AgentEvent, 'id' | 'timestamp' | 'sequence' | 'payloadComplete' | 'metadata' | 'artifactRefs'> & {
   id?: string;
   timestamp?: string;
+  metadata?: AgentEvent['metadata'];
+  artifactRefs?: AgentEvent['artifactRefs'];
 };
 
 export interface TraceQuery {
