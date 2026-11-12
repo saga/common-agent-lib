@@ -61,7 +61,7 @@ function sha256(value: string): string {
 }
 
 function safeName(value: string): string {
-  const name = value.trim();
+  const name = value;
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name)) {
     throw new StageCacheError('stageId must be 1-128 characters using letters, numbers, dot, underscore or hyphen.');
   }
@@ -225,7 +225,7 @@ async function validateOutput(validator: RunCachedStageInput['validate'], output
 export async function runCachedStage(input: RunCachedStageInput): Promise<StageCacheResult> {
   if (!input.runDir.trim()) throw new StageCacheError('runDir must not be empty.');
   if (!input.stageId.trim()) throw new StageCacheError('stageId must not be empty.');
-  if (typeof input.fingerprint !== 'string') throw new StageCacheError('fingerprint must be a string.');
+  if (typeof input.fingerprint !== 'string' || !input.fingerprint.trim()) throw new StageCacheError('fingerprint must be a non-empty string.');
   if (typeof input.execute !== 'function') throw new StageCacheError('execute must be a function.');
 
   const runDir = path.resolve(input.runDir);
@@ -236,9 +236,17 @@ export async function runCachedStage(input: RunCachedStageInput): Promise<StageC
   const manifestPath = path.join(runDir, 'pipeline-manifest.json');
   const eventsPath = path.join(runDir, 'stage-events.jsonl');
   const fingerprintPath = path.join(runDir, 'stage-' + stageId + '.input.txt');
+  const lockTimeoutMs = input.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
+  const staleLockMs = input.staleLockMs ?? DEFAULT_STALE_LOCK_MS;
+  if (!Number.isFinite(lockTimeoutMs) || lockTimeoutMs < 1) {
+    throw new StageCacheError('lockTimeoutMs must be a finite positive number.');
+  }
+  if (!Number.isFinite(staleLockMs) || staleLockMs < 1) {
+    throw new StageCacheError('staleLockMs must be a finite positive number.');
+  }
   const lockOptions = {
-    timeoutMs: Math.max(1, Math.floor(input.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS)),
-    staleLockMs: Math.max(1, Math.floor(input.staleLockMs ?? DEFAULT_STALE_LOCK_MS)),
+    timeoutMs: Math.floor(lockTimeoutMs),
+    staleLockMs: Math.floor(staleLockMs),
   };
 
   await mkdir(runDir, { recursive: true });
