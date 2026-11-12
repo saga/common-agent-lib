@@ -4,6 +4,10 @@ A small file-backed cache for deterministic, resumable stages in multi-step agen
 
 It is deliberately not a Workflow Engine, scheduler, model runtime or general job queue. The host decides the workflow, stage order, retry policy, task inputs and semantic acceptance criteria.
 
+## Availability
+
+This package currently lives in the `common-agent-lib` workspace and has not yet been published to the npm registry. Do not add a registry dependency until a release is available. The API example below shows the intended consumer interface.
+
 ## What it provides
 
 - Exact caller-supplied input fingerprints, stored alongside a SHA-256 digest.
