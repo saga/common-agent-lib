@@ -317,6 +317,7 @@ export const AgentArtifactRefSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
 export type AgentArtifactRef = z.infer<typeof AgentArtifactRefSchema>;
+export type AgentArtifactRefInput = z.input<typeof AgentArtifactRefSchema>;
 
 /**
  * Provider-neutral agent event. This is a runtime-observability envelope, not a business audit record.
