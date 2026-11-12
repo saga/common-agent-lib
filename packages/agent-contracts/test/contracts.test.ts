@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   AgentCheckpointSchema,
+  AgentArtifactRefSchema,
   ClaimSchema,
   calibrateClaimStatus,
   AgentCommandSchema,
@@ -22,6 +23,8 @@ import {
 
 const actor = { id: 'user-1', type: 'human' };
 
+assert.equal(AgentArtifactRefSchema.parse({ id: 'prompt-1', uri: 'file:///run/prompt.txt', sha256: 'a'.repeat(64) }).payloadComplete, true);
+assert.equal(AgentArtifactRefSchema.safeParse({ id: 'bad', uri: 'file:///bad', sha256: 'not-a-hash' }).success, false);
 assert.equal(AgentCheckpointSchema.parse({
   title: 'Position source',
   summary: 'Confirmed the main input.',
@@ -83,6 +86,7 @@ const traceEvent = AgentEventSchema.parse({
     byModel: { 'gpt-5': { inputTokens: 120, outputTokens: 30 } },
   }),
   contextUsage: AgentContextUsageSchema.parse({ currentTokens: 900, tokenLimit: 8000, messagesLength: 12, percent: 11 }),
+  artifactRefs: [{ id: 'prompt-1', uri: 'file:///run/prompt.txt', mediaType: 'text/plain', sha256: 'b'.repeat(64), sizeBytes: 512 }],
   payloadComplete: true,
   data: { toolName: 'search' },
 });
@@ -90,6 +94,7 @@ assert.equal(traceEvent.traceId, 'trace-1');
 assert.equal(traceEvent.durationMs, 125);
 assert.equal(traceEvent.usage?.totalTokens, 150);
 assert.equal(traceEvent.contextUsage?.percent, 11);
+assert.equal(traceEvent.artifactRefs[0]?.id, 'prompt-1');
 assert.equal(AgentTokenUsageSchema.safeParse({ inputTokens: -1 }).success, false);
 assert.equal(AgentContextUsageSchema.safeParse({ percent: -1 }).success, false);
 assert.equal(AgentEventSchema.safeParse({
