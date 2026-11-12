@@ -11,7 +11,7 @@ Provider-neutral tracing primitives for Node.js Agent applications. Works with C
 - Token-usage aggregation that does not add context occupancy to consumed tokens or mix incompatible cost units.
 - Recursive credential redaction and bounded event payloads.
 - Query filters for trace, turn, sessions, event types, category and time range.
-- Shared event schema from `@saga/agent-contracts`.
+- Shared event schema from `@saga/agent-contracts`, including typed references to external execution artifacts.
 
 This package is an operational trace recorder, not a trace vendor, not a business audit engine, and not an authorization or policy system.
 
@@ -58,6 +58,35 @@ const answer = await trace.runSpan(
 const events = await trace.query({ traceId: context.traceId, limit: 100 });
 await trace.close();
 ```
+
+## Execution artifacts
+
+Large or sensitive payloads should live in an application-owned artifact store or protected run directory, not inside the trace event row. Put stable references on the event:
+
+~~~ts
+await trace.record({
+  ...context,
+  type: 'generation.completed',
+  artifactRefs: [
+    {
+      id: 'prompt-1',
+      uri: 'file:///protected/run-123/prompt.txt',
+      mediaType: 'text/plain',
+      sha256: '…',
+      sizeBytes: 12_400,
+      payloadComplete: true,
+    },
+    {
+      id: 'response-partial-1',
+      uri: 'file:///protected/run-123/partial-response.txt',
+      mediaType: 'text/plain',
+      payloadComplete: false,
+    },
+  ],
+});
+~~~
+
+The AgentArtifactRef type is a pointer contract, not an artifact storage implementation. The host owns path authorization, retention, encryption, content access and integrity verification. Do not expose file URIs to untrusted clients or put source text, credentials or model reasoning into trace metadata. SQLite stores the references as a separate JSON column and upgrades existing trace databases in place.
 
 ## Token usage
 
