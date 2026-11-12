@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import {
   AgentTraceRecorder,
   aggregateAgentTokenUsage,
@@ -98,6 +99,57 @@ test('SQLite store persists events and assigns sequence inside a transaction', a
     assert.equal(restored[0].contextUsage?.tokenLimit, 8000);
     assert.equal(restored[0].artifactRefs[0]?.sha256, 'c'.repeat(64));
     await reopened.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('migrates an older trace database and defaults artifact references to an empty list', async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'agent-tracing-legacy-'));
+  const filename = path.join(directory, 'traces.sqlite');
+  try {
+    const legacy = new DatabaseSync(filename);
+    legacy.exec(`
+      CREATE TABLE trace_events (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        session_id TEXT,
+        agent_id TEXT,
+        correlation_id TEXT,
+        trace_id TEXT NOT NULL,
+        turn_id TEXT,
+        parent_event_id TEXT,
+        sequence INTEGER NOT NULL,
+        category TEXT,
+        type TEXT NOT NULL,
+        status TEXT,
+        duration_ms REAL,
+        provider TEXT,
+        model TEXT,
+        payload_complete INTEGER NOT NULL DEFAULT 1,
+        actor_json TEXT,
+        data_json TEXT NOT NULL,
+        metadata_json TEXT NOT NULL
+      );
+      INSERT INTO trace_events (id, timestamp, trace_id, sequence, type, data_json, metadata_json)
+      VALUES ('legacy-1', '2026-11-01T00:00:00.000Z', 'legacy-trace', 1, 'turn.completed', 'null', '{}');
+    `);
+    legacy.close();
+
+    const migrated = new SqliteTraceStore({ filename });
+    const restored = await migrated.query({ traceId: 'legacy-trace' });
+    assert.equal(restored.length, 1);
+    assert.deepEqual(restored[0].artifactRefs, []);
+
+    const trace = new AgentTraceRecorder(migrated);
+    await trace.record({
+      traceId: 'legacy-trace',
+      type: 'artifact.created',
+      artifactRefs: [{ id: 'response', uri: 'file:///run/response.txt' }],
+    });
+    const events = await trace.query({ traceId: 'legacy-trace' });
+    assert.equal(events[1]?.artifactRefs[0]?.payloadComplete, true);
+    await trace.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
