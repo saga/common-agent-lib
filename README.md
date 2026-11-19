@@ -402,3 +402,16 @@ vocal-saga 的 Context Graph、文学记忆、上下文选择和 prompt 组装�
 @saga/agent-context provides a deterministic composition layer between host-side retrieval and provider-specific prompt/runtime code. It enforces a caller-supplied budget, keeps required context with explicit over-budget reporting, and returns the provenance and omission ledger.
 
 The host application still owns retrieval, authorization, evidence validation, trust status, and temporal boundaries. It is intentionally not an autonomous memory manager or a CLM implementation. See [packages/agent-context/README.md](packages/agent-context/README.md) and [Context Assembly design](docs/context-assembly-design.md).
+
+
+## PDF Engine
+
+**saga-pdf-engine** is an independent Python package under `packages/pdf-engine`. It provides local PDF inspection, text/layout extraction, table extraction, page rendering, page rotation/reordering, merge/split, and reflow-ready HTML export.
+
+- `pypdf`: PDF page operations and writing.
+- `pdfplumber`: text, word coordinates, table and layout extraction.
+- `pypdfium2`: page rendering for previews and visual QA.
+- A lightweight JSONL stdio process boundary lets a TypeScript host manage the worker without opening a local HTTP port.
+- The HTML export is a best-effort reflow draft. The host can print it with Chromium; semantic reading order, OCR, complex tables and image anchoring still require validation or specialized models.
+
+The package is intentionally Python-only and is not added as a JavaScript workspace dependency. Install and use it independently; see [packages/pdf-engine/README.md](packages/pdf-engine/README.md) for the protocol, methods, safety constraints and development instructions, and [docs/pdf-engine-architecture.md](docs/pdf-engine-architecture.md) for the architecture and reflow workflow.
