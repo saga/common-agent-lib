@@ -66,15 +66,11 @@ def extract_document(
             median_size = sorted(font_sizes)[len(font_sizes) // 2] if font_sizes else None
             # pdfplumber's text extraction is authoritative for the page text.
             blocks: list[TextBlock] = []
-            for block_index, item in enumerate(page.extract_text_lines(layout=False) or []):
+            for block_index, item in enumerate(page.extract_text_lines(layout=False, return_chars=True) or []):
                 text = str(item.get("text", "")).strip()
                 if not text:
                     continue
-                line_chars = [
-                    c for c in chars
-                    if float(c.get("top", 0)) >= float(item.get("top", 0)) - 2
-                    and float(c.get("bottom", 0)) <= float(item.get("bottom", 0)) + 2
-                ]
+                line_chars = item.get("chars", [])
                 sizes = [float(c["size"]) for c in line_chars if c.get("size") is not None]
                 size = sum(sizes) / len(sizes) if sizes else median_size
                 fonts = sorted({str(c.get("fontname", "")) for c in line_chars if c.get("fontname")})
@@ -161,7 +157,12 @@ def render_page(path: Path, output: Path, page_index: int, scale: float = 1.5) -
         bitmap = page.render(scale=scale)
         image = bitmap.to_pil()
         output.parent.mkdir(parents=True, exist_ok=True)
-        image.save(output, format="PNG")
+        try:
+            with output.open("xb") as stream:
+                image.save(stream, format="PNG")
+        except Exception:
+            output.unlink(missing_ok=True)
+            raise
         return {"path": str(output), "width": image.width, "height": image.height}
     finally:
         document.close()
@@ -223,8 +224,12 @@ def _ensure_new_output(output: Path) -> None:
 def _write_pdf(writer: PdfWriter, output: Path) -> None:
     _ensure_new_output(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("wb") as stream:
-        writer.write(stream)
+    try:
+        with output.open("xb") as stream:
+            writer.write(stream)
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
 
 
 def document_to_html(document: DocumentNode, title: str | None = None) -> str:
@@ -274,7 +279,12 @@ def export_html(source: Path, output: Path, title: str | None = None) -> dict[st
     document = extract_document(source, include_tables=True)
     content = document_to_html(document, title)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(content, encoding="utf-8")
+    try:
+        with output.open("x", encoding="utf-8") as stream:
+            stream.write(content)
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
     return {
         "output": str(output),
         "page_count": document.page_count,
