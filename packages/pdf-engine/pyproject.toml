@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "Local PDF inspection, extraction, page editing, rendering and reflow preparation for AI agents."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
 dependencies = [
   "pypdf>=5.0,<7",
   "pdfplumber>=0.11,<1",
