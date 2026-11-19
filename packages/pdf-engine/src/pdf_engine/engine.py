@@ -116,8 +116,9 @@ def extract_document(
             tables: list[TableBlock] = []
             if include_tables:
                 for table in page.find_tables():
+                    x0, top, x1, bottom = table.bbox
                     tables.append(TableBlock(
-                        bbox=_bbox(table.bbox_dict) if hasattr(table, "bbox_dict") else None,
+                        bbox={"x0": float(x0), "top": float(top), "x1": float(x1), "bottom": float(bottom)},
                         rows=[[str(cell or "") for cell in row] for row in (table.extract() or [])],
                     ))
             text = page.extract_text() or ""
@@ -147,6 +148,7 @@ def extract_document(
 
 
 def render_page(path: Path, output: Path, page_index: int, scale: float = 1.5) -> dict[str, Any]:
+    _ensure_new_output(output)
     if page_index < 0:
         raise InvalidRequest("page must be a zero-based non-negative index.")
     if not 0.25 <= scale <= 4:
@@ -213,7 +215,13 @@ def split_pdf(source: Path, output_dir: Path) -> dict[str, Any]:
     return {"outputs": outputs, "page_count": len(outputs)}
 
 
+def _ensure_new_output(output: Path) -> None:
+    if output.exists():
+        raise InvalidRequest(f"Refusing to overwrite an existing output: {output.name}")
+
+
 def _write_pdf(writer: PdfWriter, output: Path) -> None:
+    _ensure_new_output(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("wb") as stream:
         writer.write(stream)
@@ -262,6 +270,7 @@ td {{ border:1px solid #bbb; padding:5px; vertical-align:top; }} .source-page {{
 
 
 def export_html(source: Path, output: Path, title: str | None = None) -> dict[str, Any]:
+    _ensure_new_output(output)
     document = extract_document(source, include_tables=True)
     content = document_to_html(document, title)
     output.parent.mkdir(parents=True, exist_ok=True)
