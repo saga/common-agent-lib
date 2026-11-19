@@ -2,7 +2,7 @@ from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
 
-from pdf_engine.engine import reorder_pages, rotate_pages, split_pdf
+from pdf_engine.engine import reorder_pages, rotate_pages, split_pdf\nfrom pdf_engine.errors import InvalidRequest
 
 
 def make_pdf(path: Path, count: int = 3) -> None:
