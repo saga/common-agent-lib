@@ -72,7 +72,7 @@ The package exports a best-effort AST:
 - page → text blocks / words / tables
 - text block → text, bounding box, inferred style hints
 
-PDFs do not reliably encode paragraph, heading, reading-order or image-anchor semantics. The extractor preserves source coordinates and marks inferred fields as heuristic. Multi-column reading order, ligatures, scanned pages, complex tables, footnotes and image-to-paragraph association require additional layout/OCR models and human/visual review.
+PDFs do not reliably encode paragraph, heading, reading-order or image-anchor semantics. The extractor preserves source coordinates and marks inferred fields as heuristic. Current HTML export carries text and detected tables; it does not yet reconstruct embedded images, captions, footnotes or complex multi-column reading order. Multi-column reading order, ligatures, scanned pages, complex tables, footnotes and image-to-paragraph association require additional layout/OCR models and human/visual review.
 
 `export_html` creates accessible, responsive HTML with page/section boundaries and source references. The host's Chromium instance can print it to PDF. This is the semantic reflow path; it is not an in-place PDF edit and does not guarantee pixel-identical reproduction.
 
