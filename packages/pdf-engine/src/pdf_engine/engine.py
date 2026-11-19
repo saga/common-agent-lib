@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import html
-import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -65,11 +64,6 @@ def extract_document(
             chars = page.chars
             font_sizes = [float(c["size"]) for c in chars if c.get("size") is not None]
             median_size = sorted(font_sizes)[len(font_sizes) // 2] if font_sizes else None
-            grouped: dict[tuple[int, int], list[dict[str, Any]]] = {}
-            for char in chars:
-                key = (round(float(char.get("top", 0)) / 3), round(float(char.get("x0", 0)) / 12))
-                grouped.setdefault(key, []).append(char)
-
             # pdfplumber's text extraction is authoritative for the page text.
             blocks: list[TextBlock] = []
             for block_index, item in enumerate(page.extract_text_lines(layout=False) or []):
@@ -86,7 +80,7 @@ def extract_document(
                 fonts = sorted({str(c.get("fontname", "")) for c in line_chars if c.get("fontname")})
                 bold = any("bold" in f.lower() or "black" in f.lower() for f in fonts)
                 blocks.append(TextBlock(
-                    id=f"p{index + 1}-b{block_index + 1}",
+                    id=f"p{index + 1}-l{block_index + 1}",
                     text=text,
                     bbox=_bbox(item),
                     font_size=round(size, 2) if size is not None else None,
@@ -94,6 +88,26 @@ def extract_document(
                     bold=bold,
                     source_page=index,
                 ))
+
+            # Join adjacent visual lines into paragraph candidates. This is a
+            # deliberately conservative geometric heuristic, not semantic truth.
+            paragraphs: list[TextBlock] = []
+            for line in blocks:
+                if paragraphs:
+                    previous = paragraphs[-1]
+                    gap = line.bbox["top"] - previous.bbox["bottom"]
+                    same_column = abs(line.bbox["x0"] - previous.bbox["x0"]) <= 14
+                    line_size = line.font_size or median_size or 10
+                    if same_column and -2 <= gap <= max(4, line_size * 0.8):
+                        previous.text = previous.text.rstrip() + " " + line.text.lstrip()
+                        previous.bbox["x1"] = max(previous.bbox["x1"], line.bbox["x1"])
+                        previous.bbox["bottom"] = max(previous.bbox["bottom"], line.bbox["bottom"])
+                        previous.font_names = sorted(set(previous.font_names + line.font_names))
+                        previous.bold = bool(previous.bold and line.bold)
+                        continue
+                line.id = f"p{index + 1}-b{len(paragraphs) + 1}"
+                paragraphs.append(line)
+            blocks = paragraphs
 
             words = [
                 Word(text=str(w["text"]), bbox=_bbox(w))
@@ -213,11 +227,12 @@ def document_to_html(document: DocumentNode, title: str | None = None) -> str:
         for block in page.blocks:
             text = html.escape(block.text)
             # Heading inference is intentionally conservative and labelled heuristic.
+            page_sizes = sorted(b.font_size for b in page.blocks if b.font_size is not None)
+            typical_size = page_sizes[len(page_sizes) // 2] if page_sizes else None
             is_heading = bool(
-                block.font_size
-                and block.font_size >= 1.25 * max(
-                    (b.font_size or block.font_size for b in page.blocks), default=block.font_size
-                )
+                block.font_size and typical_size
+                and block.font_size >= 1.2 * typical_size
+                and block.bold
             )
             tag = "h2" if is_heading else "p"
             lines.append(f'<{tag} data-source-block="{html.escape(block.id)}">{text}</{tag}>')
