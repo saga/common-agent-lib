@@ -94,7 +94,12 @@ def extract_document(
                     gap = line.bbox["top"] - previous.bbox["bottom"]
                     same_column = abs(line.bbox["x0"] - previous.bbox["x0"]) <= 14
                     line_size = line.font_size or median_size or 10
-                    if same_column and -2 <= gap <= max(4, line_size * 0.8):
+                    previous_size = previous.font_size or median_size or line_size
+                    same_style = (
+                        previous.bold == line.bold
+                        and abs(previous_size - line_size) <= max(1.0, max(previous_size, line_size) * 0.12)
+                    )
+                    if same_column and same_style and -2 <= gap <= max(4, line_size * 0.8):
                         previous.text = previous.text.rstrip() + " " + line.text.lstrip()
                         previous.bbox["x1"] = max(previous.bbox["x1"], line.bbox["x1"])
                         previous.bbox["bottom"] = max(previous.bbox["bottom"], line.bbox["bottom"])
@@ -247,7 +252,7 @@ def document_to_html(document: DocumentNode, title: str | None = None) -> str:
             text = html.escape(block.text)
             # Heading inference is intentionally conservative and labelled heuristic.
             page_sizes = sorted(b.font_size for b in page.blocks if b.font_size is not None)
-            typical_size = page_sizes[len(page_sizes) // 2] if page_sizes else None
+            typical_size = page_sizes[(len(page_sizes) - 1) // 2] if page_sizes else None
             is_heading = bool(
                 block.font_size and typical_size
                 and block.font_size >= 1.2 * typical_size
