@@ -40,3 +40,11 @@ def test_rotate_pages_and_split(tmp_path: Path) -> None:
     result = split_pdf(rotated, tmp_path / "split")
     assert result["page_count"] == 2
     assert all(Path(path).exists() for path in result["outputs"])
+
+def test_never_overwrites_source_pdf(tmp_path: Path) -> None:
+    source = tmp_path / "source.pdf"
+    make_pdf(source, 2)
+    original_size = source.stat().st_size
+    with pytest.raises(InvalidRequest):
+        reorder_pages(source, source, [1, 0])
+    assert source.stat().st_size == original_size
