@@ -60,7 +60,7 @@ Methods:
 | `reorder_pages` | `input`, `output`, `order` (0-based indices) | reordered copy |
 | `merge` | `inputs`, `output` | merged copy |
 | `split` | `input`, `output_dir` | one PDF per page |
-| `export_html` | `input`, `output`, optional `title` | reflow-ready semantic HTML |
+| `export_html` / `reflow` | `input`, `output`, optional `title` | reflow-ready semantic HTML |
 | `extract_tables` | `input`, optional `pages` | table matrices and page coordinates |
 
 All writes are to new output paths; input files are never overwritten. Output paths must also be inside the workspace. Page indices are zero-based. Page selections are validated and bounded.
@@ -89,7 +89,7 @@ const ast = await pdf.request('extract', {
 await pdf.close();
 ```
 
-The host should expose narrow, schema-validated Agent tools over this client rather than giving the model arbitrary method names or filesystem paths. Recommended initial tools are `pdf.inspect`, `pdf.extract`, `pdf.render_page`, `pdf.pages.rotate`, `pdf.pages.reorder`, `pdf.merge`, `pdf.split` and `pdf.export_html`. Keep the input/output workspace mapping and authorization in the host.
+The host should expose narrow, schema-validated Agent tools over this client rather than giving the model arbitrary method names or filesystem paths. Recommended initial tools are `pdf.inspect`, `pdf.extract`, `pdf.render_page`, `pdf.pages.rotate`, `pdf.pages.reorder`, `pdf.merge`, `pdf.split` and `pdf.reflow`. Keep the input/output workspace mapping and authorization in the host.
 
 ## Reflow contract
 
