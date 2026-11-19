@@ -8,6 +8,8 @@ on:
 
 jobs:
   check:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -21,13 +23,21 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm install
-      - name: Export generated lockfile (temporary)
-        if: matrix.node-version == 26
-        uses: actions/upload-artifact@v7.0.2
+      - name: Commit generated npm lockfile
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.node-version == 26
+        uses: actions/github-script@v9.0.0
         with:
-          name: generated-npm-lockfile
-          path: package-lock.json
-          archive: false
+          script: |
+            const fs = require('node:fs');
+            const content = fs.readFileSync('package-lock.json');
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path: 'package-lock.json',
+              message: 'build: add npm workspace lockfile',
+              content: content.toString('base64'),
+              branch: 'main',
+            });
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
