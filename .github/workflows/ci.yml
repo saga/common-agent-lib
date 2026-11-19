@@ -21,6 +21,13 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm install
+      - name: Export generated lockfile (temporary)
+        if: matrix.node-version == 26
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: generated-npm-lockfile
+          path: package-lock.json
+          archive: false
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
