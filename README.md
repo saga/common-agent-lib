@@ -414,4 +414,4 @@ The host application still owns retrieval, authorization, evidence validation, t
 - A lightweight JSONL stdio process boundary lets a TypeScript host manage the worker without opening a local HTTP port.
 - The HTML export is a best-effort reflow draft. The host can print it with Chromium; semantic reading order, OCR, complex tables and image anchoring still require validation or specialized models.
 
-The package is intentionally Python-only and is not added as a JavaScript workspace dependency. Install and use it independently; see [packages/pdf-engine/README.md](packages/pdf-engine/README.md) for the protocol, methods, safety constraints and development instructions.
+The package is intentionally Python-only and is not added as a JavaScript workspace dependency. Install and use it independently; see [packages/pdf-engine/README.md](packages/pdf-engine/README.md) for the protocol, methods, safety constraints and development instructions, and [docs/pdf-engine-architecture.md](docs/pdf-engine-architecture.md) for the architecture and reflow workflow.
