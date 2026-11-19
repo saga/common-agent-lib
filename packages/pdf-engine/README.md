@@ -65,6 +65,32 @@ Methods:
 
 All writes are to new output paths; input files are never overwritten. Output paths must also be inside the workspace. Page indices are zero-based. Page selections are validated and bounded.
 
+
+## TypeScript host adapter
+
+A dependency-free Node adapter example is provided at `integrations/typescript/pdf-engine-client.ts`. Copy/import it into the host application's TypeScript build and point it at the Python environment where this package is installed:
+
+```bash
+python -m pip install -e ./packages/pdf-engine
+```
+
+```ts
+const pdf = new PdfEngineClient({
+  workspace: absoluteWorkspacePath,
+  python: '/path/to/venv/bin/python',
+  onStderr: (message) => logger.debug({ message }, 'pdf worker'),
+});
+
+const info = await pdf.request('inspect', { input: 'documents/source.pdf' });
+const ast = await pdf.request('extract', {
+  input: 'documents/source.pdf',
+  include_tables: true,
+});
+await pdf.close();
+```
+
+The host should expose narrow, schema-validated Agent tools over this client rather than giving the model arbitrary method names or filesystem paths. Recommended initial tools are `pdf.inspect`, `pdf.extract`, `pdf.render_page`, `pdf.pages.rotate`, `pdf.pages.reorder`, `pdf.merge`, `pdf.split` and `pdf.export_html`. Keep the input/output workspace mapping and authorization in the host.
+
 ## Reflow contract
 
 The package exports a best-effort AST:
