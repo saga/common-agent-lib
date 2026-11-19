@@ -157,11 +157,14 @@ def render_page(path: Path, output: Path, page_index: int, scale: float = 1.5) -
         bitmap = page.render(scale=scale)
         image = bitmap.to_pil()
         output.parent.mkdir(parents=True, exist_ok=True)
+        created = False
         try:
             with output.open("xb") as stream:
+                created = True
                 image.save(stream, format="PNG")
         except Exception:
-            output.unlink(missing_ok=True)
+            if created:
+                output.unlink(missing_ok=True)
             raise
         return {"path": str(output), "width": image.width, "height": image.height}
     finally:
@@ -224,11 +227,14 @@ def _ensure_new_output(output: Path) -> None:
 def _write_pdf(writer: PdfWriter, output: Path) -> None:
     _ensure_new_output(output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    created = False
     try:
         with output.open("xb") as stream:
+            created = True
             writer.write(stream)
     except Exception:
-        output.unlink(missing_ok=True)
+        if created:
+            output.unlink(missing_ok=True)
         raise
 
 
@@ -279,11 +285,14 @@ def export_html(source: Path, output: Path, title: str | None = None) -> dict[st
     document = extract_document(source, include_tables=True)
     content = document_to_html(document, title)
     output.parent.mkdir(parents=True, exist_ok=True)
+    created = False
     try:
         with output.open("x", encoding="utf-8") as stream:
+            created = True
             stream.write(content)
     except Exception:
-        output.unlink(missing_ok=True)
+        if created:
+            output.unlink(missing_ok=True)
         raise
     return {
         "output": str(output),
