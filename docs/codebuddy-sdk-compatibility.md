@@ -8,7 +8,7 @@
 
 ## Observed option compatibility
 
-A CodeBuddy SDK probe recorded the following observations for versions `0.3.274`, `0.3.276`, and `0.3.282`. Version `0.2.3` predates the tested option fields. The current `vocal-saga/local-agent-service/package-lock.json` resolves `0.3.276`, which is why the common package now pins that exact baseline. The npm registry page lists `0.3.284` as a newer release, but this audit has not completed the three-layer probe against `0.3.284`; treat it as unverified, not automatically compatible. Re-probe the exact installed package whenever the lockfile/runtime version changes.
+A CodeBuddy SDK probe recorded the following observations for versions `0.3.274`, `0.3.276`, and `0.3.282`. Version `0.2.3` predates the tested option fields. The current `vocal-saga/local-agent-service/package-lock.json` resolves `0.3.276`, which is why the common package now pins that exact baseline. The npm registry's current `latest` tag is `0.3.305` as checked on 2026-11-19. This newer release has not completed the three-layer probe; treat it as unverified, not automatically compatible. Re-probe the exact installed package whenever the lockfile/runtime version changes.
 
 | Option / behavior | `query()` Options | V2 `SessionOptions` | Implementation guidance |
 | --- | --- | --- | --- |
@@ -41,7 +41,7 @@ This is an audit snapshot, not a guarantee that a semver range has already been 
 | `agentic-data-architect` | Exact `0.3.274` | `0.3.274` | Pinned to its pre-existing, probe-observed lockfile version. Uses `query()` with explicit `resume: sessionId`; its permission/tool policy and Investigation state remain application-owned. |
 | `desktop-agent` | Exact `0.3.276` | No root package lockfile was found at the queried path | Pinned to the common known baseline, but a lockfile should be added for reproducible installs. Its interactive host-side `canUseTool` approval gate is not compatible with the shared runtime's no-tool default and must not inherit its security policy implicitly. |
 
-The npm registry lists [`@tencent-ai/agent-sdk` `0.3.284`](https://www.npmjs.com/package/@tencent-ai/agent-sdk) as a release newer than the current locked `0.3.276`, but this review has not run the declaration / compilation / transport probe on `0.3.284`. Keep the shared package pinned to the tested baseline until that probe and the regression suite are run. For application repos with a different concrete version, read their lockfile; the package.json range is not runtime evidence.
+The npm registry lists [`@tencent-ai/agent-sdk` `0.3.305`](https://www.npmjs.com/package/@tencent-ai/agent-sdk) as the current `latest` release checked on 2026-11-19. This version has not passed the declaration / compilation / transport probe. Keep the shared package pinned to the tested `0.3.276` baseline until that probe and the regression suite are run. For application repos with a different concrete version, read their lockfile; the package.json range is not runtime evidence.
 
 ## Choosing `query()` versus V2 Session
 

@@ -17,7 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@github/copilot-sdk": "^1.0.15"
+    "@github/copilot-sdk": "^1.0.34"
   },
   "engines": {
     "node": ">=22.13"
