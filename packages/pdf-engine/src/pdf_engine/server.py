@@ -31,7 +31,7 @@ def dispatch(method: str, params: dict[str, Any], workspace: Path) -> dict[str, 
             },
             "methods": [
                 "health", "inspect", "extract", "extract_tables", "render_page",
-                "rotate_pages", "reorder_pages", "merge", "split", "export_html",
+                "rotate_pages", "reorder_pages", "merge", "split", "export_html", "reflow",
             ],
         }
 
@@ -69,7 +69,7 @@ def dispatch(method: str, params: dict[str, Any], workspace: Path) -> dict[str, 
         return merge_pdfs(paths, output_path())
     if method == "split":
         return split_pdf(input_path(), output_path("output_dir"))
-    if method == "export_html":
+    if method in {"export_html", "reflow"}:
         return export_html(input_path(), output_path(), params.get("title"))
     raise InvalidRequest(f"Unknown method: {method}")
 
