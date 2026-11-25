@@ -11,6 +11,8 @@ import { SqliteEvidenceStore } from './sqlite/evidence.js';
 import { SqliteFeedbackStore } from './sqlite/feedback.js';
 import { SqliteLeaseStore } from './sqlite/leases.js';
 import { SqliteReviewQueueStore, type ProposalReviewReason } from './sqlite/review-queue.js';
+import { SqliteVectorIndex, type EmbeddingProvider } from './retrieval.js';
+import { SqliteDreamingScheduler, type DurableSchedulerOptions } from './scheduler.js';
 
 export type { SqliteDreamingOptions, ProposalReviewReason };
 export type { DreamingReviewQueueItem as ReviewQueueItem } from './types.js';
@@ -155,6 +157,16 @@ export class SqliteDreamingStore implements
     scope: string; proposalId: string; decision: 'approve' | 'reject'; reviewedBy: string;
   }): Promise<DreamingReviewQueueItem['status']> {
     return this.reviews.resolveReview(input);
+  }
+
+  createVectorIndex(provider: EmbeddingProvider): SqliteVectorIndex {
+    this.database.ensureOpen();
+    return new SqliteVectorIndex(this.database.db, provider);
+  }
+
+  createScheduler(options: DurableSchedulerOptions = {}): SqliteDreamingScheduler {
+    this.database.ensureOpen();
+    return new SqliteDreamingScheduler(this.database.db, options);
   }
 
   async close(): Promise<void> {
