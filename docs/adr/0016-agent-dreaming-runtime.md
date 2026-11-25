@@ -19,7 +19,7 @@ Calling `start()` performs startup dreaming and schedules periodic runs. Hosts c
 
 ## Trust and operational boundaries
 
-The host remains authoritative for storage, authorization, domain validation, confidence calibration, memory promotion, indexes and retention. The model cannot commit directly or promote a memory to confirmed. Multi-process hosts must implement durable leases and idempotent commits. The package does not import a provider SDK, database, queue or graph engine.
+The host remains authoritative for storage, authorization, domain validation, confidence calibration, memory promotion, indexes and retention. The model cannot commit directly or promote a memory to confirmed. Multi-process hosts must implement owner-checked durable lease acquire/renew/release and idempotent commits. The package does not import a provider SDK, database, queue or graph engine.
 
 ## Consequences
 

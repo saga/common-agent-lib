@@ -67,7 +67,7 @@ For CodeBuddy or pi.dev, only this adapter changes. Keep model selection, creden
 
 - Call `start()` once during host startup. It immediately schedules one run per configured scope and then runs on the configured interval.
 - Call `notifyRecordAppended(scope)` after meaningful records are committed. Concurrent notifications for the same scope are coalesced.
-- A durable lease prevents two processes from dreaming the same scope concurrently. Lease expiration must be renewed by the host or chosen long enough for the maximum runtime call; this package currently treats the lease as a run-wide lock.
+- A durable per-scope lease prevents two processes from dreaming the same scope concurrently. The engine renews it while the run is active; the repository must implement owner-checked acquire/renew/release operations.
 - Checkpoints advance only through records explicitly reported as processed. Failed runs remain visible and are retried by a later trigger.
 - Re-review is host-selected through `reviewBefore`; the repository decides which older records need replay.
 - The host must keep the repository and evidence resolver durable across restarts.

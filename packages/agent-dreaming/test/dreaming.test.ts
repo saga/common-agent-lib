@@ -12,7 +12,7 @@ import {
   type DreamingRuntime,
 } from '../src/index.js';
 
-function fixture() {
+function fixture(proposalEvidenceRef = 'trace:t1:event:e1') {
   const experience: DreamingExperience = {
     id: 'e1', sequence: 1, scope: 'user-1', content: 'User prefers concise technical answers.',
     createdAt: '2026-11-01T00:00:00.000Z', sourceRefs: ['trace:t1:event:e1'],
@@ -66,7 +66,7 @@ function fixture() {
               status: 'confirmed', importance: 0.9, sourceRefs: ['trace:t1:event:e1'],
             },
             rationale: 'Explicit preference in source evidence.',
-            evidenceRefs: ['trace:t1:event:e1'],
+            evidenceRefs: [proposalEvidenceRef],
           }],
           processedRecordIds: ['e1'],
           notes: [],
@@ -103,10 +103,20 @@ test('model cannot promote a proposed memory to confirmed', async () => {
   assert.equal(f.committed[0]?.proposedRecord?.status, 'candidate');
 });
 
-test('evidence resolution is checked before proposal commit', async () => {
-  const f = fixture();
+test('unknown evidence references reject a proposal before commit', async () => {
+  const f = fixture('trace:missing:event:missing');
   const run = await f.engine.runNow('user-1');
-  assert.deepEqual(run?.rejectedProposalIds, []);
+  assert.deepEqual(run?.rejectedProposalIds, ['p1']);
+  assert.deepEqual(f.commits, []);
+});
+
+test('concurrent triggers for one scope share the same run', async () => {
+  const f = fixture();
+  const [first, second] = await Promise.all([
+    f.engine.runNow('user-1'),
+    f.engine.runNow('user-1'),
+  ]);
+  assert.equal(first?.id, second?.id);
   assert.deepEqual(f.commits, ['p1']);
 });
 

@@ -978,6 +978,6 @@ Stage Cache 不应等同于 Workflow Runtime：它只回答某个阶段的产物
 - Dreaming Engine 负责启动/周期/事件触发、批次限制、回放、输出校验、证据引用检查、进度和运行状态。
 - Host 仍然掌握授权、领域规则、记忆可信度、数据库和索引。模型不能直接写权威记忆，也不能把候选记忆提升为 confirmed。
 
-宿主启动时调用 `start()`，之后会执行启动整理和周期整理；每次新增有意义的经历后调用 `notifyRecordAppended(scope)`。多进程场景必须实现持久化的 scope lease 和幂等提交。Checkpoint 只能推进到连续处理完成的序列前缀，旧记录重新验证则由 Repository 通过 review timestamp 管理。
+宿主启动时调用 `start()`，之后会执行启动整理和周期整理；每次新增有意义的经历后调用 `notifyRecordAppended(scope)`。多进程场景必须实现可续租的持久化 scope lease 和幂等提交。Checkpoint 只能推进到连续处理完成的序列前缀，旧记录重新验证则由 Repository 通过 review timestamp 管理。
 
 这不是新的 Agent Framework，也不是另一个 Memory Store。它是一个可以被不同 Runtime 驱动、由宿主掌握持久化与信任边界的后台维护循环。

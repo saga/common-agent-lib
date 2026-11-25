@@ -140,6 +140,7 @@ export interface DreamingRepository {
   }): Promise<{ applied: boolean; reason?: string }>;
   /** Distributed lease: only one worker may dream a scope at a time. */
   acquireLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
+  renewLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
   releaseLease(input: { scope: string; owner: string }): Promise<void>;
 }
 
@@ -265,6 +266,19 @@ export class DreamingEngine {
     const acquired = await this.repository.acquireLease({ scope, owner: this.owner, leaseMs });
     if (!acquired) return undefined;
 
+    const controller = new AbortController();
+    const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
+    let renewing = false;
+    const heartbeat = setInterval(() => {
+      if (renewing || signal.aborted) return;
+      renewing = true;
+      void this.repository.renewLease({ scope, owner: this.owner, leaseMs })
+        .then((renewed) => { if (!renewed) controller.abort(new Error('Dreaming lease was lost.')); })
+        .catch((error: unknown) => controller.abort(error))
+        .finally(() => { renewing = false; });
+    }, Math.max(1_000, Math.floor(leaseMs / 3)));
+    heartbeat.unref?.();
+
     let run: DreamingRun | undefined;
     try {
     const now = new Date().toISOString();
@@ -294,7 +308,7 @@ export class DreamingEngine {
       let lastUsage: Readonly<Record<string, number>> | undefined;
 
       for (let batch = 0; batch < maxBatches; batch += 1) {
-        if (input.signal?.aborted) throw input.signal.reason ?? new Error('Dreaming aborted.');
+        if (signal.aborted) throw signal.reason ?? new Error('Dreaming aborted.');
         const page = await this.repository.loadExperiences({
           scope, afterSequence, reviewBefore, limit: batchSize,
         });
@@ -314,7 +328,7 @@ export class DreamingEngine {
           system: SYSTEM_PROMPT,
           prompt: buildPrompt(scope, experiences, memories, relationships, evidence),
           responseFormat: 'json',
-          signal: input.signal,
+          signal,
         });
         lastModel = response.model;
         lastUsage = response.usage;
@@ -382,6 +396,7 @@ export class DreamingEngine {
       }
       throw error;
     } finally {
+      clearInterval(heartbeat);
       await this.repository.releaseLease({ scope, owner: this.owner });
     }
   }
