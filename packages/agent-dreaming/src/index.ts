@@ -75,6 +75,16 @@ export interface DreamingFeedbackEvent {
   taskId?: string;
 }
 
+export interface DreamingReviewEffectiveness {
+  reviewedAt: string;
+  baselineSampleCount: number;
+  followUpSampleCount: number;
+  baselineUsefulness: number;
+  followUpUsefulness: number;
+  delta: number;
+  trend: 'improving' | 'declining' | 'stable';
+}
+
 export interface DreamingMemoryQuality {
   memoryId: string;
   evaluatedAt: string;
@@ -85,6 +95,7 @@ export interface DreamingMemoryQuality {
   evidenceSupport?: number;
   correctionCount: number;
   humanRejectionCount: number;
+  reviewEffectiveness?: DreamingReviewEffectiveness;
   recommendation: 'none' | 'review';
   reasons: string[];
 }
@@ -674,11 +685,36 @@ export function evaluateMemoryQuality(
   const humanRejections = recent.filter((event) => event.kind === 'human-review' && event.outcome === 'rejected');
   const usefulness = weightedRate(retrieval, (event) => event.outcome === 'useful');
   const evidenceSupport = weightedRate(evidence, (event) => event.outcome === 'supports');
+  const latestAcceptedReview = recent
+    .filter((event) => event.kind === 'human-review' && (event.outcome === 'confirmed' || event.outcome === 'edited'))
+    .sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))[0];
+  let reviewEffectiveness: DreamingReviewEffectiveness | undefined;
+  if (latestAcceptedReview) {
+    const reviewTime = Date.parse(latestAcceptedReview.occurredAt);
+    const baseline = retrieval.filter((event) => Date.parse(event.occurredAt) < reviewTime);
+    const followUp = retrieval.filter((event) => Date.parse(event.occurredAt) > reviewTime);
+    const baselineUsefulness = weightedRate(baseline, (event) => event.outcome === 'useful');
+    const followUpUsefulness = weightedRate(followUp, (event) => event.outcome === 'useful');
+    if (baseline.length >= 3 && followUp.length >= 3
+      && baselineUsefulness !== undefined && followUpUsefulness !== undefined) {
+      const delta = Number((followUpUsefulness - baselineUsefulness).toFixed(3));
+      reviewEffectiveness = {
+        reviewedAt: latestAcceptedReview.occurredAt,
+        baselineSampleCount: baseline.length,
+        followUpSampleCount: followUp.length,
+        baselineUsefulness: Number(baselineUsefulness.toFixed(3)),
+        followUpUsefulness: Number(followUpUsefulness.toFixed(3)),
+        delta,
+        trend: delta >= 0.15 ? 'improving' : delta <= -0.15 ? 'declining' : 'stable',
+      };
+    }
+  }
   const reasons: string[] = [];
   if (retrieval.length >= 5 && usefulness !== undefined && usefulness < 0.4) reasons.push('low-retrieval-usefulness');
   if (evidence.length >= 3 && evidenceSupport !== undefined && evidenceSupport < 0.6) reasons.push('contradicting-evidence');
   if (corrections.length >= 2) reasons.push('repeated-user-correction');
   if (humanRejections.length > 0) reasons.push('human-rejected');
+  if (reviewEffectiveness?.trend === 'declining') reasons.push('post-review-usefulness-declined');
   const first = recent.reduce((min, event) => Math.min(min, Date.parse(event.occurredAt)), evaluatedAt.getTime());
   return {
     memoryId: recent[0]?.memoryId ?? events[0]?.memoryId ?? '',
@@ -690,6 +726,7 @@ export function evaluateMemoryQuality(
     ...(evidenceSupport === undefined ? {} : { evidenceSupport: Number(evidenceSupport.toFixed(3)) }),
     correctionCount: corrections.length,
     humanRejectionCount: humanRejections.length,
+    ...(reviewEffectiveness ? { reviewEffectiveness } : {}),
     recommendation: reasons.length ? 'review' : 'none',
     reasons,
   };
