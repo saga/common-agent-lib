@@ -56,6 +56,39 @@ export interface DreamingQualityAssessment {
   contradictionRisk: number;
 }
 
+export type DreamingFeedbackKind = 'retrieval' | 'evidence' | 'user-correction' | 'human-review';
+export type DreamingFeedbackOutcome =
+  | 'useful' | 'not-useful' | 'neutral'
+  | 'supports' | 'contradicts'
+  | 'incorrect' | 'outdated' | 'not-applicable'
+  | 'confirmed' | 'rejected' | 'edited';
+
+/** Immutable, host-authenticated feedback about one memory. */
+export interface DreamingFeedbackEvent {
+  id: string;
+  scope: string;
+  memoryId: string;
+  kind: DreamingFeedbackKind;
+  outcome: DreamingFeedbackOutcome;
+  occurredAt: string;
+  sourceRef?: string;
+  taskId?: string;
+}
+
+export interface DreamingMemoryQuality {
+  memoryId: string;
+  evaluatedAt: string;
+  windowStart: string;
+  sampleCount: number;
+  effectiveSampleCount: number;
+  usefulness?: number;
+  evidenceSupport?: number;
+  correctionCount: number;
+  humanRejectionCount: number;
+  recommendation: 'none' | 'review';
+  reasons: string[];
+}
+
 export interface DreamingProposal {
   id: string;
   scope: string;
@@ -171,6 +204,15 @@ export interface DreamingRepository {
     runId: string;
     reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' | 'missing-provenance';
   }): Promise<{ staged: boolean; reason?: string }>;
+  /** Store immutable, idempotent feedback events. The host validates actor authorization and memory ownership. */
+  recordFeedback(event: DreamingFeedbackEvent): Promise<void>;
+  /** Load bounded feedback for selected memories within the requested time window. */
+  loadFeedback(input: {
+    scope: string;
+    memoryIds: readonly string[];
+    since: string;
+    limit: number;
+  }): Promise<readonly DreamingFeedbackEvent[]>;
   /** Distributed lease: only one worker may dream a scope at a time. */
   acquireLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
   renewLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
@@ -248,6 +290,8 @@ Rules:
 - Assess confidence, durability, specificity and contradictionRisk from 0 to 1. These are triage estimates, not proof of truth.
 - Expired or stale memories must be re-evaluated against current evidence. Report their IDs in reviewedMemoryIds only when actually checked. Never silently delete, archive or overwrite them.
 - Updates, merges, supersedes and archives are review-only proposals; do not assume permission to mutate existing memory.
+- Use supplied long-term feedback as additional evidence: repeated task usefulness, later supporting/contradicting evidence, explicit user corrections and human review outcomes. A retrieval alone is not proof of usefulness.
+- When a memory quality assessment recommends review, inspect its original evidence and propose a review action if justified. Do not change or delete it automatically.
 - Return no markdown fences or prose outside the JSON object.`;
 
 export class DreamingEngine {
@@ -308,6 +352,13 @@ export class DreamingEngine {
     this.assertScope(scope);
     if (this.stopped) return Promise.resolve(undefined);
     return this.safeRun({ scope, trigger: 'record-appended' });
+  }
+
+  /** Record feedback after host-side authorization; event IDs are idempotency keys. */
+  async recordFeedback(event: DreamingFeedbackEvent): Promise<void> {
+    this.assertScope(event.scope);
+    validateFeedbackEvent(event);
+    await this.repository.recordFeedback(event);
   }
 
   runNow(scope: string, signal?: AbortSignal): Promise<DreamingRun | undefined> {
@@ -423,6 +474,24 @@ export class DreamingEngine {
         if (memories.some((item) => item.scope !== scope) || new Set(memories.map((item) => item.id)).size !== memories.length) {
           throw new Error('Repository returned invalid memories for the active scope.');
         }
+        const feedbackEvents = memories.length
+          ? await this.repository.loadFeedback({
+            scope,
+            memoryIds: memories.map((item) => item.id),
+            since: new Date(Date.now() - 180 * 24 * 60 * 60_000).toISOString(),
+            limit: Math.max(100, memories.length * 20),
+          })
+          : [];
+        const loadedMemoryIdsForFeedback = new Set(memories.map((item) => item.id));
+        if (feedbackEvents.some((event) =>
+          event.scope !== scope || !loadedMemoryIdsForFeedback.has(event.memoryId))) {
+          throw new Error('Repository returned feedback outside the loaded memory scope.');
+        }
+        const qualityByMemory = new Map<string, DreamingMemoryQuality>();
+        for (const memory of memories) {
+          const events = feedbackEvents.filter((event) => event.memoryId === memory.id);
+          if (events.length) qualityByMemory.set(memory.id, evaluateMemoryQuality(events));
+        }
         const relationships = await this.repository.loadRelationships({
           scope, memoryIds: memories.map((item) => item.id),
           limit: Math.max(1, this.options.maxRelationships ?? 200),
@@ -441,7 +510,9 @@ export class DreamingEngine {
         })).slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100));
         const evidenceRefs = new Set(evidence.map((item) => item.ref));
 
-        const prompt = buildPrompt(scope, experiences, memories, relationships, evidence);
+        const prompt = buildPrompt(
+          scope, experiences, memories, relationships, evidence, [...qualityByMemory.values()],
+        );
         const maxPromptChars = this.options.maxPromptChars ?? 120_000;
         if (!Number.isSafeInteger(maxPromptChars) || maxPromptChars < 1_000) {
           throw new Error('maxPromptChars must be an integer of at least 1000.');
@@ -560,12 +631,92 @@ export class DreamingEngine {
   }
 }
 
+
+const FEEDBACK_HALF_LIFE_MS = 90 * 24 * 60 * 60_000;
+const FEEDBACK_WINDOW_MS = 180 * 24 * 60 * 60_000;
+
+/** Deterministic, recency-weighted quality summary. It never changes memory state. */
+export function evaluateMemoryQuality(
+  events: readonly DreamingFeedbackEvent[],
+  now: Date | string = new Date(),
+): DreamingMemoryQuality {
+  const evaluatedAt = now instanceof Date ? now : new Date(now);
+  if (!Number.isFinite(evaluatedAt.getTime())) throw new Error('Invalid quality evaluation time.');
+  const uniqueEvents = new Map<string, DreamingFeedbackEvent>();
+  for (const event of events) {
+    validateFeedbackEvent(event);
+    const previous = uniqueEvents.get(event.id);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(event)) {
+      throw new Error(`Conflicting feedback event ID: ${event.id}`);
+    }
+    uniqueEvents.set(event.id, event);
+  }
+  const cutoff = evaluatedAt.getTime() - FEEDBACK_WINDOW_MS;
+  const recent = [...uniqueEvents.values()].filter((event) => {
+    const timestamp = Date.parse(event.occurredAt);
+    return timestamp >= cutoff && timestamp <= evaluatedAt.getTime();
+  });
+  const weight = (event: DreamingFeedbackEvent) =>
+    Math.pow(0.5, (evaluatedAt.getTime() - Date.parse(event.occurredAt)) / FEEDBACK_HALF_LIFE_MS);
+  const weightedRate = (selected: DreamingFeedbackEvent[], positive: (event: DreamingFeedbackEvent) => boolean) => {
+    const total = selected.reduce((sum, event) => sum + weight(event), 0);
+    if (!total) return undefined;
+    const positives = selected.reduce((sum, event) => sum + (positive(event) ? weight(event) : 0), 0);
+    return positives / total;
+  };
+  const retrieval = recent.filter((event) => event.kind === 'retrieval' && event.outcome !== 'neutral');
+  const evidence = recent.filter((event) => event.kind === 'evidence');
+  const corrections = recent.filter((event) => event.kind === 'user-correction');
+  const humanRejections = recent.filter((event) => event.kind === 'human-review' && event.outcome === 'rejected');
+  const usefulness = weightedRate(retrieval, (event) => event.outcome === 'useful');
+  const evidenceSupport = weightedRate(evidence, (event) => event.outcome === 'supports');
+  const reasons: string[] = [];
+  if (retrieval.length >= 5 && usefulness !== undefined && usefulness < 0.4) reasons.push('low-retrieval-usefulness');
+  if (evidence.length >= 3 && evidenceSupport !== undefined && evidenceSupport < 0.6) reasons.push('contradicting-evidence');
+  if (corrections.length >= 2) reasons.push('repeated-user-correction');
+  if (humanRejections.length > 0) reasons.push('human-rejected');
+  const first = recent.reduce((min, event) => Math.min(min, Date.parse(event.occurredAt)), evaluatedAt.getTime());
+  return {
+    memoryId: recent[0]?.memoryId ?? events[0]?.memoryId ?? '',
+    evaluatedAt: evaluatedAt.toISOString(),
+    windowStart: new Date(Math.max(cutoff, first)).toISOString(),
+    sampleCount: recent.length,
+    effectiveSampleCount: Number(recent.reduce((sum, event) => sum + weight(event), 0).toFixed(3)),
+    ...(usefulness === undefined ? {} : { usefulness: Number(usefulness.toFixed(3)) }),
+    ...(evidenceSupport === undefined ? {} : { evidenceSupport: Number(evidenceSupport.toFixed(3)) }),
+    correctionCount: corrections.length,
+    humanRejectionCount: humanRejections.length,
+    recommendation: reasons.length ? 'review' : 'none',
+    reasons,
+  };
+}
+
+function validateFeedbackEvent(event: DreamingFeedbackEvent): void {
+  requiredString(event.id, 'feedback.id');
+  requiredString(event.scope, 'feedback.scope');
+  requiredString(event.memoryId, 'feedback.memoryId');
+  if (!Number.isFinite(Date.parse(event.occurredAt))) throw new Error('feedback.occurredAt must be a valid timestamp.');
+  const allowed: Record<DreamingFeedbackKind, readonly string[]> = {
+    retrieval: ['useful', 'not-useful', 'neutral'],
+    evidence: ['supports', 'contradicts'],
+    'user-correction': ['incorrect', 'outdated', 'not-applicable'],
+    'human-review': ['confirmed', 'rejected', 'edited'],
+  };
+  if (!Object.prototype.hasOwnProperty.call(allowed, event.kind)
+    || !allowed[event.kind].includes(event.outcome)) {
+    throw new Error('Feedback kind and outcome do not match.');
+  }
+  if (event.sourceRef !== undefined) requiredString(event.sourceRef, 'feedback.sourceRef');
+  if (event.taskId !== undefined) requiredString(event.taskId, 'feedback.taskId');
+}
+
 function buildPrompt(
   scope: string,
   experiences: readonly DreamingExperience[],
   memories: readonly DreamingMemory[],
   relationships: readonly DreamingRelationship[],
   evidence: readonly DreamingEvidence[],
+  memoryQuality: readonly DreamingMemoryQuality[] = [],
 ): string {
   return JSON.stringify({
     scope,
@@ -573,6 +724,7 @@ function buildPrompt(
     existingMemories: memories,
     relationships,
     sourceEvidence: evidence,
+    memoryQuality,
   }, null, 2);
 }
 
