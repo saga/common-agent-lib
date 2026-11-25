@@ -165,6 +165,23 @@ test('proposal ID reuse with different content is rejected', async () => {
   }
 });
 
+test('feedback must refer to a memory in the same scope', async () => {
+  const { store, close } = createStore();
+  try {
+    await assert.rejects(() => store.recordFeedback({
+      id: 'feedback-missing', scope: 'scope-a', memoryId: 'missing',
+      kind: 'retrieval', outcome: 'useful', occurredAt: '2026-01-01T00:00:00.000Z',
+    }), /not found in scope/);
+    await store.upsertMemory(record('owned-memory'));
+    await assert.rejects(() => store.recordFeedback({
+      id: 'feedback-wrong-scope', scope: 'scope-b', memoryId: 'owned-memory',
+      kind: 'retrieval', outcome: 'useful', occurredAt: '2026-01-01T00:00:00.000Z',
+    }), /not found in scope/);
+  } finally {
+    await close();
+  }
+});
+
 test('expired leases can be taken over but an old owner cannot renew them', async () => {
   const { store, close } = createStore();
   try {
