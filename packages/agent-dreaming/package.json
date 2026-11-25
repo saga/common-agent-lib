@@ -13,6 +13,10 @@
     "./sqlite": {
       "types": "./dist/src/sqlite-store.d.ts",
       "import": "./dist/src/sqlite-store.js"
+    },
+    "./copilot": {
+      "types": "./dist/src/adapters/copilot.d.ts",
+      "import": "./dist/src/adapters/copilot.js"
     }
   },
   "files": [
@@ -32,5 +36,13 @@
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "@microsoft/copilot-sdk": "^2.0.2"
+  },
+  "peerDependenciesMeta": {
+    "@microsoft/copilot-sdk": {
+      "optional": true
+    }
   }
 }
