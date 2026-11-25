@@ -287,6 +287,14 @@ export class DreamingEngine {
     return task;
   }
 
+  private async emitRun(run: Readonly<DreamingRun>): Promise<void> {
+    try {
+      await this.options.onRun?.(run);
+    } catch (error) {
+      try { await this.options.onError?.(error, run.scope); } catch { /* Observer failures must not change run state. */ }
+    }
+  }
+
   private async runOnce(input: DreamingRunInput): Promise<DreamingRun | undefined> {
     const scope = input.scope;
     const leaseMs = Math.max(10_000, this.options.leaseMs ?? 5 * 60_000);
@@ -467,7 +475,7 @@ export class DreamingEngine {
       run.model = lastModel;
       run.usage = lastUsage;
       await this.repository.updateRun(run);
-      await this.options.onRun?.(run);
+      await this.emitRun(run);
       return run;
     } catch (error) {
       if (run) {
@@ -475,7 +483,7 @@ export class DreamingEngine {
         run.error = error instanceof Error ? error.message : String(error);
         run.finishedAt = new Date().toISOString();
         await this.repository.updateRun(run);
-        await this.options.onRun?.(run);
+        await this.emitRun(run);
       }
       throw error;
     } finally {
