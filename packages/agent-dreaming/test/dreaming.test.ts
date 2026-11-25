@@ -13,7 +13,11 @@ import {
   type DreamingRuntime,
 } from '../src/index.js';
 
-function fixture(proposalEvidenceRef = 'trace:t1:event:e1', callbacks: Pick<DreamingOptions, 'onRun' | 'onError'> = {}) {
+function fixture(
+  proposalEvidenceRef = 'trace:t1:event:e1',
+  callbacks: Pick<DreamingOptions, 'onRun' | 'onError'> = {},
+  modelOutput?: unknown,
+) {
   const experience: DreamingExperience = {
     id: 'e1', sequence: 1, scope: 'user-1', content: 'User prefers concise technical answers.',
     createdAt: '2026-11-01T00:00:00.000Z', sourceRefs: ['trace:t1:event:e1'],
@@ -27,6 +31,7 @@ function fixture(proposalEvidenceRef = 'trace:t1:event:e1', callbacks: Pick<Drea
   let lease = false;
   const commits: string[] = [];
   const committed: DreamingProposal[] = [];
+  const staged: Array<{ proposal: DreamingProposal; reason: string }> = [];
   const repository: DreamingRepository = {
     async loadExperiences({ afterSequence }) {
       const items = experience.sequence > afterSequence ? [experience] : [];
@@ -47,6 +52,10 @@ function fixture(proposalEvidenceRef = 'trace:t1:event:e1', callbacks: Pick<Drea
       commits.push(proposal.id);
       return { applied: true };
     },
+    async stageProposal({ proposal, reason }) {
+      staged.push({ proposal, reason });
+      return { staged: true };
+    },
     async acquireLease() {
       if (lease) return false;
       lease = true;
@@ -59,7 +68,7 @@ function fixture(proposalEvidenceRef = 'trace:t1:event:e1', callbacks: Pick<Drea
     async generate() {
       return {
         model: 'test-model',
-        output: {
+        output: modelOutput ?? {
           proposals: [{
             id: 'p1', scope: 'user-1', operation: 'add', targetRecordIds: [],
             proposedRecord: {
@@ -68,6 +77,7 @@ function fixture(proposalEvidenceRef = 'trace:t1:event:e1', callbacks: Pick<Drea
             },
             rationale: 'Explicit preference in source evidence.',
             evidenceRefs: [proposalEvidenceRef],
+            quality: { confidence: 0.95, durability: 0.9, specificity: 0.9, contradictionRisk: 0.02 },
           }],
           processedRecordIds: ['e1'],
           notes: [],
@@ -83,7 +93,7 @@ function fixture(proposalEvidenceRef = 'trace:t1:event:e1', callbacks: Pick<Drea
   const engine = new DreamingEngine(runtime, repository, resolver, {
     scopes: ['user-1'], batchSize: 10, maxBatchesPerRun: 1, ...callbacks,
   });
-  return { engine, checkpoint: () => checkpoint, runs, commits, committed };
+  return { engine, checkpoint: () => checkpoint, runs, commits, committed, staged };
 }
 
 test('runNow resolves evidence, submits proposals and advances checkpoint', async () => {
@@ -148,4 +158,87 @@ test('observer callback failures do not fail a completed run', async () => {
   assert.equal(run?.status, 'completed');
   assert.equal(f.runs[0]?.status, 'completed');
   assert.equal(observedErrors.length, 1);
+});
+
+
+test('existing-memory mutations are staged for review, never auto-applied', async () => {
+  const output = {
+    proposals: [{
+      id: 'p-update', scope: 'user-1', operation: 'update', targetRecordIds: ['m-existing'],
+      proposedRecord: {
+        id: 'm-new', scope: 'user-1', content: 'Updated preference.',
+        status: 'candidate', importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
+      },
+      rationale: 'New evidence may supersede an older preference.',
+      evidenceRefs: ['trace:t1:event:e1'],
+      quality: { confidence: 0.99, durability: 0.9, specificity: 0.9, contradictionRisk: 0.01 },
+    }],
+    processedRecordIds: ['e1'],
+  };
+  const f = fixture('trace:t1:event:e1', {}, output);
+  const run = await f.engine.runNow('user-1');
+  assert.deepEqual(f.commits, []);
+  assert.deepEqual(f.staged.map((item) => [item.proposal.id, item.reason]), [['p-update', 'mutation']]);
+  assert.deepEqual(run?.pendingProposalIds, ['p-update']);
+});
+
+test('low quality additions are staged instead of auto-applied', async () => {
+  const output = {
+    proposals: [{
+      id: 'p-low', scope: 'user-1', operation: 'add', targetRecordIds: [],
+      proposedRecord: {
+        id: 'm-low', scope: 'user-1', content: 'Possibly temporary preference.',
+        status: 'candidate', importance: 0.5, sourceRefs: ['trace:t1:event:e1'],
+      },
+      rationale: 'Weak signal.',
+      evidenceRefs: ['trace:t1:event:e1'],
+      quality: { confidence: 0.4, durability: 0.3, specificity: 0.7, contradictionRisk: 0.05 },
+    }],
+    processedRecordIds: ['e1'],
+  };
+  const f = fixture('trace:t1:event:e1', {}, output);
+  const run = await f.engine.runNow('user-1');
+  assert.deepEqual(f.commits, []);
+  assert.deepEqual(f.staged.map((item) => [item.proposal.id, item.reason]), [['p-low', 'quality-gate']]);
+  assert.deepEqual(run?.pendingProposalIds, ['p-low']);
+});
+
+test('high contradiction risk is routed to review', async () => {
+  const output = {
+    proposals: [{
+      id: 'p-conflict', scope: 'user-1', operation: 'add', targetRecordIds: [],
+      proposedRecord: {
+        id: 'm-conflict', scope: 'user-1', content: 'Potentially conflicting preference.',
+        status: 'candidate', importance: 0.5, sourceRefs: ['trace:t1:event:e1'],
+      },
+      rationale: 'Evidence conflicts with an existing memory.',
+      evidenceRefs: ['trace:t1:event:e1'],
+      quality: { confidence: 0.9, durability: 0.8, specificity: 0.8, contradictionRisk: 0.8 },
+    }],
+    processedRecordIds: ['e1'],
+  };
+  const f = fixture('trace:t1:event:e1', {}, output);
+  const run = await f.engine.runNow('user-1');
+  assert.deepEqual(f.commits, []);
+  assert.deepEqual(f.staged.map((item) => [item.proposal.id, item.reason]), [['p-conflict', 'conflict-risk']]);
+  assert.deepEqual(run?.pendingProposalIds, ['p-conflict']);
+});
+
+test('missing quality assessment cannot pass the automatic candidate gate', async () => {
+  const output = {
+    proposals: [{
+      id: 'p-unrated', scope: 'user-1', operation: 'add', targetRecordIds: [],
+      proposedRecord: {
+        id: 'm-unrated', scope: 'user-1', content: 'Unrated candidate.',
+        status: 'candidate', importance: 0.5, sourceRefs: ['trace:t1:event:e1'],
+      },
+      rationale: 'No assessment provided.',
+      evidenceRefs: ['trace:t1:event:e1'],
+    }],
+    processedRecordIds: ['e1'],
+  };
+  const f = fixture('trace:t1:event:e1', {}, output);
+  await f.engine.runNow('user-1');
+  assert.deepEqual(f.commits, []);
+  assert.deepEqual(f.staged.map((item) => item.reason), ['missing-assessment']);
 });
