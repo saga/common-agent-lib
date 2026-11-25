@@ -197,7 +197,7 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
       if(i.decision==='approve'){
         const invalid=this.proposalValidationError(p,evidence,'review');
         if(invalid)throw new Error('Cannot approve proposal: '+invalid);
-        this.applyReviewed(p,evidence);
+        this.applyReviewed(p);
       }
       const status=i.decision==='approve'?'approved':'rejected';
       this.db.prepare('UPDATE proposals SET status=?,reviewed_at=?,reviewed_by=? WHERE proposal_id=? AND scope=? AND status=?')
@@ -237,18 +237,22 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
   }
   private insertProposalRelationships(p:DreamingProposal) {
     for(const rel of p.relationships??[]){
+      const mapEndpoint=(id:string)=>p.operation==='update'&&id===p.proposedRecord?.id?p.targetRecordIds[0]!:id;
+      const fromId=mapEndpoint(rel.fromId), toId=mapEndpoint(rel.toId);
+      const exists=(id:string)=>Boolean(this.db.prepare('SELECT 1 FROM memories WHERE id=? AND scope=?').get(id,p.scope));
+      if(!exists(fromId)||!exists(toId))throw new Error('Relationship endpoint missing or outside scope');
       const old=this.db.prepare('SELECT * FROM relationships WHERE id=?').get(rel.id) as Row|undefined;
       if(old){
-        const same=old.scope===rel.scope&&old.from_id===rel.fromId&&old.to_id===rel.toId
+        const same=old.scope===rel.scope&&old.from_id===fromId&&old.to_id===toId
           &&old.kind===rel.kind&&String(old.refs)===encode(rel.sourceRefs);
         if(!same)throw new Error('Conflicting relationship ID: '+rel.id);
         continue;
       }
       this.db.prepare('INSERT INTO relationships(id,scope,from_id,to_id,kind,refs) VALUES(?,?,?,?,?,?)')
-        .run(rel.id,rel.scope,rel.fromId,rel.toId,rel.kind,encode(rel.sourceRefs));
+        .run(rel.id,rel.scope,fromId,toId,rel.kind,encode(rel.sourceRefs));
     }
   }
-  private applyReviewed(p:DreamingProposal,evidence:readonly DreamingEvidence[]){
+  private applyReviewed(p:DreamingProposal){
     const targets=p.targetRecordIds.map(id=>this.db.prepare('SELECT * FROM memories WHERE id=? AND scope=?').get(id,p.scope) as Row|undefined);
     if(targets.some(x=>!x))throw new Error('Review target missing or outside scope');
     const now=new Date().toISOString();
@@ -269,6 +273,7 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
         .run(p.proposedRecord.content,encode(p.proposedRecord.sourceRefs),p.proposedRecord.importance,
           p.proposedRecord.validUntil??target.valid_until,p.proposedRecord.confidence??target.confidence,
           encode(p.proposedRecord.metadata??decode<Record<string,unknown>>(target.metadata)),now,p.targetRecordIds[0],p.scope);
+      this.insertProposalRelationships(p);
       return;
     }
     if((p.operation==='merge'||p.operation==='supersede')&&p.proposedRecord){
