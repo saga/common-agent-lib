@@ -318,8 +318,11 @@ export class DreamingEngine {
         const processedIds = new Set(result.processedRecordIds);
         let contiguousSequence = afterSequence;
         for (const experience of experiences) {
+          // Re-review records at or before the checkpoint must not block ingestion
+          // of newer experiences; they are maintenance work, not checkpoint gaps.
+          if (experience.sequence <= afterSequence) continue;
           if (!processedIds.has(experience.id)) break;
-          contiguousSequence = Math.max(contiguousSequence, experience.sequence);
+          contiguousSequence = experience.sequence;
         }
         if (contiguousSequence > afterSequence) {
           afterSequence = contiguousSequence;
