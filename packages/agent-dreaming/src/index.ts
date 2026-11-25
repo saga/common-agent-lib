@@ -1,8 +1,8 @@
 /**
  * Runtime-neutral background dreaming orchestration.
  *
- * The host owns storage, evidence access, authorization and atomic commits.
- * A runtime adapter only turns the supplied task into structured model output.
+ * Hosts provide a model runtime and authorization policy. Persistence and
+ * evidence access are expressed as interfaces, with a built-in SQLite adapter.
  */
 
 export type DreamingRunStatus = 'running' | 'completed' | 'failed' | 'skipped';
