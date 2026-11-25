@@ -1,0 +1,62 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { SqliteVectorIndex, type EmbeddingProvider } from '../src/retrieval.js';
+import { SqliteDreamingScheduler } from '../src/scheduler.js';
+import { RoleBasedDreamingAuthorization, assertDreamingAuthorized } from '../src/authorization.js';
+
+test('SQLite vector index persists vectors and enforces scope isolation', async () => {
+  const db = new DatabaseSync(':memory:');
+  const provider: EmbeddingProvider = {
+    id: 'test-v1',
+    async embed(texts) {
+      return texts.map((text) => text.includes('architecture') ? [1, 0] : [0, 1]);
+    },
+  };
+  const index = new SqliteVectorIndex(db, provider);
+  await index.index({ scope: 'alice', memoryId: 'm1', content: 'architecture decisions' });
+  await index.index({ scope: 'bob', memoryId: 'm2', content: 'cooking recipes' });
+  assert.deepEqual(await index.search({ scope: 'alice', query: 'architecture', limit: 5 }), [
+    { scope: 'alice', memoryId: 'm1', score: 1 },
+  ]);
+  assert.deepEqual(await index.search({ scope: 'alice', query: 'cooking', limit: 5 }), []);
+  db.close();
+});
+
+test('durable scheduler claims jobs exclusively, retries failures and recovers expired leases', () => {
+  const db = new DatabaseSync(':memory:');
+  let now = 1_000;
+  const scheduler = new SqliteDreamingScheduler(db, {
+    leaseMs: 100,
+    retryBaseMs: 50,
+    maxAttempts: 3,
+    clock: () => now,
+  });
+  scheduler.schedule({ id: 'job-1', scope: 'alice' });
+  assert.equal(scheduler.claim('worker-a').length, 1);
+  assert.equal(scheduler.claim('worker-b').length, 0);
+  now += 101;
+  assert.equal(scheduler.claim('worker-b')[0]?.id, 'job-1');
+  assert.equal(scheduler.fail({ id: 'job-1', owner: 'worker-b', error: 'temporary' }), true);
+  assert.equal(scheduler.claim('worker-c').length, 0);
+  now += 50;
+  assert.equal(scheduler.claim('worker-c')[0]?.id, 'job-1');
+  assert.equal(scheduler.complete({ id: 'job-1', owner: 'worker-c' }), true);
+  assert.equal(scheduler.claim('worker-d').length, 0);
+  db.close();
+});
+
+test('authorization is default deny and caller role claims cannot elevate permissions', async () => {
+  const policy = new RoleBasedDreamingAuthorization({
+    'reviewer:1': { 'scope:1': ['reviewer'] },
+  });
+  await assertDreamingAuthorized(policy, {
+    actor: { subject: 'reviewer:1' }, scope: 'scope:1', action: 'review:resolve',
+  });
+  await assert.rejects(() => assertDreamingAuthorized(policy, {
+    actor: { subject: 'unknown', roles: ['admin'] }, scope: 'scope:1', action: 'review:resolve',
+  }), /Not authorized/);
+  await assert.rejects(() => assertDreamingAuthorized(policy, {
+    actor: { subject: 'reviewer:1' }, scope: 'scope:1', action: 'memory:write',
+  }), /Not authorized/);
+});
