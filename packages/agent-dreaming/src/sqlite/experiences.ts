@@ -129,7 +129,7 @@ export class SqliteExperienceStore {
     this.context.ensureOpen();
     const limit = assertLimit(input.limit ?? 50, 500);
     const filters = ['scope=?'];
-    const params: unknown[] = [input.scope];
+    const params: (string | number)[] = [input.scope];
     if (input.status) { filters.push('status=?'); params.push(input.status); }
     if (input.before) { filters.push('started_at<?'); params.push(input.before); }
     params.push(limit);
