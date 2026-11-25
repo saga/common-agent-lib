@@ -328,3 +328,28 @@ test('stale memories can be reviewed even when there are no new experience rows'
   assert.deepEqual(f.reviewedMemories, ['m-seeded']);
   assert.deepEqual(run?.processedRecordIds, []);
 });
+
+
+test('explicitly contradictory memory references force review even with high quality scores', async () => {
+  const output = {
+    proposals: [{
+      id: 'p-explicit-conflict', scope: 'user-1', operation: 'add', targetRecordIds: [],
+      proposedRecord: {
+        id: 'm-new', scope: 'user-1', content: 'A changed preference.',
+        status: 'candidate', importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
+      },
+      rationale: 'The new statement conflicts with an older preference.',
+      evidenceRefs: ['trace:t1:event:e1'],
+      conflictsWith: ['m-existing'],
+      quality: { confidence: 0.99, durability: 0.9, specificity: 0.9, contradictionRisk: 0.01 },
+    }],
+    processedRecordIds: ['e1'],
+  };
+  const f = fixture('trace:t1:event:e1', {}, output, [{
+    id: 'm-existing', scope: 'user-1', content: 'An older preference.',
+    status: 'confirmed', importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
+  }]);
+  await f.engine.runNow('user-1');
+  assert.deepEqual(f.commits, []);
+  assert.deepEqual(f.staged.map((item) => item.reason), ['conflict-risk']);
+});
