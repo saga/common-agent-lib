@@ -43,7 +43,7 @@ await dreaming.notifyRecordAppended('user:123');
 await dreaming.runNow('user:123');
 
 // During graceful shutdown:
-dreaming.stop();
+await dreaming.shutdown(); // abort active runs and wait for lease cleanup
 ```
 
 ## Runtime adapter
@@ -80,14 +80,15 @@ The engine does not require a long-lived session. An adapter may create a short-
 
 - Call `start()` once during host startup. It immediately schedules one run per configured scope and then runs on the configured interval.
 - Call `notifyRecordAppended(scope)` after meaningful records are committed. Concurrent notifications for the same scope are coalesced.
-- A durable per-scope lease prevents two processes from dreaming the same scope concurrently. The engine renews it while the run is active; the repository must implement owner-checked acquire/renew/release operations.
+- A durable per-scope lease prevents two processes from dreaming the same scope concurrently. The engine renews it while the run is active, waits for an in-flight renewal before releasing it, and aborts the run if renewal fails; the repository must implement owner-checked acquire/renew/release operations.
+- `stop()` stops future scheduling but lets active runs finish. `shutdown()` aborts active runs and waits for their cleanup, including lease release.
 - Checkpoints advance only through records explicitly reported as processed. Failed runs remain visible and are retried by a later trigger.
 - Re-review is host-selected through `reviewBefore`; the repository decides which older records need replay.
 - The host must keep the repository and evidence resolver durable across restarts.
 
 ## Safety and correctness
 
-Model output is untrusted. The package rejects invalid operations, mismatched scopes, unknown processed IDs, unresolved evidence references and targets outside the loaded scope. Proposed records are forced to `candidate`; the model cannot promote memory to `confirmed`.
+Model output is untrusted. The package rejects invalid operations, mismatched scopes, unknown processed IDs, unresolved evidence references, invalid relationship payloads and targets that are not loaded memories. Configured scopes are enforced at the public API. Proposed records are forced to `candidate`; the model cannot promote memory to `confirmed`.
 
 The repository must provide transactionality, idempotent proposal commits, evidence resolution and authorization. A lease is required for multi-process deployments. Do not let the model directly access the memory database or call commit APIs.
 
