@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   DreamingEngine,
+  evaluateMemoryQuality,
   type DreamingCheckpoint,
   type DreamingEvidence,
+  type DreamingFeedbackEvent,
   type DreamingExperience,
   type DreamingMemory,
   type DreamingOptions,
@@ -35,6 +37,7 @@ function fixture(
   const committed: DreamingProposal[] = [];
   const staged: Array<{ proposal: DreamingProposal; reason: string }> = [];
   const reviewedMemories: string[] = [];
+  const feedbackEvents: DreamingFeedbackEvent[] = [];
   const memoryReviewRequests: Array<{ reviewBefore?: string; expiredBefore?: string }> = [];
   const repository: DreamingRepository = {
     async loadExperiences({ afterSequence }) {
@@ -50,6 +53,15 @@ function fixture(
     async saveCheckpoint(value) { checkpoint = value; },
     async markExperiencesReviewed() {},
     async markMemoriesReviewed({ ids }) { reviewedMemories.push(...ids); },
+    async recordFeedback(event) {
+      const existing = feedbackEvents.find((item) => item.id === event.id);
+      if (existing && JSON.stringify(existing) !== JSON.stringify(event)) throw new Error('feedback id conflict');
+      if (!existing) feedbackEvents.push(event);
+    },
+    async loadFeedback({ memoryIds, since }) {
+      const selected = new Set(memoryIds);
+      return feedbackEvents.filter((event) => selected.has(event.memoryId) && event.occurredAt >= since);
+    },
     async createRun(run) { runs.push(run); },
     async updateRun(run) {
       const index = runs.findIndex((item) => item.id === run.id);
@@ -101,7 +113,7 @@ function fixture(
   const engine = new DreamingEngine(runtime, repository, resolver, {
     scopes: ['user-1'], batchSize: 10, maxBatchesPerRun: 1, ...callbacks,
   });
-  return { engine, checkpoint: () => checkpoint, runs, commits, committed, staged, reviewedMemories, memoryReviewRequests };
+  return { engine, checkpoint: () => checkpoint, runs, commits, committed, staged, reviewedMemories, memoryReviewRequests, feedbackEvents };
 }
 
 test('runNow resolves evidence, submits proposals and advances checkpoint', async () => {
@@ -352,4 +364,67 @@ test('explicitly contradictory memory references force review even with high qua
   await f.engine.runNow('user-1');
   assert.deepEqual(f.commits, []);
   assert.deepEqual(f.staged.map((item) => item.reason), ['conflict-risk']);
+});
+
+
+test('feedback evaluator keeps small samples inconclusive', () => {
+  const events: DreamingFeedbackEvent[] = [
+    { id: 'f1', scope: 'user-1', memoryId: 'm1', kind: 'retrieval', outcome: 'not-useful', occurredAt: '2026-11-24T00:00:00.000Z' },
+  ];
+  const quality = evaluateMemoryQuality(events, '2026-11-25T00:00:00.000Z');
+  assert.equal(quality.sampleCount, 1);
+  assert.equal(quality.recommendation, 'none');
+  assert.equal(quality.usefulness, 0);
+});
+
+test('repeated negative retrieval feedback and corrections recommend review', () => {
+  const events: DreamingFeedbackEvent[] = [
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `r${index}`, scope: 'user-1', memoryId: 'm1', kind: 'retrieval' as const,
+      outcome: 'not-useful' as const, occurredAt: '2026-11-24T00:00:00.000Z',
+    })),
+    { id: 'c1', scope: 'user-1', memoryId: 'm1', kind: 'user-correction', outcome: 'incorrect', occurredAt: '2026-11-24T00:00:00.000Z' },
+    { id: 'c2', scope: 'user-1', memoryId: 'm1', kind: 'user-correction', outcome: 'outdated', occurredAt: '2026-11-24T00:00:00.000Z' },
+  ];
+  const quality = evaluateMemoryQuality(events, '2026-11-25T00:00:00.000Z');
+  assert.equal(quality.recommendation, 'review');
+  assert.ok(quality.reasons.includes('low-retrieval-usefulness'));
+  assert.ok(quality.reasons.includes('repeated-user-correction'));
+});
+
+test('contradicting evidence and human rejection are strong review signals', () => {
+  const events: DreamingFeedbackEvent[] = [
+    { id: 'e1', scope: 'user-1', memoryId: 'm1', kind: 'evidence', outcome: 'contradicts', occurredAt: '2026-11-24T00:00:00.000Z' },
+    { id: 'e2', scope: 'user-1', memoryId: 'm1', kind: 'evidence', outcome: 'contradicts', occurredAt: '2026-11-24T00:00:00.000Z' },
+    { id: 'e3', scope: 'user-1', memoryId: 'm1', kind: 'evidence', outcome: 'supports', occurredAt: '2026-11-24T00:00:00.000Z' },
+    { id: 'h1', scope: 'user-1', memoryId: 'm1', kind: 'human-review', outcome: 'rejected', occurredAt: '2026-11-24T00:00:00.000Z' },
+  ];
+  const quality = evaluateMemoryQuality(events, '2026-11-25T00:00:00.000Z');
+  assert.equal(quality.recommendation, 'review');
+  assert.ok(quality.reasons.includes('contradicting-evidence'));
+  assert.ok(quality.reasons.includes('human-rejected'));
+});
+
+test('feedback events are validated and persisted through the engine', async () => {
+  const f = fixture();
+  const event: DreamingFeedbackEvent = {
+    id: 'feedback-1', scope: 'user-1', memoryId: 'm1', kind: 'retrieval',
+    outcome: 'useful', occurredAt: '2026-11-25T00:00:00.000Z', taskId: 'task-1',
+  };
+  await f.engine.recordFeedback(event);
+  await f.engine.recordFeedback(event);
+  assert.equal(f.feedbackEvents.length, 1);
+  await assert.rejects(() => f.engine.recordFeedback({
+    ...event, id: 'bad-feedback', kind: 'retrieval', outcome: 'contradicts',
+  }), /kind and outcome do not match/);
+});
+
+test('future and expired feedback are excluded from the evaluation window', () => {
+  const events: DreamingFeedbackEvent[] = [
+    { id: 'old', scope: 'user-1', memoryId: 'm1', kind: 'retrieval', outcome: 'not-useful', occurredAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'future', scope: 'user-1', memoryId: 'm1', kind: 'retrieval', outcome: 'not-useful', occurredAt: '2026-12-01T00:00:00.000Z' },
+  ];
+  const quality = evaluateMemoryQuality(events, '2026-11-25T00:00:00.000Z');
+  assert.equal(quality.sampleCount, 0);
+  assert.equal(quality.recommendation, 'none');
 });
