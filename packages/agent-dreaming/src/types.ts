@@ -167,6 +167,35 @@ export interface DreamingPage<T> {
   hasMore: boolean;
 }
 
+/** A durable snapshot captured before a memory is changed or archived. */
+export interface DreamingMemoryVersion {
+  scope: string;
+  memoryId: string;
+  version: number;
+  reason: string;
+  capturedAt: string;
+  snapshot: DreamingMemory;
+}
+
+export interface DreamingMemoryHistoryStore {
+  listMemoryVersions(input: {
+    scope: string;
+    memoryId: string;
+    limit?: number;
+  }): Promise<DreamingMemoryVersion[]>;
+}
+
+/** Queryable run ledger for operational dashboards and recovery tooling. */
+export interface DreamingRunStore {
+  getRun(input: { scope: string; runId: string }): Promise<DreamingRun | undefined>;
+  listRuns(input: {
+    scope: string;
+    status?: DreamingRunStatus;
+    limit?: number;
+    before?: string;
+  }): Promise<DreamingRun[]>;
+}
+
 export interface DreamingRepository {
   /** Return new records and records due for re-review, ordered by sequence ascending. */
   loadExperiences(input: {
