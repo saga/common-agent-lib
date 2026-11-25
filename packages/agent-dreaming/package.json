@@ -1,6 +1,6 @@
 {
   "name": "@saga/agent-dreaming",
-  "version": "0.3.0",
+  "version": "0.2.0",
   "description": "Standalone background memory dreaming with built-in SQLite persistence, retrieval, scheduling and authorization.",
   "type": "module",
   "main": "./dist/src/index.js",
