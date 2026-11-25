@@ -35,6 +35,10 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
       'CREATE TABLE IF NOT EXISTS applied_proposals(proposal_id TEXT PRIMARY KEY,scope TEXT NOT NULL,applied_at TEXT NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS leases(scope TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL);'
     );
+    const appliedColumns = this.db.prepare('PRAGMA table_info(applied_proposals)').all() as Row[];
+    if (!appliedColumns.some(column => column.name === 'payload')) {
+      this.db.exec("ALTER TABLE applied_proposals ADD COLUMN payload TEXT NOT NULL DEFAULT ''");
+    }
     if (options.filename !== ':memory:') { try { chmodSync(options.filename, 0o600); } catch {} }
   }
 
@@ -134,13 +138,17 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
     const invalid=this.proposalValidationError(p,i.evidence,'auto');
     if(invalid)return {applied:false,reason:invalid};
     return this.tx(()=>{
-      const old=this.db.prepare('SELECT scope FROM applied_proposals WHERE proposal_id=?').get(p.id) as Row|undefined;
-      if(old){if(old.scope!==p.scope)throw new Error('Proposal ID belongs to another scope: '+p.id);return {applied:true};}
+      const old=this.db.prepare('SELECT scope,payload FROM applied_proposals WHERE proposal_id=?').get(p.id) as Row|undefined;
+      if(old){
+        if(old.scope!==p.scope)throw new Error('Proposal ID belongs to another scope: '+p.id);
+        if(old.payload && String(old.payload)!==encode(p))throw new Error('Conflicting applied proposal ID: '+p.id);
+        return {applied:true};
+      }
       const existing=this.db.prepare('SELECT scope FROM memories WHERE id=?').get(p.proposedRecord!.id) as Row|undefined;
       if(existing)return {applied:false,reason:existing.scope===p.scope?'memory-id-exists':'memory-id-belongs-to-another-scope'};
       this.insertMemory(p.proposedRecord!,'candidate');
       this.insertProposalRelationships(p);
-      this.db.prepare('INSERT INTO applied_proposals(proposal_id,scope,applied_at) VALUES(?,?,?)').run(p.id,p.scope,new Date().toISOString());
+      this.db.prepare('INSERT INTO applied_proposals(proposal_id,scope,applied_at,payload) VALUES(?,?,?,?)').run(p.id,p.scope,new Date().toISOString(),encode(p));
       return {applied:true};
     });
   }
