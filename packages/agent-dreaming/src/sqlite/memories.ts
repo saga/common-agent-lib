@@ -59,7 +59,7 @@ export class SqliteMemoryStore {
       ).all(input.scope, ...experienceIds) as SqliteRow[];
       relevantRefs = [...new Set(rows.flatMap((row) => {
         try { return JSON.parse(String(row.refs)) as string[]; } catch { return []; }
-      }))].filter(Boolean);
+      }))].filter(Boolean).slice(0, 500);
     }
 
     let relevanceOrder = '3';
