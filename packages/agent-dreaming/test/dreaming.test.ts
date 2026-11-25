@@ -17,6 +17,7 @@ function fixture(
   proposalEvidenceRef = 'trace:t1:event:e1',
   callbacks: Pick<DreamingOptions, 'onRun' | 'onError'> = {},
   modelOutput?: unknown,
+  initialMemories: DreamingMemory[] = [],
 ) {
   const experience: DreamingExperience = {
     id: 'e1', sequence: 1, scope: 'user-1', content: 'User prefers concise technical answers.',
@@ -25,7 +26,7 @@ function fixture(
   const evidence: DreamingEvidence = {
     ref: 'trace:t1:event:e1', content: experience.content, kind: 'trace-event',
   };
-  const memory: DreamingMemory[] = [];
+  const memory: DreamingMemory[] = [...initialMemories];
   const runs: DreamingRun[] = [];
   let checkpoint: DreamingCheckpoint = { scope: 'user-1', afterSequence: 0 };
   let lease = false;
@@ -175,7 +176,10 @@ test('existing-memory mutations are staged for review, never auto-applied', asyn
     }],
     processedRecordIds: ['e1'],
   };
-  const f = fixture('trace:t1:event:e1', {}, output);
+  const f = fixture('trace:t1:event:e1', {}, output, [{
+    id: 'm-existing', scope: 'user-1', content: 'Older preference.', status: 'confirmed',
+    importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
+  }]);
   const run = await f.engine.runNow('user-1');
   assert.deepEqual(f.commits, []);
   assert.deepEqual(f.staged.map((item) => [item.proposal.id, item.reason]), [['p-update', 'mutation']]);
