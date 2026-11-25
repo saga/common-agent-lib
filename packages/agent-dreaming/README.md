@@ -39,7 +39,7 @@ await engine.shutdown();
 await store.close();
 ```
 
-The SQLite store implements both `DreamingRepository` and `DreamingEvidenceResolver`. Replace either interface only when integrating another database or external source system.
+The SQLite store implements `DreamingRepository`, `DreamingEvidenceResolver` and `DreamingReviewQueue`. The queue contract is exported independently of the SQLite implementation. Replace the repository or resolver only when integrating another database or external source system.
 
 ## Store API
 
