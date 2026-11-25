@@ -246,3 +246,33 @@ test('missing quality assessment cannot pass the automatic candidate gate', asyn
   assert.deepEqual(f.commits, []);
   assert.deepEqual(f.staged.map((item) => item.reason), ['missing-assessment']);
 });
+
+
+test('additions without provenance are staged for review', async () => {
+  const output = {
+    proposals: [{
+      id: 'p-no-source', scope: 'user-1', operation: 'add', targetRecordIds: [],
+      proposedRecord: {
+        id: 'm-no-source', scope: 'user-1', content: 'No source reference.',
+        status: 'candidate', importance: 0.5, sourceRefs: [],
+      },
+      rationale: 'No provenance.',
+      evidenceRefs: ['trace:t1:event:e1'],
+      quality: { confidence: 0.99, durability: 0.9, specificity: 0.9, contradictionRisk: 0.01 },
+    }],
+    processedRecordIds: ['e1'],
+  };
+  const f = fixture('trace:t1:event:e1', {}, output);
+  await f.engine.runNow('user-1');
+  assert.deepEqual(f.commits, []);
+  assert.deepEqual(f.staged.map((item) => item.reason), ['missing-provenance']);
+});
+
+test('invalid automatic candidate thresholds fail at construction', () => {
+  assert.throws(() => new DreamingEngine(
+    { id: 'test', async generate() { return { output: {} }; } },
+    {} as DreamingRepository,
+    { async resolve() { return []; } },
+    { scopes: ['user-1'], autoCandidateThresholds: { confidence: 1.2 } },
+  ), /must be between 0 and 1/);
+});
