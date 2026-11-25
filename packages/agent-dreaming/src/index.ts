@@ -685,16 +685,23 @@ export function evaluateMemoryQuality(
   const humanRejections = recent.filter((event) => event.kind === 'human-review' && event.outcome === 'rejected');
   const usefulness = weightedRate(retrieval, (event) => event.outcome === 'useful');
   const evidenceSupport = weightedRate(evidence, (event) => event.outcome === 'supports');
-  const latestAcceptedReview = recent
-    .filter((event) => event.kind === 'human-review' && (event.outcome === 'confirmed' || event.outcome === 'edited'))
+  const latestHumanReview = recent
+    .filter((event) => event.kind === 'human-review')
     .sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))[0];
+  const latestAcceptedReview = latestHumanReview
+    && (latestHumanReview.outcome === 'confirmed' || latestHumanReview.outcome === 'edited')
+    ? latestHumanReview
+    : undefined;
   let reviewEffectiveness: DreamingReviewEffectiveness | undefined;
   if (latestAcceptedReview) {
     const reviewTime = Date.parse(latestAcceptedReview.occurredAt);
     const baseline = retrieval.filter((event) => Date.parse(event.occurredAt) < reviewTime);
     const followUp = retrieval.filter((event) => Date.parse(event.occurredAt) > reviewTime);
-    const baselineUsefulness = weightedRate(baseline, (event) => event.outcome === 'useful');
-    const followUpUsefulness = weightedRate(followUp, (event) => event.outcome === 'useful');
+    // Compare raw cohort rates; global recency weights would systematically discount the older baseline.
+    const cohortRate = (items: DreamingFeedbackEvent[]) =>
+      items.filter((event) => event.outcome === 'useful').length / items.length;
+    const baselineUsefulness = baseline.length ? cohortRate(baseline) : undefined;
+    const followUpUsefulness = followUp.length ? cohortRate(followUp) : undefined;
     if (baseline.length >= 3 && followUp.length >= 3
       && baselineUsefulness !== undefined && followUpUsefulness !== undefined) {
       const delta = Number((followUpUsefulness - baselineUsefulness).toFixed(3));
