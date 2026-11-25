@@ -107,7 +107,7 @@ test('Copilot adapter aborts the active session when the caller cancels', async 
   const client: CopilotClientLike = {
     async start() {},
     async stop() {},
-    async deleteSession() {},
+    async deleteSession() { if (sessionRef) sessionRef.disconnected = true; },
     async createSession() {
       const session = new FakeSession('cancelled-session');
       sessionRef = session;
