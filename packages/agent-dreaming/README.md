@@ -32,7 +32,7 @@ const dreaming = new DreamingEngine(runtimeAdapter, repository, evidenceResolver
   maxRelationships: 200,
   maxEvidenceItems: 100,
   maxPromptChars: 120_000,
-  reviewIntervalMs: 7 * 24 * 60 * 60_000,
+  reviewIntervalMs: 7 * 24 * 60 * 60_000, // defaults to 30 days
   memoryReviewIntervalMs: 30 * 24 * 60 * 60_000, // default
   autoCandidateThresholds: {
     confidence: 0.8, durability: 0.6, specificity: 0.6, contradictionRisk: 0.2,
@@ -91,7 +91,7 @@ The engine does not require a long-lived session. An adapter may create a short-
 - Checkpoints advance only through records explicitly reported as processed. Failed runs remain visible and are retried by a later trigger.
 - The serialized batch prompt has a configurable character ceiling (`maxPromptChars`, default 120,000) to prevent unexpectedly large model requests. Keep evidence excerpts concise in the resolver.
 - Experiences are re-reviewed through `reviewBefore`. Memories are reloaded when stale (`memoryReviewIntervalMs`, default 30 days) or expired (`validUntil <= now`); the repository must include these records even when they are not directly linked to the current experience batch.
-- `quality` is a model-generated triage assessment (confidence, durability, specificity, contradiction risk), not a calibrated probability or trust score. Only `add` proposals that pass all thresholds are automatically committed as candidates. Missing assessments, weak quality, conflicts and all mutations of existing memories go to `stageProposal` for host review.
+- `quality` is a model-generated triage assessment (confidence, durability, specificity, contradiction risk), not a calibrated probability or trust score. Only `add` proposals that pass all thresholds are automatically committed as candidates. Missing assessments, missing provenance, weak quality, conflicts and all mutations of existing memories go to `stageProposal` for host review.
 - Expiry triggers review, not deletion. The model may propose supersede/archive, but these operations are staged and never automatically applied.
 - The host must keep the repository and evidence resolver durable across restarts.
 
