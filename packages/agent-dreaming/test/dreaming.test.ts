@@ -128,10 +128,10 @@ test('a busy scope lease prevents overlapping workers', async () => {
 
 test('runNow rejects scopes that were not configured', async () => {
   const f = fixture();
-  await assert.rejects(() => f.engine.runNow('another-user'), /Unknown dreaming scope/);
+  assert.throws(() => f.engine.runNow('another-user'), /Unknown dreaming scope/);
 });
 
 test('notifyRecordAppended rejects scopes that were not configured', async () => {
   const f = fixture();
-  await assert.rejects(() => f.engine.notifyRecordAppended('another-user'), /Unknown dreaming scope/);
+  assert.throws(() => f.engine.notifyRecordAppended('another-user'), /Unknown dreaming scope/);
 });
