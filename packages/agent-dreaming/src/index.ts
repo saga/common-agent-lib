@@ -163,7 +163,7 @@ export interface DreamingRepository {
     proposal: DreamingProposal;
     evidence: readonly DreamingEvidence[];
     runId: string;
-    reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment';
+    reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' | 'missing-provenance';
   }): Promise<{ staged: boolean; reason?: string }>;
   /** Distributed lease: only one worker may dream a scope at a time. */
   acquireLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
@@ -262,6 +262,11 @@ export class DreamingEngine {
     }
     if (!runtime.id) throw new Error('Dreaming runtime must have a stable id.');
     this.scopes = new Set(options.scopes);
+    for (const [name, value] of Object.entries(options.autoCandidateThresholds ?? {})) {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(`autoCandidateThresholds.${name} must be between 0 and 1.`);
+      }
+    }
   }
 
   /** Starts automatic startup + periodic dreaming. Call once when the host starts. */
@@ -378,9 +383,7 @@ export class DreamingEngine {
 
       const batchSize = Math.max(1, this.options.batchSize ?? 40);
       const maxBatches = Math.max(1, this.options.maxBatchesPerRun ?? 3);
-      const reviewBefore = this.options.reviewIntervalMs
-        ? new Date(Date.now() - this.options.reviewIntervalMs).toISOString()
-        : undefined;
+      const reviewBefore = new Date(Date.now() - (this.options.reviewIntervalMs ?? 30 * 24 * 60 * 60_000)).toISOString();
       let afterSequence = checkpoint.afterSequence;
       let lastModel: string | undefined;
       let lastUsage: Readonly<Record<string, number>> | undefined;
@@ -632,8 +635,9 @@ function parseQuality(value: unknown): DreamingQualityAssessment {
 function classifyProposal(
   proposal: DreamingProposal,
   configured: DreamingOptions['autoCandidateThresholds'],
-): { autoCandidate: boolean; reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' } {
+): { autoCandidate: boolean; reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' | 'missing-provenance' } {
   if (proposal.operation !== 'add') return { autoCandidate: false, reason: 'mutation' };
+  if (!proposal.proposedRecord?.sourceRefs.length) return { autoCandidate: false, reason: 'missing-provenance' };
   if (!proposal.quality) return { autoCandidate: false, reason: 'missing-assessment' };
   const thresholds = {
     confidence: configured?.confidence ?? 0.8,
