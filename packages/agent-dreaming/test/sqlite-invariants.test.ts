@@ -29,6 +29,20 @@ const proposal = (id: string, operation: DreamingProposal['operation'],
   rationale: 'Supported by source evidence', evidenceRefs: ['source:1'],
 });
 
+test('evidence references are immutable and retries are idempotent', async () => {
+  const { store, close } = createStore();
+  try {
+    await store.putEvidence('scope-a', evidence);
+    await store.putEvidence('scope-a', evidence);
+    await assert.rejects(() => store.putEvidence('scope-a', {
+      ...evidence, content: 'Changed source body',
+    }), /immutable.*versioned reference/);
+    assert.equal((await store.resolve({ scope: 'scope-a', refs: ['source:1'] }))[0]?.content, 'Verified source');
+  } finally {
+    await close();
+  }
+});
+
 test('scope collisions and conflicting experience IDs fail instead of silently overwriting', async () => {
   const { store, close } = createStore();
   try {
