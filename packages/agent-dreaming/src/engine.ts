@@ -220,9 +220,18 @@ export class DreamingEngine {
           ...memories.flatMap((item) => [...item.sourceRefs]),
           ...relationships.flatMap((item) => [...item.sourceRefs]),
         ]);
-        const evidence = (await this.evidenceResolver.resolve({
-          scope, refs: refs.slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100)),
-        })).slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100));
+        const requestedRefs = refs.slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100));
+        const requestedRefSet = new Set(requestedRefs);
+        const resolvedEvidence = await this.evidenceResolver.resolve({ scope, refs: requestedRefs });
+        const evidenceIds = new Set<string>();
+        for (const item of resolvedEvidence) {
+          if (!item.ref?.trim() || !item.kind?.trim() || typeof item.content !== 'string'
+            || !requestedRefSet.has(item.ref) || evidenceIds.has(item.ref)) {
+            throw new Error('Evidence resolver returned invalid, duplicate or unrequested evidence.');
+          }
+          evidenceIds.add(item.ref);
+        }
+        const evidence = [...resolvedEvidence];
         const evidenceRefs = new Set(evidence.map((item) => item.ref));
 
         const prompt = buildPrompt(
