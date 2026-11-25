@@ -28,6 +28,8 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
     }
     const invalid = this.validateProposal(proposal, input.evidence);
     if (invalid) return { applied: false, reason: invalid };
+    const proposedRecord = proposal.proposedRecord;
+    if (!proposedRecord) return { applied: false, reason: 'missing-proposed-record' };
 
     return this.context.transaction(() => {
       const old = this.context.db.prepare(
@@ -42,14 +44,14 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
       }
 
       const existing = this.context.db.prepare('SELECT scope FROM memories WHERE id=?')
-        .get(proposal.proposedRecord.id) as SqliteRow | undefined;
+        .get(proposedRecord.id) as SqliteRow | undefined;
       if (existing) {
         return {
           applied: false,
           reason: existing.scope === proposal.scope ? 'memory-id-exists' : 'memory-id-belongs-to-another-scope',
         };
       }
-      this.context.insertMemory(proposal.proposedRecord, 'candidate');
+      this.context.insertMemory(proposedRecord, 'candidate');
       this.insertRelationships(proposal);
       this.context.db.prepare(
         'INSERT INTO applied_proposals(proposal_id,scope,applied_at,payload) VALUES(?,?,?,?)'
@@ -238,7 +240,7 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
     if (proposal.operation === 'add' && proposal.proposedRecord) {
       const existing = this.context.db.prepare('SELECT scope FROM memories WHERE id=?')
         .get(proposal.proposedRecord.id) as SqliteRow | undefined;
-      if (existing) throw new Error('Memory ID already exists: ' + proposal.proposedRecord.id);
+      if (existing) throw new Error('Memory ID already exists: ' + proposedRecord.id);
       this.context.insertMemory(proposal.proposedRecord, 'confirmed');
       this.insertRelationships(proposal);
       return;
