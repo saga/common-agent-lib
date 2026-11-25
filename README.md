@@ -19,6 +19,7 @@
 | `@saga/agent-structured-output` | Provider-neutral 的结构化输出解析和最终 Schema 校验 | `zod` |
 | `@saga/agent-eval` | Eval case、observation、code/model/human grader 和结果汇总 | 无 |
 | `@saga/agent-memory` | 持久记忆契约、分页、工作记忆窗口和归档候选 | `zod` |
+| `@saga/agent-dreaming` | 后台记忆 Dreaming、Evidence Replay、增量整理、纠错提案、checkpoint、lease 与自动调度 | 无（Runtime / Store 由宿主注入） |
 | `@saga/agent-rules` | 小型声明式确定性规则评估器 | `zod` |
 | `@saga/agent-state-machine` | 小型确定性状态转移运行时 | 无 |
 
@@ -402,3 +403,10 @@ vocal-saga 的 Context Graph、文学记忆、上下文选择和 prompt 组装�
 @saga/agent-context provides a deterministic composition layer between host-side retrieval and provider-specific prompt/runtime code. It enforces a caller-supplied budget, keeps required context with explicit over-budget reporting, and returns the provenance and omission ledger.
 
 The host application still owns retrieval, authorization, evidence validation, trust status, and temporal boundaries. It is intentionally not an autonomous memory manager or a CLM implementation. See [packages/agent-context/README.md](packages/agent-context/README.md) and [Context Assembly design](docs/context-assembly-design.md).
+
+
+## Agent memory dreaming
+
+`@saga/agent-dreaming` 提供独立的后台 Dreaming Engine。宿主注入模型 Runtime Adapter（Copilot SDK、CodeBuddy SDK、pi.dev 均可）、DreamingRepository 和 EvidenceResolver；调用 `start()` 后自动执行启动整理与周期整理，新增经历可通过 `notifyRecordAppended(scope)` 触发。它负责批次、回放、结构化输出校验、scope/evidence 检查、checkpoint 和 run 状态；权威记忆的事务提交、权限和领域校验仍由 Repository 实现。
+
+接口、接入示例和调度语义见 [packages/agent-dreaming/README.md](packages/agent-dreaming/README.md)。

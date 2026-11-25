@@ -1,67 +1,52 @@
-# Agent Memory Consolidation: design and integration
+# Agent Memory Dreaming: design and integration
 
 ## Decision
 
-Extend the existing memory, knowledge and context packages with provider-neutral contracts. Do not add an agent-memory runtime, database, scheduler, graph engine or model dependency.
+Keep the memory data model, knowledge representation and context assembly independent. Add `@saga/agent-dreaming` as a separate, runtime-neutral background orchestration package. It may use Copilot SDK, CodeBuddy SDK, pi.dev or another runtime through a small adapter; it does not import any vendor SDK or database.
 
-The design follows the useful separation described in [Anthropic's components of agent memory](https://www.anthropic.com/research/components-of-agent-memory), while keeping all authority and domain decisions in the host application.
+The design follows [Anthropic's components of agent memory](https://www.anthropic.com/research/components-of-agent-memory): raw experiences remain inspectable, durable memory is derived from them, knowledge is maintained over time, and only host-selected context is injected into future tasks.
 
-## Four cooperating layers
+## Responsibilities
 
-1. **Execution history** — `@saga/agent-tracing` records bounded, redacted events. Large payloads remain in host-controlled artifact storage. Memory source references may point to trace/event/artifact IDs.
-2. **Memory notes** — `@saga/agent-memory` distinguishes episodic, semantic and procedural memories; tracks candidate/confirmed/superseded status, calibrated confidence, validation time and explicit relationships.
-3. **Knowledge representations** — `@saga/agent-knowledge` models durable entries and relationships such as supports, contradicts, derived_from and supersedes.
-4. **Injected context** — `@saga/agent-context` assembles host-selected candidates under a deterministic budget while retaining provenance and descriptive freshness metadata.
+- `@saga/agent-tracing`: bounded, redacted execution events and source references.
+- `@saga/agent-memory`: durable memory records, lifecycle, relationships, pagination and working-memory selection.
+- `@saga/agent-knowledge`: durable knowledge entries and relationships.
+- `@saga/agent-dreaming`: background replay, cross-session consolidation, memory review, structured proposals, checkpoints, run ledger and scheduling.
+- Host application: storage, evidence resolution, authorization, domain validation, atomic commit, indexing and runtime adapter.
+- `@saga/agent-context`: bounded context assembly from host-selected, authorized candidates.
 
-## Dreaming / consolidation flow
+## Execution
 
-```text
-Trace events + stored artifacts
-          |
-          v
-Host selects eligible records and evidence
-          |
-          v
-MemoryConsolidator / Knowledge maintenance proposer
-          |
-          v
-Schema-validated change proposals
-          |
-          v
-Host validates scope, references, conflicts and evidence
-          |
-          v
-Host commits records / relationships / archive updates
-          |
-          v
-Host refreshes indexes and next-task retrieval
-          |
-          v
-agent-context assembles selected context
+```mermaid
+flowchart TD
+  A["New trace / experience"] --> B["Dreaming scheduler"]
+  B --> C["Load new + review-due experiences"]
+  C --> D["Resolve original evidence"]
+  D --> E["Runtime adapter: Copilot / CodeBuddy / pi.dev"]
+  E --> F["Validate structured proposals"]
+  F --> G["Host validates scope, evidence, policy and versions"]
+  G --> H["Atomic, idempotent commit"]
+  H --> I["Mark reviewed + advance checkpoint"]
+  I --> J["Refresh host indexes"]
+  J --> K["Future context assembly"]
 ```
 
-This flow may run after a task, periodically, or when memory volume crosses a threshold. Scheduling and model calls are host responsibilities.
+A run is bounded by batch size and maximum batches. The repository selects both unprocessed records and older records due for re-review. The engine records run state, checkpoints only a contiguous processed prefix, and records review timestamps to avoid selecting the same old records on every tick. A per-scope distributed lease prevents concurrent workers from applying the same work.
 
-## Trust and update rules
+## Runtime contract
 
-- A model-produced proposal is not an authoritative state change.
-- The host resolves every target ID and evidence reference before applying a proposal.
-- Confidence and confirmed status are calibrated by host-owned rules; do not trust self-reported confidence.
-- Contradictions remain explicit relationships until a domain-aware resolver handles them.
-- Updates and supersessions preserve prior records and provenance; do not destructively rewrite the only copy.
-- Context assembly never decides whether an item is current, authorized or true. The host filters candidates and assigns priorities before calling it.
+`DreamingRuntime.generate()` accepts a system instruction, serialized task context and JSON response mode, and returns parsed structured output plus optional model/usage metadata. Provider-specific session lifecycle, authentication, model choice, tool policy, timeout and retries stay in the adapter/host. The package does not assume that all SDKs share the same session or tool APIs.
 
-## Compatibility and migration
+## Trust boundary
 
-New semantic fields are optional or defaulted. Existing record kinds, storage lifecycle, KnowledgeEntry shape and ContextItem behavior remain usable. Existing stores can ignore relationships until an application chooses to persist them.
+The model only proposes changes. The engine rejects malformed proposals, scope mismatches, unknown targets, unknown evidence references and attempts to promote a new memory to confirmed. The host's `commitProposal` must re-check permissions, target versions, evidence and domain rules, then apply changes and the proposal idempotency key in one transaction. It must preserve original evidence and prior memory versions.
 
-Suggested adoption order:
-1. Start writing sourceRefs from memory/knowledge records to trace events or artifacts.
-2. Add candidate memories from task outcomes; keep them out of confirmed-only context until validated.
-3. Run consolidation on a bounded recent-record window and persist proposals for inspection.
-4. Apply validated proposals and refresh the host's search index.
-5. Use `agent-context` to budget recent memory, durable memory, knowledge and current task evidence.
+A confirmed status is assigned only by host-owned policy after independent validation. Conflicting evidence should remain explicit until a domain-aware resolver can decide; the model must not silently overwrite history.
+
+## Automatic operation
+
+The host creates the engine during service startup and calls `start()`. This runs each configured scope once, then repeats on an interval. Applications should call `notifyRecordAppended(scope)` after committing a meaningful experience. The host calls `stop()` during graceful shutdown. A persistent repository is required for restart recovery; the in-process timer is only a trigger, not the source of truth.
 
 ## Non-goals
 
-No autonomous memory agent, hidden reasoning capture, default full-prompt retention, graph database, vector database, universal scoring formula, automatic trust promotion or domain-specific retention policy.
+No built-in database, vector store, graph engine, provider SDK, hosted queue, multi-tenant authorization, autonomous trust promotion or application-specific retention policy. SQLite is a suitable host implementation for a single process; multi-process deployments should use a transactional database and distributed lease.

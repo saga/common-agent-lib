@@ -964,3 +964,20 @@ Host workflow / domain service
 
 Stage Cache 不应等同于 Workflow Runtime：它只回答某个阶段的产物是否可复用，不决定下一阶段、业务动作或人工审批。Artifact Ref 也不是 Artifact Store；公共契约不决定 URI 的访问权限和留存期限。完整 Prompt / Response 的保留必须由宿主基于隐私、版权和许可策略明确启用。
 
+
+
+---
+
+## Pattern 33：Dreaming 是独立的后台维护循环，Runtime 只是可替换的推理适配器
+
+`@saga/agent-dreaming` 把后台记忆维护从具体 Agent SDK 和业务应用中拆出来：
+
+- Runtime Adapter 只负责一次结构化模型调用；Copilot SDK、CodeBuddy SDK、pi.dev 分别实现同一个小接口。
+- Repository 负责历史记录、记忆、关系、Run、Checkpoint、分布式 Lease，以及事务化、幂等的 Proposal Commit。
+- Evidence Resolver 根据稳定引用读取原始 Transcript、Trace Event 或 Artifact。
+- Dreaming Engine 负责启动/周期/事件触发、批次限制、回放、输出校验、证据引用检查、进度和运行状态。
+- Host 仍然掌握授权、领域规则、记忆可信度、数据库和索引。模型不能直接写权威记忆，也不能把候选记忆提升为 confirmed。
+
+宿主启动时调用 `start()`，之后会执行启动整理和周期整理；每次新增有意义的经历后调用 `notifyRecordAppended(scope)`。多进程场景必须实现持久化的 scope lease 和幂等提交。Checkpoint 只能推进到连续处理完成的序列前缀，旧记录重新验证则由 Repository 通过 review timestamp 管理。
+
+这不是新的 Agent Framework，也不是另一个 Memory Store。它是一个可以被不同 Runtime 驱动、由宿主掌握持久化与信任边界的后台维护循环。

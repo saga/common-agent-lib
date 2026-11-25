@@ -1,0 +1,22 @@
+{
+  "name": "@saga/agent-dreaming",
+  "version": "0.1.0",
+  "description": "Runtime-neutral background memory dreaming, consolidation and maintenance orchestration.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
