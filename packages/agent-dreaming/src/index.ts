@@ -10,3 +10,5 @@ export type {
   CopilotClientLike,
   CopilotSessionLike,
 } from './adapters/copilot.js';
+export { createCopilotDreaming, createSqliteCopilotDreaming } from './copilot-dreaming.js';
+export type { CopilotDreamingInstance } from './copilot-dreaming.js';
