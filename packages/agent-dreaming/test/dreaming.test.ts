@@ -21,6 +21,7 @@ function fixture(
   modelOutput?: unknown,
   initialMemories: DreamingMemory[] = [],
   noExperiences = false,
+  resolverOverride?: { resolve(input: { scope: string; refs: readonly string[] }): Promise<readonly DreamingEvidence[]> },
 ) {
   const experience: DreamingExperience = {
     id: 'e1', sequence: 1, scope: 'user-1', content: 'User prefers concise technical answers.',
@@ -107,7 +108,7 @@ function fixture(
       };
     },
   };
-  const resolver = {
+  const resolver = resolverOverride ?? {
     async resolve({ refs }: { scope: string; refs: readonly string[] }) {
       return refs.includes(evidence.ref) ? [evidence] : [];
     },
@@ -134,6 +135,21 @@ test('model cannot promote a proposed memory to confirmed', async () => {
   const run = await f.engine.runNow('user-1');
   assert.equal(run?.status, 'completed');
   assert.equal(f.committed[0]?.proposedRecord?.status, 'candidate');
+});
+
+test('evidence resolver cannot inject unrelated or duplicate evidence into a Dreaming run', async () => {
+  const resolver = {
+    async resolve() {
+      return [
+        { ref: 'unrequested:1', content: 'unrelated', kind: 'note' },
+        { ref: 'unrequested:1', content: 'duplicate', kind: 'note' },
+      ];
+    },
+  };
+  const f = fixture('trace:t1:event:e1', {}, undefined, [], false, resolver);
+  await assert.rejects(() => f.engine.runNow('user-1'), /invalid, duplicate or unrequested evidence/);
+  assert.deepEqual(f.commits, []);
+  assert.equal(f.runs[0]?.status, 'failed');
 });
 
 test('unknown evidence references reject a proposal before commit', async () => {
