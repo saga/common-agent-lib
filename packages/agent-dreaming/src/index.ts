@@ -64,6 +64,8 @@ export interface DreamingProposal {
   proposedRecord?: DreamingMemory;
   rationale: string;
   evidenceRefs: string[];
+  /** Existing memories the model believes are contradicted by this proposal. */
+  conflictsWith?: string[];
   relationships?: DreamingRelationship[];
   quality?: DreamingQualityAssessment;
 }
@@ -227,6 +229,7 @@ Return JSON with this shape:
     },
     "rationale": "why this change is justified",
     "evidenceRefs": ["exact evidence refs"],
+    "conflictsWith": ["existing memory ids contradicted by this proposal"],
     "relationships": [],
     "quality": { "confidence": 0.0, "durability": 0.0, "specificity": 0.0, "contradictionRisk": 0.0 }
   }],
@@ -476,7 +479,7 @@ export class DreamingEngine {
         for (const proposal of result.proposals) {
           if (signal.aborted) throw signal.reason ?? new Error('Dreaming aborted.');
           if (proposal.scope !== scope) throw new Error('Proposal scope does not match the active scope.');
-          if (proposal.targetRecordIds.some((id) => !memoryIds.has(id))) {
+          if (proposal.targetRecordIds.some((id) => !memoryIds.has(id)) || proposal.conflictsWith?.some((id) => !memoryIds.has(id))) {
             run.rejectedProposalIds.push(proposal.id);
             continue;
           }
@@ -597,6 +600,7 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
     targetRecordIds: stringArray(value.targetRecordIds ?? [], 'targetRecordIds'),
     rationale: requiredString(value.rationale, 'proposal.rationale'),
     evidenceRefs: stringArray(value.evidenceRefs, 'evidenceRefs'),
+    ...(value.conflictsWith === undefined ? {} : { conflictsWith: stringArray(value.conflictsWith, 'conflictsWith') }),
     ...(value.relationships === undefined ? {} : { relationships: parseRelationships(value.relationships, scope) }),
     ...(value.quality === undefined ? {} : { quality: parseQuality(value.quality) }),
   };
@@ -654,6 +658,7 @@ function classifyProposal(
   configured: DreamingOptions['autoCandidateThresholds'],
 ): { autoCandidate: boolean; reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' | 'missing-provenance' } {
   if (proposal.operation !== 'add') return { autoCandidate: false, reason: 'mutation' };
+  if (proposal.conflictsWith?.length) return { autoCandidate: false, reason: 'conflict-risk' };
   if (!proposal.proposedRecord?.sourceRefs.length) return { autoCandidate: false, reason: 'missing-provenance' };
   if (!proposal.quality) return { autoCandidate: false, reason: 'missing-assessment' };
   const thresholds = {
