@@ -160,6 +160,7 @@ export interface DreamingOptions {
   maxMemories?: number;
   maxRelationships?: number;
   maxEvidenceItems?: number;
+  maxPromptChars?: number;
   leaseMs?: number;
   reviewIntervalMs?: number;
   /** Called after each persisted run; suitable for logs/metrics. */
@@ -382,10 +383,18 @@ export class DreamingEngine {
         })).slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100));
         const evidenceRefs = new Set(evidence.map((item) => item.ref));
 
+        const prompt = buildPrompt(scope, experiences, memories, relationships, evidence);
+        const maxPromptChars = this.options.maxPromptChars ?? 120_000;
+        if (!Number.isSafeInteger(maxPromptChars) || maxPromptChars < 1_000) {
+          throw new Error('maxPromptChars must be an integer of at least 1000.');
+        }
+        if (prompt.length > maxPromptChars) {
+          throw new Error(`Dreaming prompt exceeds the configured ${maxPromptChars}-character limit.`);
+        }
         const response = await this.runtime.generate({
           task: 'memory-dreaming',
           system: SYSTEM_PROMPT,
-          prompt: buildPrompt(scope, experiences, memories, relationships, evidence),
+          prompt,
           responseFormat: 'json',
           signal,
         });
