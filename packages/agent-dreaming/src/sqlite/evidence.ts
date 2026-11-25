@@ -15,7 +15,7 @@ export class SqliteEvidenceStore implements DreamingEvidenceResolver {
       this.context.db.prepare(
         'INSERT INTO evidence(ref,scope,content,kind,created_at,metadata) VALUES(?,?,?,?,?,?) ' +
         'ON CONFLICT(ref) DO UPDATE SET content=excluded.content,kind=excluded.kind,created_at=excluded.created_at,metadata=excluded.metadata'
-      ).run(scope === '' ? evidence.ref : evidence.ref, scope, evidence.content, evidence.kind,
+      ).run(evidence.ref, scope, evidence.content, evidence.kind,
         evidence.createdAt ?? null, encode(evidence.metadata ?? {}));
     });
   }
