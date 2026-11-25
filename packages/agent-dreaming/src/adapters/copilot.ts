@@ -33,6 +33,8 @@ export interface CopilotDreamingRuntimeOptions {
   timeoutMs?: number;
   /** SDK client options. The default mode is empty so Dreaming cannot call tools. */
   clientOptions?: Record<string, unknown>;
+  /** Safe per-session options; the selected model is always applied by this adapter. */
+  sessionOptions?: Record<string, unknown>;
   /** Test seam; production normally loads @microsoft/copilot-sdk dynamically. */
   sdkLoader?: () => Promise<CopilotSdkModuleLike>;
 }
@@ -156,6 +158,7 @@ export class CopilotDreamingRuntime implements DreamingRuntime {
   private readonly model: string;
   private readonly timeoutMs: number;
   private readonly clientOptions: Record<string, unknown>;
+  private readonly sessionOptions: Record<string, unknown>;
   private readonly sdkLoader: () => Promise<CopilotSdkModuleLike>;
   private client?: CopilotClientLike;
   private starting?: Promise<CopilotClientLike>;
@@ -167,6 +170,7 @@ export class CopilotDreamingRuntime implements DreamingRuntime {
     this.model = options.model ?? 'auto';
     this.timeoutMs = options.timeoutMs ?? 5 * 60_000;
     this.clientOptions = options.clientOptions ?? {};
+    this.sessionOptions = options.sessionOptions ?? {};
     this.sdkLoader = options.sdkLoader ?? this.loadSdk;
     if (!this.id.trim()) throw new TypeError('Copilot runtime id is required');
     if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1_000 || this.timeoutMs > 60 * 60_000) {
@@ -180,8 +184,8 @@ export class CopilotDreamingRuntime implements DreamingRuntime {
 
     const client = await this.getClient();
     const session = await client.createSession({
+      ...this.sessionOptions,
       model: this.model,
-      ...this.clientOptions.session,
     });
     this.activeSessions.add(session);
     const usageEvents: Record<string, unknown>[] = [];
