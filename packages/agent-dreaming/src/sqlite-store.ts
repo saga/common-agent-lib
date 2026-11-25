@@ -1,20 +1,17 @@
 import { chmodSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience, DreamingFeedbackEvent, DreamingMemory, DreamingPage, DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun } from './index.js';
+import type { DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience, DreamingFeedbackEvent, DreamingMemory, DreamingPage, DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingReviewQueue, DreamingReviewQueueItem } from './index.js';
 
 export interface SqliteDreamingOptions { filename: string; busyTimeoutMs?: number }
 export interface AppendExperienceInput extends Omit<DreamingExperience, 'sequence'> { sequence?: number }
-export interface ReviewQueueItem {
-  proposal: DreamingProposal; evidence: DreamingEvidence[]; runId: string; reason: string;
-  status: 'pending' | 'approved' | 'rejected'; createdAt: string; reviewedAt?: string; reviewedBy?: string;
-}
+export type { DreamingReviewQueueItem as ReviewQueueItem } from './index.js';
 type Row = Record<string, any>;
 const encode = (v: unknown) => JSON.stringify(v ?? null);
 const decode = <T>(v: unknown) => JSON.parse(String(v)) as T;
 
 /** Built-in durable store. Implements both repository and local evidence resolution. */
-export class SqliteDreamingStore implements DreamingRepository, DreamingEvidenceResolver {
+export class SqliteDreamingStore implements DreamingRepository, DreamingEvidenceResolver, DreamingReviewQueue {
   private readonly db: DatabaseSync;
   private closed = false;
   constructor(options: SqliteDreamingOptions) {
@@ -44,27 +41,53 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
   async appendExperience(input: AppendExperienceInput): Promise<DreamingExperience> {
     this.ensure();
     this.tx(() => {
-      const old=this.db.prepare('SELECT scope FROM experiences WHERE id=?').get(input.id) as Row|undefined;
-      if(old){if(old.scope!==input.scope)throw new Error('Experience ID belongs to another scope');return;}
-      const seq=input.sequence ?? Number((this.db.prepare('SELECT COALESCE(MAX(sequence),0)+1 AS n FROM experiences WHERE scope=?').get(input.scope) as Row).n);
+      const old = this.db.prepare('SELECT * FROM experiences WHERE id=?').get(input.id) as Row | undefined;
+      if (old) {
+        const same = old.scope === input.scope && old.content === input.content && old.created_at === input.createdAt
+          && (input.sequence === undefined || Number(old.sequence) === input.sequence)
+          && String(old.refs) === encode(input.sourceRefs) && String(old.metadata) === encode(input.metadata ?? {});
+        if (!same) throw new Error('Conflicting experience ID: ' + input.id);
+        return;
+      }
+      const seq = input.sequence ?? Number((this.db.prepare('SELECT COALESCE(MAX(sequence),0)+1 AS n FROM experiences WHERE scope=?').get(input.scope) as Row).n);
+      if (!Number.isSafeInteger(seq) || seq < 1) throw new TypeError('Experience sequence must be a positive safe integer');
       this.db.prepare('INSERT INTO experiences(id,scope,sequence,content,created_at,refs,metadata) VALUES(?,?,?,?,?,?,?)')
         .run(input.id,input.scope,seq,input.content,input.createdAt,encode(input.sourceRefs),encode(input.metadata ?? {}));
     });
     return this.experience(this.db.prepare('SELECT * FROM experiences WHERE id=?').get(input.id) as Row);
   }
   async upsertMemory(m: DreamingMemory): Promise<void> {
-    this.ensure(); const now=new Date().toISOString();
-    this.db.prepare('INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) '+
-      'ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,importance=excluded.importance,refs=excluded.refs,last_validated_at=excluded.last_validated_at,valid_until=excluded.valid_until,confidence=excluded.confidence,metadata=excluded.metadata,updated_at=excluded.updated_at WHERE memories.scope=excluded.scope')
-      .run(m.id,m.scope,m.content,m.status,m.importance,encode(m.sourceRefs),m.lastValidatedAt ?? null,m.validUntil ?? null,m.confidence ?? null,encode(m.metadata ?? {}),now,now);
+    this.ensure(); const now = new Date().toISOString();
+    this.tx(() => {
+      const old = this.db.prepare('SELECT scope FROM memories WHERE id=?').get(m.id) as Row | undefined;
+      if (old && old.scope !== m.scope) throw new Error('Memory ID belongs to another scope: ' + m.id);
+      this.db.prepare('INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) '+
+        'ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,importance=excluded.importance,refs=excluded.refs,last_validated_at=excluded.last_validated_at,valid_until=excluded.valid_until,confidence=excluded.confidence,metadata=excluded.metadata,updated_at=excluded.updated_at')
+        .run(m.id,m.scope,m.content,m.status,m.importance,encode(m.sourceRefs),m.lastValidatedAt ?? null,m.validUntil ?? null,m.confidence ?? null,encode(m.metadata ?? {}),now,now);
+    });
   }
   async appendRelationship(r: DreamingRelationship): Promise<void> {
-    this.ensure(); this.db.prepare('INSERT OR IGNORE INTO relationships(id,scope,from_id,to_id,kind,refs) VALUES(?,?,?,?,?,?)')
-      .run(r.id,r.scope,r.fromId,r.toId,r.kind,encode(r.sourceRefs));
+    this.ensure();
+    this.tx(() => {
+      const old = this.db.prepare('SELECT * FROM relationships WHERE id=?').get(r.id) as Row | undefined;
+      if (old) {
+        const same = old.scope === r.scope && old.from_id === r.fromId && old.to_id === r.toId
+          && old.kind === r.kind && String(old.refs) === encode(r.sourceRefs);
+        if (!same) throw new Error('Conflicting relationship ID: ' + r.id);
+        return;
+      }
+      this.db.prepare('INSERT INTO relationships(id,scope,from_id,to_id,kind,refs) VALUES(?,?,?,?,?,?)')
+        .run(r.id,r.scope,r.fromId,r.toId,r.kind,encode(r.sourceRefs));
+    });
   }
   async putEvidence(scope: string,e: DreamingEvidence): Promise<void> {
-    this.ensure(); this.db.prepare('INSERT INTO evidence(ref,scope,content,kind,created_at,metadata) VALUES(?,?,?,?,?,?) ON CONFLICT(ref) DO UPDATE SET content=excluded.content,kind=excluded.kind,created_at=excluded.created_at,metadata=excluded.metadata WHERE evidence.scope=excluded.scope')
-      .run(e.ref,scope,e.content,e.kind,e.createdAt ?? null,encode(e.metadata ?? {}));
+    this.ensure();
+    this.tx(() => {
+      const old = this.db.prepare('SELECT scope FROM evidence WHERE ref=?').get(e.ref) as Row | undefined;
+      if (old && old.scope !== scope) throw new Error('Evidence reference belongs to another scope: ' + e.ref);
+      this.db.prepare('INSERT INTO evidence(ref,scope,content,kind,created_at,metadata) VALUES(?,?,?,?,?,?) ON CONFLICT(ref) DO UPDATE SET content=excluded.content,kind=excluded.kind,created_at=excluded.created_at,metadata=excluded.metadata')
+        .run(e.ref,scope,e.content,e.kind,e.createdAt ?? null,encode(e.metadata ?? {}));
+    });
   }
   async resolve(input:{scope:string;refs:readonly string[]}):Promise<readonly DreamingEvidence[]> {
     this.ensure(); if(!input.refs.length)return [];
@@ -107,22 +130,35 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
   async updateRun(r:DreamingRun):Promise<void> { this.ensure(); this.db.prepare('UPDATE runs SET status=?,finished_at=?,payload=? WHERE id=? AND scope=?').run(r.status,r.finishedAt ?? null,encode(r),r.id,r.scope); }
   async commitProposal(i:{proposal:DreamingProposal;evidence:readonly DreamingEvidence[];runId:string}):Promise<{applied:boolean;reason?:string}> {
     this.ensure(); const p=i.proposal;
-    if(p.operation!=='add'||!p.proposedRecord)return {applied:false,reason:'only-add-can-be-auto-committed'};
-    if(p.proposedRecord.scope!==p.scope||!p.proposedRecord.sourceRefs.length)return {applied:false,reason:'invalid-provenance'};
-    const refs=new Set(i.evidence.map(e=>e.ref)); if(p.evidenceRefs.some(ref=>!refs.has(ref)))return {applied:false,reason:'unresolved-evidence'};
+    if (p.operation !== 'add' || !p.proposedRecord) return {applied:false,reason:'only-add-can-be-auto-committed'};
+    const invalid=this.proposalValidationError(p,i.evidence,'auto');
+    if(invalid)return {applied:false,reason:invalid};
     return this.tx(()=>{
-      if(this.db.prepare('SELECT 1 FROM applied_proposals WHERE proposal_id=?').get(p.id))return {applied:true};
-      if(this.db.prepare('SELECT 1 FROM memories WHERE id=?').get(p.proposedRecord!.id))return {applied:false,reason:'memory-id-exists'};
+      const old=this.db.prepare('SELECT scope FROM applied_proposals WHERE proposal_id=?').get(p.id) as Row|undefined;
+      if(old){if(old.scope!==p.scope)throw new Error('Proposal ID belongs to another scope: '+p.id);return {applied:true};}
+      const existing=this.db.prepare('SELECT scope FROM memories WHERE id=?').get(p.proposedRecord!.id) as Row|undefined;
+      if(existing)return {applied:false,reason:existing.scope===p.scope?'memory-id-exists':'memory-id-belongs-to-another-scope'};
       this.insertMemory(p.proposedRecord!,'candidate');
-      for(const rel of p.relationships ?? [])this.db.prepare('INSERT OR IGNORE INTO relationships(id,scope,from_id,to_id,kind,refs) VALUES(?,?,?,?,?,?)').run(rel.id,rel.scope,rel.fromId,rel.toId,rel.kind,encode(rel.sourceRefs));
+      this.insertProposalRelationships(p);
       this.db.prepare('INSERT INTO applied_proposals(proposal_id,scope,applied_at) VALUES(?,?,?)').run(p.id,p.scope,new Date().toISOString());
       return {applied:true};
     });
   }
   async stageProposal(i:{proposal:DreamingProposal;evidence:readonly DreamingEvidence[];runId:string;reason:'mutation'|'quality-gate'|'conflict-risk'|'missing-assessment'|'missing-provenance'}):Promise<{staged:boolean;reason?:string}> {
-    this.ensure(); const r=this.db.prepare("INSERT INTO proposals(proposal_id,scope,run_id,reason,status,payload,evidence,created_at) VALUES(?,?,?,?,'pending',?,?,?) ON CONFLICT(proposal_id) DO NOTHING")
-      .run(i.proposal.id,i.proposal.scope,i.runId,i.reason,encode(i.proposal),encode(i.evidence),new Date().toISOString());
-    return {staged:Number(r.changes)>0 || Boolean(this.db.prepare("SELECT 1 FROM proposals WHERE proposal_id=? AND status='pending'").get(i.proposal.id))};
+    this.ensure(); const p=i.proposal;
+    if(!p.id?.trim()||!p.scope?.trim())throw new TypeError('Proposal id and scope are required');
+    if(p.proposedRecord&&p.proposedRecord.scope!==p.scope)throw new Error('Proposed record scope does not match proposal scope');
+    return this.tx(()=>{
+      const old=this.db.prepare('SELECT * FROM proposals WHERE proposal_id=?').get(p.id) as Row|undefined;
+      if(old){
+        const same=old.scope===p.scope&&String(old.payload)===encode(p)&&String(old.evidence)===encode(i.evidence)&&old.reason===i.reason;
+        if(!same)throw new Error('Conflicting proposal ID: '+p.id);
+        return {staged:old.status==='pending'};
+      }
+      this.db.prepare("INSERT INTO proposals(proposal_id,scope,run_id,reason,status,payload,evidence,created_at) VALUES(?,?,?,?,'pending',?,?,?)")
+        .run(p.id,p.scope,i.runId,i.reason,encode(p),encode(i.evidence),new Date().toISOString());
+      return {staged:true};
+    });
   }
   async recordFeedback(e:DreamingFeedbackEvent):Promise<void> {
     this.ensure(); const old=this.db.prepare('SELECT payload FROM feedback WHERE id=?').get(e.id) as Row|undefined;
@@ -143,16 +179,31 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
     this.ensure(); const r=this.db.prepare('UPDATE leases SET expires_at=? WHERE scope=? AND owner=? AND expires_at>?').run(Date.now()+i.leaseMs,i.scope,i.owner,Date.now());return Number(r.changes)===1;
   }
   async releaseLease(i:{scope:string;owner:string}):Promise<void> { this.ensure();this.db.prepare('DELETE FROM leases WHERE scope=? AND owner=?').run(i.scope,i.owner); }
-  async listReviewQueue(i:{scope:string;status?:ReviewQueueItem['status'];limit?:number}):Promise<ReviewQueueItem[]> {
-    this.ensure();const n=Math.max(1,Math.min(500,Math.floor(i.limit??100)));const sql='SELECT * FROM proposals WHERE scope=? '+(i.status?'AND status=? ':'')+'ORDER BY created_at DESC LIMIT ?';
+  async listReviewQueue(i:{scope:string;status?:DreamingReviewQueueItem['status'];limit?:number}):Promise<DreamingReviewQueueItem[]> {
+    this.ensure(); const n=Math.max(1,Math.min(500,Math.floor(i.limit??100)));
+    const sql='SELECT * FROM proposals WHERE scope=? '+(i.status?'AND status=? ':'')+'ORDER BY created_at DESC LIMIT ?';
     const rows=(i.status?this.db.prepare(sql).all(i.scope,i.status,n):this.db.prepare(sql).all(i.scope,n)) as Row[];
-    return rows.map(r=>({proposal:decode<DreamingProposal>(r.payload),evidence:decode<DreamingEvidence[]>(r.evidence),runId:String(r.run_id),reason:String(r.reason),status:r.status,createdAt:String(r.created_at),...(r.reviewed_at?{reviewedAt:String(r.reviewed_at)}:{}),...(r.reviewed_by?{reviewedBy:String(r.reviewed_by)}:{})}));
+    return rows.map(r=>({proposal:decode<DreamingProposal>(r.payload),evidence:decode<DreamingEvidence[]>(r.evidence),
+      runId:String(r.run_id),reason:String(r.reason),status:r.status,createdAt:String(r.created_at),
+      ...(r.reviewed_at?{reviewedAt:String(r.reviewed_at)}:{}),...(r.reviewed_by?{reviewedBy:String(r.reviewed_by)}:{})}));
   }
-  async resolveReview(i:{scope:string;proposalId:string;decision:'approve'|'reject';reviewedBy:string}):Promise<ReviewQueueItem['status']> {
-    this.ensure();if(!i.reviewedBy.trim())throw new Error('reviewedBy is required');
-    return this.tx(()=>{const r=this.db.prepare('SELECT * FROM proposals WHERE proposal_id=? AND scope=?').get(i.proposalId,i.scope) as Row|undefined;if(!r)throw new Error('Review proposal not found');if(r.status!=='pending')return r.status;
-      const p=decode<DreamingProposal>(r.payload);if(i.decision==='approve')this.applyReviewed(p);
-      const status=i.decision==='approve'?'approved':'rejected';this.db.prepare('UPDATE proposals SET status=?,reviewed_at=?,reviewed_by=? WHERE proposal_id=? AND status=?').run(status,new Date().toISOString(),i.reviewedBy,i.proposalId,'pending');return status;});
+  async resolveReview(i:{scope:string;proposalId:string;decision:'approve'|'reject';reviewedBy:string}):Promise<DreamingReviewQueueItem['status']> {
+    this.ensure(); if(!i.reviewedBy.trim())throw new Error('reviewedBy is required');
+    return this.tx(()=>{
+      const r=this.db.prepare('SELECT * FROM proposals WHERE proposal_id=? AND scope=?').get(i.proposalId,i.scope) as Row|undefined;
+      if(!r)throw new Error('Review proposal not found');
+      if(r.status!=='pending')return r.status;
+      const p=decode<DreamingProposal>(r.payload), evidence=decode<DreamingEvidence[]>(r.evidence);
+      if(i.decision==='approve'){
+        const invalid=this.proposalValidationError(p,evidence,'review');
+        if(invalid)throw new Error('Cannot approve proposal: '+invalid);
+        this.applyReviewed(p,evidence);
+      }
+      const status=i.decision==='approve'?'approved':'rejected';
+      this.db.prepare('UPDATE proposals SET status=?,reviewed_at=?,reviewed_by=? WHERE proposal_id=? AND scope=? AND status=?')
+        .run(status,new Date().toISOString(),i.reviewedBy,i.proposalId,i.scope,'pending');
+      return status;
+    });
   }
   async listMemories(scope:string,limit=200):Promise<DreamingMemory[]> {
     this.ensure();return (this.db.prepare('SELECT * FROM memories WHERE scope=? ORDER BY updated_at DESC LIMIT ?').all(scope,Math.max(1,Math.min(1000,limit))) as Row[]).map(r=>this.memory(r));
@@ -161,7 +212,43 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
   private ensure(){if(this.closed)throw new Error('SQLite store is closed');}
   private tx<T>(fn:()=>T):T{this.db.exec('BEGIN IMMEDIATE');try{const v=fn();this.db.exec('COMMIT');return v;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   private insertMemory(m:DreamingMemory,status:DreamingMemory['status']){const n=new Date().toISOString();this.db.prepare('INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(m.id,m.scope,m.content,status,m.importance,encode(m.sourceRefs),m.lastValidatedAt??null,m.validUntil??null,m.confidence??null,encode(m.metadata??{}),n,n);}
-  private applyReviewed(p:DreamingProposal){
+  private proposalValidationError(p:DreamingProposal,evidence:readonly DreamingEvidence[],mode:'auto'|'review'):string|undefined {
+    if(!p.id?.trim()||!p.scope?.trim())return 'invalid-proposal-identity';
+    if(new Set(p.targetRecordIds).size!==p.targetRecordIds.length)return 'duplicate-targets';
+    if(p.operation==='add'&&p.targetRecordIds.length!==0)return 'add-must-not-have-targets';
+    if(p.operation==='update'&&p.targetRecordIds.length!==1)return 'update-requires-one-target';
+    if(p.operation==='merge'&&p.targetRecordIds.length<2)return 'merge-requires-two-targets';
+    if((p.operation==='supersede'||p.operation==='archive')&&p.targetRecordIds.length<1)return 'operation-requires-targets';
+    if(p.operation==='archive'&&p.proposedRecord)return 'archive-must-not-have-proposed-record';
+    if(p.operation!=='archive'){
+      if(!p.proposedRecord)return 'missing-proposed-record';
+      if(p.proposedRecord.scope!==p.scope)return 'proposed-record-scope-mismatch';
+      if(!p.proposedRecord.id?.trim()||!p.proposedRecord.content?.trim())return 'invalid-proposed-record';
+      if(!p.proposedRecord.sourceRefs.length)return 'missing-provenance';
+      if(p.proposedRecord.sourceRefs.some(ref=>!p.evidenceRefs.includes(ref)))return 'unlisted-provenance';
+    }
+    if(!p.evidenceRefs.length||new Set(p.evidenceRefs).size!==p.evidenceRefs.length)return 'invalid-evidence-refs';
+    const refs=new Set(evidence.map(e=>e.ref));
+    if(p.evidenceRefs.some(ref=>!refs.has(ref)))return 'unresolved-evidence';
+    if(p.relationships?.some(rel=>rel.scope!==p.scope||!rel.id?.trim()||!rel.fromId?.trim()||!rel.toId?.trim()
+      ||rel.fromId===rel.toId||!rel.sourceRefs.length||rel.sourceRefs.some(ref=>!p.evidenceRefs.includes(ref))))return 'invalid-relationship';
+    if(mode==='auto'&&(p.operation!=='add'||!p.proposedRecord))return 'only-add-can-be-auto-committed';
+    return undefined;
+  }
+  private insertProposalRelationships(p:DreamingProposal) {
+    for(const rel of p.relationships??[]){
+      const old=this.db.prepare('SELECT * FROM relationships WHERE id=?').get(rel.id) as Row|undefined;
+      if(old){
+        const same=old.scope===rel.scope&&old.from_id===rel.fromId&&old.to_id===rel.toId
+          &&old.kind===rel.kind&&String(old.refs)===encode(rel.sourceRefs);
+        if(!same)throw new Error('Conflicting relationship ID: '+rel.id);
+        continue;
+      }
+      this.db.prepare('INSERT INTO relationships(id,scope,from_id,to_id,kind,refs) VALUES(?,?,?,?,?,?)')
+        .run(rel.id,rel.scope,rel.fromId,rel.toId,rel.kind,encode(rel.sourceRefs));
+    }
+  }
+  private applyReviewed(p:DreamingProposal,evidence:readonly DreamingEvidence[]){
     const targets=p.targetRecordIds.map(id=>this.db.prepare('SELECT * FROM memories WHERE id=? AND scope=?').get(id,p.scope) as Row|undefined);
     if(targets.some(x=>!x))throw new Error('Review target missing or outside scope');
     const now=new Date().toISOString();
@@ -169,7 +256,13 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
       for(const id of p.targetRecordIds)this.db.prepare("UPDATE memories SET status='archived',updated_at=? WHERE id=? AND scope=?").run(now,id,p.scope);
       return;
     }
-    if(p.operation==='add'&&p.proposedRecord){this.insertMemory(p.proposedRecord,'confirmed');return;}
+    if(p.operation==='add'&&p.proposedRecord){
+      const old=this.db.prepare('SELECT scope FROM memories WHERE id=?').get(p.proposedRecord.id) as Row|undefined;
+      if(old)throw new Error('Memory ID already exists: '+p.proposedRecord.id);
+      this.insertMemory(p.proposedRecord,'confirmed');
+      this.insertProposalRelationships(p);
+      return;
+    }
     if(p.operation==='update'&&p.proposedRecord&&p.targetRecordIds.length===1){
       const target=targets[0]!;
       this.db.prepare('UPDATE memories SET content=?,refs=?,importance=?,valid_until=?,confidence=?,metadata=?,updated_at=? WHERE id=? AND scope=?')
@@ -179,10 +272,11 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
       return;
     }
     if((p.operation==='merge'||p.operation==='supersede')&&p.proposedRecord){
+      const old=this.db.prepare('SELECT scope FROM memories WHERE id=?').get(p.proposedRecord.id) as Row|undefined;
+      if(old)throw new Error('Memory ID already exists: '+p.proposedRecord.id);
       this.insertMemory(p.proposedRecord,'confirmed');
       for(const id of p.targetRecordIds)this.db.prepare("UPDATE memories SET status='superseded',updated_at=? WHERE id=? AND scope=?").run(now,id,p.scope);
-      for(const rel of p.relationships??[])this.db.prepare('INSERT OR IGNORE INTO relationships(id,scope,from_id,to_id,kind,refs) VALUES(?,?,?,?,?,?)')
-        .run(rel.id,rel.scope,rel.fromId,rel.toId,rel.kind,encode(rel.sourceRefs));
+      this.insertProposalRelationships(p);
       return;
     }
     throw new Error('Unsupported reviewed proposal');
