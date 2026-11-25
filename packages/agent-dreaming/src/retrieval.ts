@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 
 export interface EmbeddingProvider {
   readonly id: string;
@@ -34,23 +35,32 @@ export class SqliteVectorIndex implements MemoryRetriever {
   ) {
     db.exec(
       'CREATE TABLE IF NOT EXISTS memory_embeddings (' +
-      'scope TEXT NOT NULL, memory_id TEXT NOT NULL, provider TEXT NOT NULL, dimensions INTEGER NOT NULL, vector TEXT NOT NULL, ' +
+      'scope TEXT NOT NULL, memory_id TEXT NOT NULL, provider TEXT NOT NULL, dimensions INTEGER NOT NULL, vector TEXT NOT NULL, content_hash TEXT NOT NULL DEFAULT \'\', ' +
       'updated_at TEXT NOT NULL, PRIMARY KEY(scope,memory_id,provider));' +
       'CREATE INDEX IF NOT EXISTS memory_embeddings_scope_provider ON memory_embeddings(scope,provider);',
     );
+    const columns = db.prepare('PRAGMA table_info(memory_embeddings)').all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'content_hash')) {
+      db.exec(\"ALTER TABLE memory_embeddings ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''\");
+    }
   }
 
   async index(input: { scope: string; memoryId: string; content: string }): Promise<void> {
     if (!input.scope.trim() || !input.memoryId.trim() || !input.content.trim()) {
       throw new TypeError('scope, memoryId and content are required for embedding.');
     }
+    const contentHash = createHash('sha256').update(input.content).digest('hex');
+    const existing = this.db.prepare(
+      'SELECT content_hash FROM memory_embeddings WHERE scope=? AND memory_id=? AND provider=?',
+    ).get(input.scope, input.memoryId, this.embeddings.id) as { content_hash: string } | undefined;
+    if (existing?.content_hash === contentHash) return;
     const [raw] = await this.embeddings.embed([input.content]);
     if (!raw) throw new Error('Embedding provider returned no vector.');
     const vector = validateVector(raw);
     this.db.prepare(
-      'INSERT INTO memory_embeddings(scope,memory_id,provider,dimensions,vector,updated_at) VALUES(?,?,?,?,?,?) ' +
-      'ON CONFLICT(scope,memory_id,provider) DO UPDATE SET dimensions=excluded.dimensions,vector=excluded.vector,updated_at=excluded.updated_at',
-    ).run(input.scope, input.memoryId, this.embeddings.id, vector.length, JSON.stringify(vector), new Date().toISOString());
+      'INSERT INTO memory_embeddings(scope,memory_id,provider,dimensions,vector,content_hash,updated_at) VALUES(?,?,?,?,?,?,?) ' +
+      'ON CONFLICT(scope,memory_id,provider) DO UPDATE SET dimensions=excluded.dimensions,vector=excluded.vector,content_hash=excluded.content_hash,updated_at=excluded.updated_at',
+    ).run(input.scope, input.memoryId, this.embeddings.id, vector.length, JSON.stringify(vector), contentHash, new Date().toISOString());
   }
 
   async search(input: { scope: string; query: string; limit?: number; minScore?: number }): Promise<MemorySearchResult[]> {
