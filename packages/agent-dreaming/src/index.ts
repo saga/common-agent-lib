@@ -237,6 +237,32 @@ export interface DreamingEvidenceResolver {
   }): Promise<readonly DreamingEvidence[]>;
 }
 
+export interface DreamingReviewQueueItem {
+  proposal: DreamingProposal;
+  evidence: DreamingEvidence[];
+  runId: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+}
+
+/** Durable review operations. The host must authorize the reviewer before resolving a proposal. */
+export interface DreamingReviewQueue {
+  listReviewQueue(input: {
+    scope: string;
+    status?: DreamingReviewQueueItem['status'];
+    limit?: number;
+  }): Promise<DreamingReviewQueueItem[]>;
+  resolveReview(input: {
+    scope: string;
+    proposalId: string;
+    decision: 'approve' | 'reject';
+    reviewedBy: string;
+  }): Promise<DreamingReviewQueueItem['status']>;
+}
+
 export interface DreamingOptions {
   scopes: readonly string[];
   intervalMs?: number;
