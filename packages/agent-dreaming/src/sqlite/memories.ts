@@ -63,7 +63,7 @@ export class SqliteMemoryStore {
     }
 
     let relevanceOrder = '3';
-    const relevanceParams: unknown[] = [];
+    const relevanceParams: (string | number)[] = [];
     if (relevantRefs.length) {
       const placeholders = relevantRefs.map(() => '?').join(',');
       relevanceOrder = `CASE WHEN EXISTS (
