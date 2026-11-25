@@ -78,6 +78,10 @@ SQLite uses Node's built-in `node:sqlite`; no native addon or third-party SQLite
 
 The host authenticates users, authorizes scope access and review decisions, and decides when a candidate may become confirmed. Do not expose database or review methods directly as untrusted model tools.
 
-The built-in memory ranking uses source-reference overlap, stale/expiry status and importance. It does not include embeddings or vector search; a host can provide its own repository to add semantic retrieval or domain-specific ranking.
+The built-in memory ranking uses a persisted SQLite vector index with cosine similarity, source-reference overlap, stale/expiry status and importance. The default local embedding provider uses optional Transformers.js with a multilingual MiniLM model; install @huggingface/transformers to enable local semantic embeddings. Without that optional package, Dreaming falls back to source-reference and recency ranking. Supply a custom EmbeddingProvider or MemoryRetriever to override the default. Embeddings are cached by content hash and isolated by scope and provider ID.
 
 The timer is process-local. For guaranteed scheduling across restarts, run `DreamingEngine` from a durable worker or external scheduler and keep the repository lease enabled. The in-process timer is a trigger, not a durable queue.
+
+## Built-in authorization and review
+
+The package exports RoleBasedDreamingAuthorization, DenyAllDreamingAuthorization and AuthorizedDreamingReviewQueue. The role policy is default-deny and grants permissions by authenticated subject and scope. Review reads and approve/reject operations go through the authorized facade, which checks permissions before touching the underlying durable queue. Authentication and trusted subject identification remain the host's responsibility; caller-provided role claims are not permission grants. Use a custom DreamingAuthorizationPolicy to integrate an existing IAM or policy engine.
