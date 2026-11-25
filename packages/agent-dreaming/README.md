@@ -67,7 +67,7 @@ Dreaming does not decide that a memory is trusted. Updates, merges, supersedes a
 `SqliteDreamingStore` implements:
 
 - `DreamingRepository`: experiences, memories, relationships, checkpoints and run persistence.
-- `DreamingEvidenceResolver`: scope-isolated local evidence lookup.
+- `DreamingEvidenceResolver`: scope-isolated local evidence lookup. Evidence refs are immutable; publish changed source content under a new versioned ref so earlier evidence remains available for review.
 - `DreamingReviewQueue`: durable proposal review and explicit approve/reject.
 - `DreamingRunStore`: query individual runs or bounded run history.
 - `DreamingMemoryHistoryStore`: inspect snapshots preserved before memory changes.
