@@ -395,7 +395,8 @@ export class DreamingEngine {
           }
           const outcome = await this.repository.commitProposal({
             proposal,
-            proposal, evidence: proposalEvidence, runId: run.id,
+            evidence: evidence.filter((item) => allowedRefs.has(item.ref)),
+            runId: run.id,
           });
           if (outcome.applied) run.appliedProposalIds.push(proposal.id);
           else run.rejectedProposalIds.push(proposal.id);
