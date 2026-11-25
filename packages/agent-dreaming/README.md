@@ -12,14 +12,12 @@ npm install @saga/agent-dreaming @microsoft/copilot-sdk
 
 ```ts
 import {
-  CopilotDreamingRuntime,
-  DreamingEngine,
+  createSqliteCopilotDreaming,
   SqliteDreamingStore,
 } from '@saga/agent-dreaming';
 
 const store = new SqliteDreamingStore({ filename: './data/dreaming.sqlite' });
-const runtime = new CopilotDreamingRuntime({ model: 'auto' });
-const engine = new DreamingEngine(runtime, store, store, {
+const dreaming = createSqliteCopilotDreaming(store, {
   scopes: ['user:1'],
   intervalMs: 15 * 60_000,
 });
@@ -37,12 +35,12 @@ await store.appendExperience({
   sourceRefs: ['note:1'],
 });
 
-engine.start();
-await engine.runNow('user:1');
-await engine.shutdown();
-await runtime.close();
-await store.close();
+dreaming.start();
+await dreaming.runNow('user:1');
+await dreaming.shutdown(); // Stops the engine, Copilot client and SQLite store.
 ```
+
+The `createSqliteCopilotDreaming()` factory composes the engine, SQLite store and Copilot adapter. Use `createCopilotDreaming(repository, evidenceResolver, options)` when persistence is supplied separately, or construct `DreamingEngine` and a custom `DreamingRuntime` yourself.
 
 The adapter uses `@microsoft/copilot-sdk` directly. It creates a short-lived, isolated session for each generation call and defaults to the SDK's `empty` mode, so Dreaming receives supplied experiences and evidence but has no tool access by default. The SDK client is reused; conversation history is not. Structured output is requested with a JSON Schema and validated again by the Dreaming engine.
 
