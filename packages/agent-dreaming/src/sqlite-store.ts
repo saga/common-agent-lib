@@ -164,8 +164,27 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
   private applyReviewed(p:DreamingProposal){
     const targets=p.targetRecordIds.map(id=>this.db.prepare('SELECT * FROM memories WHERE id=? AND scope=?').get(id,p.scope) as Row|undefined);
     if(targets.some(x=>!x))throw new Error('Review target missing or outside scope');
-    if(p.operation==='archive'){for(const id of p.targetRecordIds)this.db.prepare("UPDATE memories SET status='archived',updated_at=? WHERE id=? AND scope=?").run(new Date().toISOString(),id,p.scope);return;}
-    if(p.proposedRecord){this.insertMemory(p.proposedRecord,'confirmed');if(p.operation!=='add')for(const id of p.targetRecordIds)this.db.prepare("UPDATE memories SET status='superseded',updated_at=? WHERE id=? AND scope=?").run(new Date().toISOString(),id,p.scope);return;}
+    const now=new Date().toISOString();
+    if(p.operation==='archive'){
+      for(const id of p.targetRecordIds)this.db.prepare("UPDATE memories SET status='archived',updated_at=? WHERE id=? AND scope=?").run(now,id,p.scope);
+      return;
+    }
+    if(p.operation==='add'&&p.proposedRecord){this.insertMemory(p.proposedRecord,'confirmed');return;}
+    if(p.operation==='update'&&p.proposedRecord&&p.targetRecordIds.length===1){
+      const target=targets[0]!;
+      this.db.prepare('UPDATE memories SET content=?,refs=?,importance=?,valid_until=?,confidence=?,metadata=?,updated_at=? WHERE id=? AND scope=?')
+        .run(p.proposedRecord.content,encode(p.proposedRecord.sourceRefs),p.proposedRecord.importance,
+          p.proposedRecord.validUntil??target.valid_until,p.proposedRecord.confidence??target.confidence,
+          encode(p.proposedRecord.metadata??decode<Record<string,unknown>>(target.metadata)),now,p.targetRecordIds[0],p.scope);
+      return;
+    }
+    if((p.operation==='merge'||p.operation==='supersede')&&p.proposedRecord){
+      this.insertMemory(p.proposedRecord,'confirmed');
+      for(const id of p.targetRecordIds)this.db.prepare("UPDATE memories SET status='superseded',updated_at=? WHERE id=? AND scope=?").run(now,id,p.scope);
+      for(const rel of p.relationships??[])this.db.prepare('INSERT OR IGNORE INTO relationships(id,scope,from_id,to_id,kind,refs) VALUES(?,?,?,?,?,?)')
+        .run(rel.id,rel.scope,rel.fromId,rel.toId,rel.kind,encode(rel.sourceRefs));
+      return;
+    }
     throw new Error('Unsupported reviewed proposal');
   }
   private experience(r:Row):DreamingExperience{return {id:String(r.id),scope:String(r.scope),sequence:Number(r.sequence),content:String(r.content),createdAt:String(r.created_at),sourceRefs:decode<string[]>(r.refs),metadata:decode<Record<string,unknown>>(r.metadata)};}
