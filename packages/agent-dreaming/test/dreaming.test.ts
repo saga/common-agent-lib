@@ -33,16 +33,22 @@ function fixture(
   const commits: string[] = [];
   const committed: DreamingProposal[] = [];
   const staged: Array<{ proposal: DreamingProposal; reason: string }> = [];
+  const reviewedMemories: string[] = [];
+  const memoryReviewRequests: Array<{ reviewBefore?: string; expiredBefore?: string }> = [];
   const repository: DreamingRepository = {
     async loadExperiences({ afterSequence }) {
       const items = experience.sequence > afterSequence ? [experience] : [];
       return { items, hasMore: false };
     },
-    async loadMemories() { return memory; },
+    async loadMemories(input) {
+      memoryReviewRequests.push({ reviewBefore: input.reviewBefore, expiredBefore: input.expiredBefore });
+      return memory;
+    },
     async loadRelationships() { return []; },
     async loadCheckpoint() { return checkpoint; },
     async saveCheckpoint(value) { checkpoint = value; },
     async markExperiencesReviewed() {},
+    async markMemoriesReviewed({ ids }) { reviewedMemories.push(...ids); },
     async createRun(run) { runs.push(run); },
     async updateRun(run) {
       const index = runs.findIndex((item) => item.id === run.id);
@@ -94,7 +100,7 @@ function fixture(
   const engine = new DreamingEngine(runtime, repository, resolver, {
     scopes: ['user-1'], batchSize: 10, maxBatchesPerRun: 1, ...callbacks,
   });
-  return { engine, checkpoint: () => checkpoint, runs, commits, committed, staged };
+  return { engine, checkpoint: () => checkpoint, runs, commits, committed, staged, reviewedMemories, memoryReviewRequests };
 }
 
 test('runNow resolves evidence, submits proposals and advances checkpoint', async () => {
@@ -275,4 +281,35 @@ test('invalid automatic candidate thresholds fail at construction', () => {
     { async resolve() { return []; } },
     { scopes: ['user-1'], autoCandidateThresholds: { confidence: 1.2 } },
   ), /must be between 0 and 1/);
+});
+
+
+test('memory review persists only IDs explicitly reported by the runtime', async () => {
+  const output = {
+    proposals: [],
+    processedRecordIds: ['e1'],
+    reviewedMemoryIds: ['m-stale'],
+  };
+  const f = fixture('trace:t1:event:e1', {}, output, [{
+    id: 'm-stale', scope: 'user-1', content: 'An old preference.',
+    status: 'confirmed', importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
+    lastValidatedAt: '2026-01-01T00:00:00.000Z',
+    validUntil: '2026-11-20T00:00:00.000Z',
+  }]);
+  const run = await f.engine.runNow('user-1');
+  assert.deepEqual(f.reviewedMemories, ['m-stale']);
+  assert.deepEqual(run?.reviewedMemoryIds, ['m-stale']);
+  assert.ok(f.memoryReviewRequests[0]?.reviewBefore);
+  assert.ok(f.memoryReviewRequests[0]?.expiredBefore);
+});
+
+test('runtime cannot mark a memory outside the loaded scope as reviewed', async () => {
+  const output = {
+    proposals: [],
+    processedRecordIds: ['e1'],
+    reviewedMemoryIds: ['m-other-scope'],
+  };
+  const f = fixture('trace:t1:event:e1', {}, output);
+  await assert.rejects(() => f.engine.runNow('user-1'), /unknown memory as reviewed/);
+  assert.deepEqual(f.reviewedMemories, []);
 });
