@@ -15,3 +15,6 @@ export { SqliteDreamingScheduler } from './scheduler.js';
 export type { DurableSchedulerOptions, ScheduledDreamingJob } from './scheduler.js';
 export { RoleBasedDreamingAuthorization, DenyAllDreamingAuthorization, assertDreamingAuthorized } from './authorization.js';
 export type { DreamingActor, DreamingAction, DreamingAuthorizationPolicy, DreamingAuthorizationRequest, DreamingRole } from './authorization.js';
+export { DreamingWorker } from './worker.js';
+export type { DreamingWorkerOptions } from './worker.js';
+export { AuthorizedDreamingReviewQueue } from './authorized-review-queue.js';
