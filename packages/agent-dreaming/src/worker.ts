@@ -49,12 +49,22 @@ export class DreamingWorker {
     const jobs = this.scheduler.claim(this.options.workerId, this.options.batchSize ?? 10);
     let completed = 0;
     for (const job of jobs) {
+      const controller = new AbortController();
+      const heartbeat = setInterval(() => {
+        if (!this.scheduler.renew({ id: job.id, owner: this.options.workerId })) {
+          controller.abort(new Error('Durable scheduler lease was lost.'));
+        }
+      }, this.scheduler.heartbeatIntervalMs);
+      heartbeat.unref?.();
       try {
-        await this.engine.runNow(job.scope);
+        await this.engine.runNow(job.scope, controller.signal);
+        if (controller.signal.aborted) throw controller.signal.reason;
         if (this.scheduler.complete({ id: job.id, owner: this.options.workerId })) completed += 1;
       } catch (error) {
         this.scheduler.fail({ id: job.id, owner: this.options.workerId, error });
         try { await this.options.onError?.(error, job.scope); } catch { /* Observer errors do not affect job state. */ }
+      } finally {
+        clearInterval(heartbeat);
       }
     }
     return completed;
