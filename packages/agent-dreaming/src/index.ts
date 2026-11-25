@@ -71,6 +71,8 @@ export interface DreamingProposal {
 export interface DreamingModelResult {
   proposals: DreamingProposal[];
   processedRecordIds: string[];
+  /** Existing memories actually checked against current evidence. */
+  reviewedMemoryIds: string[];
   notes?: string[];
 }
 
@@ -114,6 +116,7 @@ export interface DreamingRun {
   appliedProposalIds: string[];
   rejectedProposalIds: string[];
   pendingProposalIds: string[];
+  reviewedMemoryIds: string[];
   error?: string;
   runtimeId: string;
   model?: string;
@@ -146,6 +149,7 @@ export interface DreamingRepository {
   loadCheckpoint(scope: string): Promise<DreamingCheckpoint>;
   /** Persist review timestamps so the same old experience is not selected on every tick. */
   markExperiencesReviewed(input: { scope: string; ids: readonly string[]; reviewedAt: string }): Promise<void>;
+  markMemoriesReviewed(input: { scope: string; ids: readonly string[]; reviewedAt: string }): Promise<void>;
   saveCheckpoint(checkpoint: DreamingCheckpoint): Promise<void>;
   createRun(run: DreamingRun): Promise<void>;
   updateRun(run: DreamingRun): Promise<void>;
@@ -227,6 +231,7 @@ Return JSON with this shape:
     "quality": { "confidence": 0.0, "durability": 0.0, "specificity": 0.0, "contradictionRisk": 0.0 }
   }],
   "processedRecordIds": ["experience ids reviewed"],
+  "reviewedMemoryIds": ["existing memory ids actually reviewed"],
   "notes": []
 }
 
@@ -238,7 +243,7 @@ Rules:
 - Keep memories concise, specific, attributable and useful to future tasks.
 - If evidence is insufficient or contradictory, do not force a resolution; report a high contradictionRisk and leave the proposal for review.
 - Assess confidence, durability, specificity and contradictionRisk from 0 to 1. These are triage estimates, not proof of truth.
-- Expired or stale memories must be re-evaluated against current evidence. Never silently delete, archive or overwrite them.
+- Expired or stale memories must be re-evaluated against current evidence. Report their IDs in reviewedMemoryIds only when actually checked. Never silently delete, archive or overwrite them.
 - Updates, merges, supersedes and archives are review-only proposals; do not assume permission to mutate existing memory.
 - Return no markdown fences or prose outside the JSON object.`;
 
@@ -377,6 +382,7 @@ export class DreamingEngine {
       appliedProposalIds: [],
       rejectedProposalIds: [],
       pendingProposalIds: [],
+      reviewedMemoryIds: [],
       runtimeId: this.runtime.id,
     };
     await this.repository.createRun(run);
@@ -454,6 +460,16 @@ export class DreamingEngine {
         const batchIds = new Set(experiences.map((item) => item.id));
         for (const id of result.processedRecordIds) {
           if (!batchIds.has(id)) throw new Error(`Runtime marked an unknown experience as processed: ${id}`);
+        }
+        const loadedMemoryIds = new Set(memories.map((item) => item.id));
+        for (const id of result.reviewedMemoryIds) {
+          if (!loadedMemoryIds.has(id)) throw new Error(`Runtime marked an unknown memory as reviewed: ${id}`);
+        }
+        if (result.reviewedMemoryIds.length) {
+          await this.repository.markMemoriesReviewed({
+            scope, ids: result.reviewedMemoryIds, reviewedAt: new Date().toISOString(),
+          });
+          run.reviewedMemoryIds.push(...result.reviewedMemoryIds);
         }
 
         const memoryIds = new Set(memories.map((item) => item.id));
@@ -563,8 +579,9 @@ function parseResult(value: unknown, scope: string): DreamingModelResult {
   if (value.proposals.length > 100) throw new Error('Dreaming result exceeds the proposal limit.');
   const proposals = value.proposals.map((item) => parseProposal(item, scope));
   const processedRecordIds = stringArray(value.processedRecordIds, 'processedRecordIds');
+  const reviewedMemoryIds = stringArray(value.reviewedMemoryIds ?? [], 'reviewedMemoryIds');
   const notes = value.notes === undefined ? [] : stringArray(value.notes, 'notes');
-  return { proposals, processedRecordIds, notes };
+  return { proposals, processedRecordIds, reviewedMemoryIds, notes };
 }
 
 function parseProposal(value: unknown, scope: string): DreamingProposal {
