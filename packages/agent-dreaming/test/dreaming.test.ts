@@ -448,3 +448,65 @@ test('long-term feedback summaries are supplied to the dreaming runtime', async 
   assert.match(f.prompts[0] ?? '', /low-retrieval-usefulness/);
   assert.match(f.prompts[0] ?? '', /"recommendation": "review"/);
 });
+
+
+test('review effectiveness compares usefulness before and after an accepted review', () => {
+  const events: DreamingFeedbackEvent[] = [
+    ...Array.from({ length: 4 }, (_, index) => ({
+      id: `before-${index}`, scope: 'user-1', memoryId: 'm-review',
+      kind: 'retrieval' as const, outcome: 'not-useful' as const,
+      occurredAt: `2026-10-${String(1 + index).padStart(2, '0')}T00:00:00.000Z`,
+    })),
+    {
+      id: 'review-1', scope: 'user-1', memoryId: 'm-review', kind: 'human-review',
+      outcome: 'edited', occurredAt: '2026-10-10T00:00:00.000Z',
+    },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      id: `after-${index}`, scope: 'user-1', memoryId: 'm-review',
+      kind: 'retrieval' as const, outcome: 'useful' as const,
+      occurredAt: `2026-10-${String(11 + index).padStart(2, '0')}T00:00:00.000Z`,
+    })),
+  ];
+  const quality = evaluateMemoryQuality(events, '2026-11-01T00:00:00.000Z');
+  assert.equal(quality.reviewEffectiveness?.trend, 'improving');
+  assert.equal(quality.reviewEffectiveness?.baselineSampleCount, 4);
+  assert.equal(quality.reviewEffectiveness?.followUpSampleCount, 4);
+  assert.equal(quality.reviewEffectiveness?.delta, 1);
+});
+
+test('declining post-review usefulness raises a review signal', () => {
+  const events: DreamingFeedbackEvent[] = [
+    ...Array.from({ length: 3 }, (_, index) => ({
+      id: `before-${index}`, scope: 'user-1', memoryId: 'm-review',
+      kind: 'retrieval' as const, outcome: 'useful' as const,
+      occurredAt: `2026-10-0${index + 1}T00:00:00.000Z`,
+    })),
+    {
+      id: 'review-1', scope: 'user-1', memoryId: 'm-review', kind: 'human-review',
+      outcome: 'confirmed', occurredAt: '2026-10-10T00:00:00.000Z',
+    },
+    ...Array.from({ length: 3 }, (_, index) => ({
+      id: `after-${index}`, scope: 'user-1', memoryId: 'm-review',
+      kind: 'retrieval' as const, outcome: 'not-useful' as const,
+      occurredAt: `2026-10-${11 + index}T00:00:00.000Z`,
+    })),
+  ];
+  const quality = evaluateMemoryQuality(events, '2026-11-01T00:00:00.000Z');
+  assert.equal(quality.reviewEffectiveness?.trend, 'declining');
+  assert.equal(quality.recommendation, 'review');
+  assert.ok(quality.reasons.includes('post-review-usefulness-declined'));
+});
+
+test('review effectiveness remains inconclusive without enough before-and-after observations', () => {
+  const events: DreamingFeedbackEvent[] = [
+    { id: 'before-1', scope: 'user-1', memoryId: 'm-review', kind: 'retrieval', outcome: 'not-useful', occurredAt: '2026-10-01T00:00:00.000Z' },
+    { id: 'review-1', scope: 'user-1', memoryId: 'm-review', kind: 'human-review', outcome: 'edited', occurredAt: '2026-10-10T00:00:00.000Z' },
+    ...Array.from({ length: 3 }, (_, index) => ({
+      id: `after-${index}`, scope: 'user-1', memoryId: 'm-review',
+      kind: 'retrieval' as const, outcome: 'useful' as const,
+      occurredAt: `2026-10-${11 + index}T00:00:00.000Z`,
+    })),
+  ];
+  const quality = evaluateMemoryQuality(events, '2026-11-01T00:00:00.000Z');
+  assert.equal(quality.reviewEffectiveness, undefined);
+});
