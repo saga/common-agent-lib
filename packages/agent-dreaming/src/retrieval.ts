@@ -41,7 +41,7 @@ export class SqliteVectorIndex implements MemoryRetriever {
     );
     const columns = db.prepare('PRAGMA table_info(memory_embeddings)').all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === 'content_hash')) {
-      db.exec(\"ALTER TABLE memory_embeddings ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''\");
+      db.exec("ALTER TABLE memory_embeddings ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''");
     }
   }
 
