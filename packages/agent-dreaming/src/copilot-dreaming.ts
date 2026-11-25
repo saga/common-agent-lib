@@ -58,8 +58,11 @@ export function createSqliteCopilotDreaming(
     ...dreaming,
     store,
     async shutdown(reason) {
-      await dreaming.shutdown(reason);
-      await store.close();
+      try {
+        await dreaming.shutdown(reason);
+      } finally {
+        await store.close();
+      }
     },
   };
 }
