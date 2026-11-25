@@ -27,3 +27,10 @@ The host remains authoritative for storage, authorization, domain validation, co
 - Hosts implement persistence and policy once, against explicit interfaces.
 - Background work is recoverable across restarts when the repository persists runs and checkpoints.
 - The timer is process-local; deployments requiring guaranteed scheduled execution must run the engine in a durable worker/service and implement repository leases.
+
+## Long-term quality feedback
+
+Add immutable, host-authenticated feedback events for retrieval usefulness, evidence support/contradiction, user corrections and human review outcomes. The engine loads bounded feedback for selected memories and passes deterministic recency-weighted summaries to the runtime. Retrieval alone is not positive feedback; the host records usefulness only when task outcome is known.
+
+The evaluator uses a 180-day window and 90-day half-life, keeps usage and evidence signals separate, and requires repeated negative observations before recommending review. Human rejection is an explicit review signal. Quality feedback never mutates memory state; existing-memory changes continue through the durable review queue.
+
