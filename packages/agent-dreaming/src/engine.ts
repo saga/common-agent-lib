@@ -1,5 +1,5 @@
 import type {
-  DreamingCheckpoint, DreamingEvidence, DreamingFeedbackEvent, DreamingMemory,
+  DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingFeedbackEvent, DreamingMemory,
   DreamingMemoryQuality, DreamingModelResult, DreamingOptions, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun,
   DreamingRunInput, DreamingRuntime,
