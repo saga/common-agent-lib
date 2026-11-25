@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SqliteDreamingStore } from '../src/sqlite-store.js';
+import type { DreamingMemory, DreamingProposal } from '../src/index.js';
 
 const createStore = () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'dreaming-invariants-'));
@@ -18,13 +19,13 @@ const createStore = () => {
 };
 
 const evidence = { ref: 'source:1', kind: 'note', content: 'Verified source' };
-const record = (id: string, content = id) => ({
-  id, scope: 'scope-a', content, status: 'confirmed' as const,
-  importance: 0.7, sourceRefs: ['source:1'],
+const record = (id: string, content = id): DreamingMemory => ({
+  id, scope: 'scope-a', content, status: 'confirmed', importance: 0.7, sourceRefs: ['source:1'],
 });
-const proposal = (id: string, operation: 'add' | 'update' | 'merge' | 'supersede' | 'archive',
-  targetRecordIds: string[], proposedRecord?: ReturnType<typeof record>) => ({
-  id, scope: 'scope-a', operation, targetRecordIds, proposedRecord,
+const proposal = (id: string, operation: DreamingProposal['operation'],
+  targetRecordIds: string[], proposedRecord?: DreamingMemory): DreamingProposal => ({
+  id, scope: 'scope-a', operation, targetRecordIds,
+  ...(proposedRecord ? { proposedRecord } : {}),
   rationale: 'Supported by source evidence', evidenceRefs: ['source:1'],
 });
 
