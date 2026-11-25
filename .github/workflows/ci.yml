@@ -24,3 +24,29 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Verify agent-dreaming as an installed package
+        shell: bash
+        run: |
+          set -euo pipefail
+          pack_file="$(npm pack --workspace=@saga/agent-dreaming --pack-destination "$RUNNER_TEMP" --silent | tail -n 1)"
+          consumer="$RUNNER_TEMP/agent-dreaming-consumer"
+          mkdir -p "$consumer"
+          cd "$consumer"
+          npm init --yes >/dev/null
+          npm install --no-audit --no-fund "$RUNNER_TEMP/$pack_file"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { SqliteDreamingStore } from '@saga/agent-dreaming';
+          import { SqliteDreamingStore as SqliteSubpath } from '@saga/agent-dreaming/sqlite';
+
+          assert.equal(SqliteDreamingStore, SqliteSubpath);
+          const store = new SqliteDreamingStore({ filename: ':memory:' });
+          await store.putEvidence('package-smoke', {
+            ref: 'evidence:1',
+            kind: 'test',
+            content: 'standalone package works'
+          });
+          const evidence = await store.resolve({ scope: 'package-smoke', refs: ['evidence:1'] });
+          assert.equal(evidence[0]?.content, 'standalone package works');
+          await store.close();
+          NODE
