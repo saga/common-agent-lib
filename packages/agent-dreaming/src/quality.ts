@@ -1,5 +1,5 @@
 import type {
-  DreamingFeedbackEvent, DreamingFeedbackKind, DreamingMemoryQuality,
+  DreamingFeedbackEvent, DreamingFeedbackKind, DreamingMemoryQuality, DreamingReviewEffectiveness,
 } from './types.js';
 
 const FEEDBACK_HALF_LIFE_MS = 90 * 24 * 60 * 60_000;
@@ -115,4 +115,11 @@ export function validateFeedbackEvent(event: DreamingFeedbackEvent): void {
   }
   if (event.sourceRef !== undefined) requiredString(event.sourceRef, 'feedback.sourceRef');
   if (event.taskId !== undefined) requiredString(event.taskId, 'feedback.taskId');
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${field} must be a non-empty string.`);
+  }
+  return value;
 }
