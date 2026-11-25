@@ -399,7 +399,6 @@ export class DreamingEngine {
         const page = await this.repository.loadExperiences({
           scope, afterSequence, reviewBefore, limit: batchSize,
         });
-        if (!page.items.length) break;
         if (page.items.length > batchSize) throw new Error('Repository returned more experiences than the requested batch limit.');
         const experiences = [...page.items].sort((a, b) => a.sequence - b.sequence);
         const experienceIds = new Set<string>();
@@ -428,6 +427,7 @@ export class DreamingEngine {
         if (relationships.some((item) => item.scope !== scope || !item.id || !item.fromId || !item.toId || item.fromId === item.toId)) {
           throw new Error('Repository returned invalid relationships for the active scope.');
         }
+        if (!experiences.length && !memories.length) break;
         const refs = unique([
           ...experiences.flatMap((item) => [...item.sourceRefs]),
           ...memories.flatMap((item) => [...item.sourceRefs]),
