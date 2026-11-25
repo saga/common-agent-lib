@@ -35,7 +35,7 @@ test('review queue is durable, idempotent and only applies on approval',async()=
  const x=setup();try{
   const proposal={id:'p1',scope:'s',operation:'add' as const,targetRecordIds:[],proposedRecord:{id:'m2',scope:'s',content:'new',status:'candidate' as const,importance:.5,sourceRefs:['r1']},rationale:'source supports',evidenceRefs:['r1']};
   await x.store.stageProposal({proposal,evidence:[{ref:'r1',content:'evidence',kind:'note'}],runId:'run1',reason:'quality-gate'});
-  await x.store.stageProposal({proposal,evidence:[],runId:'run1',reason:'quality-gate'});
+  await x.store.stageProposal({proposal,evidence:[{ref:'r1',content:'evidence',kind:'note'}],runId:'run1',reason:'quality-gate'});
   assert.equal((await x.store.listReviewQueue({scope:'s'})).length,1);
   assert.equal((await x.store.listMemories('s')).length,0);
   assert.equal(await x.store.resolveReview({scope:'s',proposalId:'p1',decision:'approve',reviewedBy:'reviewer'}),'approved');
