@@ -19,7 +19,7 @@
 | `@saga/agent-structured-output` | Provider-neutral 的结构化输出解析和最终 Schema 校验 | `zod` |
 | `@saga/agent-eval` | Eval case、observation、code/model/human grader 和结果汇总 | 无 |
 | `@saga/agent-memory` | 持久记忆契约、分页、工作记忆窗口和归档候选 | `zod` |
-| `@saga/agent-dreaming` | 后台记忆 Dreaming、Evidence Replay、增量整理、纠错提案、checkpoint、lease 与自动调度 | 无（Runtime / Store 由宿主注入） |
+| `@saga/agent-dreaming` | 后台记忆 Dreaming、反馈评估、SQLite 持久化、Evidence、Review Queue、checkpoint、lease 与自动调度 | Node.js 24.15+ 内置 `node:sqlite` |
 | `@saga/agent-rules` | 小型声明式确定性规则评估器 | `zod` |
 | `@saga/agent-state-machine` | 小型确定性状态转移运行时 | 无 |
 
@@ -407,6 +407,6 @@ The host application still owns retrieval, authorization, evidence validation, t
 
 ## Agent memory dreaming
 
-`@saga/agent-dreaming` 提供独立的后台 Dreaming Engine。宿主注入模型 Runtime Adapter（Copilot SDK、CodeBuddy SDK、pi.dev 均可）、DreamingRepository 和 EvidenceResolver；调用 `start()` 后自动执行启动整理与周期整理，新增经历可通过 `notifyRecordAppended(scope)` 触发。它负责批次、回放、结构化输出校验、scope/evidence 检查、checkpoint 和 run 状态；权威记忆的事务提交、权限和领域校验仍由 Repository 实现。
+`@saga/agent-dreaming` 提供独立的后台 Dreaming Engine 和内置 SQLite Store。Experience、Memory、Relationship、Evidence、Feedback、Checkpoint、Run、Lease 与 Review Queue 均有内置持久化实现；宿主只需接入模型 Runtime，外部资料源可选接入 Evidence Resolver。高质量新增记忆以 candidate 状态自动写入，现有记忆修改必须经过人工审批。
 
 接口、接入示例和调度语义见 [packages/agent-dreaming/README.md](packages/agent-dreaming/README.md)。

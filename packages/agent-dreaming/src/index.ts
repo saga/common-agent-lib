@@ -22,7 +22,7 @@ export interface DreamingMemory {
   id: string;
   scope: string;
   content: string;
-  status: 'candidate' | 'confirmed' | 'superseded';
+  status: 'candidate' | 'confirmed' | 'superseded' | 'archived';
   importance: number;
   sourceRefs: readonly string[];
   lastValidatedAt?: string;
@@ -922,3 +922,6 @@ function createId(prefix: string): string {
 function unrefTimer(timer: ReturnType<typeof setInterval>): void {
   (timer as unknown as { unref?: () => void }).unref?.();
 }
+
+export { SqliteDreamingStore } from './sqlite-store.js';
+export type { SqliteDreamingOptions, ReviewQueueItem, AppendExperienceInput } from './sqlite-store.js';
