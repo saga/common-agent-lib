@@ -187,6 +187,11 @@ export class CopilotDreamingRuntime implements DreamingRuntime {
       ...this.sessionOptions,
       model: this.model,
     });
+    if (this.closed) {
+      try { await session.abort(); } catch { /* Session may already have stopped with the client. */ }
+      try { await session.disconnect(); } catch { /* Always retire a late-created session. */ }
+      throw new Error('Copilot Dreaming runtime was closed while creating a session');
+    }
     this.activeSessions.add(session);
     const usageEvents: Record<string, unknown>[] = [];
     const unsubscribeUsage = session.on?.('assistant.usage', (event) => {
@@ -226,7 +231,7 @@ export class CopilotDreamingRuntime implements DreamingRuntime {
       };
     } catch (error) {
       abortSession();
-      throw error;
+      throw request.signal?.aborted ? (request.signal.reason ?? error) : error;
     } finally {
       request.signal?.removeEventListener('abort', abortSession);
       unsubscribeUsage?.();
@@ -258,7 +263,15 @@ export class CopilotDreamingRuntime implements DreamingRuntime {
     if (this.client) return this.client;
     if (!this.starting) {
       this.starting = (async () => {
-        const sdk = await this.sdkLoader();
+        let sdk: CopilotSdkModuleLike;
+        try {
+          sdk = await this.sdkLoader();
+        } catch (error) {
+          throw new Error(
+            `CopilotDreamingRuntime requires the optional peer dependency ${COPILOT_PACKAGE}. Install it with: npm install ${COPILOT_PACKAGE}`,
+            { cause: error },
+          );
+        }
         if (typeof sdk.CopilotClient !== 'function') {
           throw new Error('The installed Copilot SDK does not export CopilotClient');
         }
