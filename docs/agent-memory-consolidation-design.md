@@ -21,13 +21,16 @@ The design follows [Anthropic's components of agent memory](https://www.anthropi
 flowchart TD
   A["New trace / experience"] --> B["Dreaming scheduler"]
   B --> C["Load new + review-due experiences"]
-  C --> D["Resolve original evidence"]
+  C --> C2["Load relevant, stale and expired memories"]
+  C2 --> D["Resolve original evidence"]
   D --> E["Runtime adapter: Copilot / CodeBuddy / pi.dev"]
-  E --> F["Validate structured proposals"]
-  F --> G["Host validates scope, evidence, policy and versions"]
-  G --> H["Atomic, idempotent commit"]
-  H --> I["Mark reviewed + advance checkpoint"]
-  I --> J["Refresh host indexes"]
+  E --> F["Validate proposals and quality assessment"]
+  F --> G{"Safe add candidate?"}
+  G -->|Passes evidence + quality gate| H["Idempotent candidate commit"]
+  G -->|Mutation, conflict or weak evidence| R["Durable review queue"]
+  H --> I["Mark experiences and memories reviewed"]
+  R --> I
+  I --> J["Advance contiguous checkpoint"]
   J --> K["Future context assembly"]
 ```
 
