@@ -55,7 +55,7 @@ export class SqliteVectorIndex implements MemoryRetriever {
 
   async search(input: { scope: string; query: string; limit?: number; minScore?: number }): Promise<MemorySearchResult[]> {
     const limit = input.limit ?? 20;
-    const minScore = input.minScore ?? 0;
+    const minScore = input.minScore ?? 0.15;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) throw new TypeError('limit must be between 1 and 1000.');
     if (!Number.isFinite(minScore) || minScore < -1 || minScore > 1) throw new TypeError('minScore must be between -1 and 1.');
     const [raw] = await this.embeddings.embed([input.query]);
