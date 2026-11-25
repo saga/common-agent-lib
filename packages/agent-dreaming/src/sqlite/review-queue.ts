@@ -240,7 +240,7 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
     if (proposal.operation === 'add' && proposal.proposedRecord) {
       const existing = this.context.db.prepare('SELECT scope FROM memories WHERE id=?')
         .get(proposal.proposedRecord.id) as SqliteRow | undefined;
-      if (existing) throw new Error('Memory ID already exists: ' + proposedRecord.id);
+      if (existing) throw new Error('Memory ID already exists: ' + proposal.proposedRecord.id);
       this.context.insertMemory(proposal.proposedRecord, 'confirmed');
       this.insertRelationships(proposal);
       return;
