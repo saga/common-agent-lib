@@ -56,7 +56,7 @@ const runtimeAdapter: DreamingRuntime = {
   id: 'copilot-sdk',
   async generate(request) {
     const result = await copilotSession.sendAndWait({
-      prompt: request.system + '\\n\\n' + request.prompt,
+      prompt: request.system + '\n\n' + request.prompt,
       responseFormat: 'json',
       signal: request.signal,
     });
