@@ -289,11 +289,19 @@ export class DreamingEngine {
   private async runOnce(input: DreamingRunInput): Promise<DreamingRun | undefined> {
     const scope = input.scope;
     const leaseMs = Math.max(10_000, this.options.leaseMs ?? 5 * 60_000);
-    const acquired = await this.repository.acquireLease({ scope, owner: this.owner, leaseMs });
-    if (!acquired) return undefined;
-
     const controller = new AbortController();
     this.controllers.set(scope, controller);
+    let acquired = false;
+    try {
+      acquired = await this.repository.acquireLease({ scope, owner: this.owner, leaseMs });
+    } catch (error) {
+      this.controllers.delete(scope);
+      throw error;
+    }
+    if (!acquired) {
+      this.controllers.delete(scope);
+      return undefined;
+    }
     const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
     let renewal: Promise<void> | undefined;
     const heartbeat = setInterval(() => {
@@ -389,7 +397,7 @@ export class DreamingEngine {
           const allowedRefs = new Set(proposal.evidenceRefs);
           const recordRefs = proposal.proposedRecord?.sourceRefs ?? [];
           const relationshipRefs = proposal.relationships?.flatMap((item) => item.sourceRefs) ?? [];
-          if ([...recordRefs, ...relationshipRefs].some((ref) => !evidenceRefs.has(ref))) {
+          if ([...recordRefs, ...relationshipRefs].some((ref) => !allowedRefs.has(ref) || !evidenceRefs.has(ref))) {
             run.rejectedProposalIds.push(proposal.id);
             continue;
           }
@@ -485,7 +493,7 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
     targetRecordIds: stringArray(value.targetRecordIds ?? [], 'targetRecordIds'),
     rationale: requiredString(value.rationale, 'proposal.rationale'),
     evidenceRefs: stringArray(value.evidenceRefs, 'evidenceRefs'),
-    ...(Array.isArray(value.relationships) ? { relationships: value.relationships as DreamingRelationship[] } : {}),
+    ...(value.relationships === undefined ? {} : { relationships: parseRelationships(value.relationships, scope) }),
   };
   if (value.proposedRecord !== undefined) {
     if (!isObject(value.proposedRecord)) throw new Error('proposedRecord must be an object.');
@@ -517,6 +525,24 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
     throw new Error('Proposed record scope does not match the active scope.');
   }
   return proposal;
+}
+
+function parseRelationships(value: unknown, scope: string): DreamingRelationship[] {
+  if (!Array.isArray(value)) throw new Error('relationships must be an array.');
+  return value.map((item): DreamingRelationship => {
+    if (!isObject(item)) throw new Error('Invalid dreaming relationship.');
+    const relationship: DreamingRelationship = {
+      id: requiredString(item.id, 'relationship.id'),
+      scope: requiredString(item.scope, 'relationship.scope'),
+      fromId: requiredString(item.fromId, 'relationship.fromId'),
+      toId: requiredString(item.toId, 'relationship.toId'),
+      kind: requiredString(item.kind, 'relationship.kind'),
+      sourceRefs: stringArray(item.sourceRefs ?? [], 'relationship.sourceRefs'),
+    };
+    if (relationship.scope !== scope) throw new Error('Relationship scope does not match the active scope.');
+    if (relationship.fromId === relationship.toId) throw new Error('Self-referential relationships are not allowed.');
+    return relationship;
+  });
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
