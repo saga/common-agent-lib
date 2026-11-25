@@ -39,13 +39,13 @@ A run is bounded by batch size, maximum batches, memory count, relationship coun
 
 ## Trust boundary
 
-The model only proposes changes. The engine rejects malformed proposals, scope mismatches, unknown targets, unknown evidence references and attempts to promote a new memory to confirmed. The host's `commitProposal` must re-check permissions, target versions, evidence and domain rules, then apply changes and the proposal idempotency key in one transaction. It must preserve original evidence and prior memory versions.
+The model only proposes changes. The engine rejects malformed proposals, scope mismatches, unknown targets, unknown evidence references and attempts to promote a new memory to confirmed. New low-risk `add` proposals can be persisted automatically as `candidate` after passing a quality gate. Updates, merges, supersedes, archives, missing quality assessments and high-conflict proposals are staged for host review. Quality scores are triage hints, not calibrated truth or permission to promote a memory. The host's `commitProposal` must re-check permissions, target versions, evidence and domain rules, then apply changes and the proposal idempotency key in one transaction. It must preserve original evidence and prior memory versions.
 
-A confirmed status is assigned only by host-owned policy after independent validation. `buildWorkingMemory()` excludes candidate and unclassified legacy records by default, so proposed memories cannot silently leak into normal prompt context. Conflicting evidence should remain explicit until a domain-aware resolver can decide; the model must not silently overwrite history.
+A confirmed status is assigned only by host-owned policy after independent validation. `buildWorkingMemory()` excludes candidate and unclassified legacy records by default, so proposed memories cannot silently leak into normal prompt context. Memories are periodically reloaded for review and those past `validUntil` are treated as review-due, not deleted. Conflicting evidence remains explicit; no model-generated update or archive can silently overwrite history.
 
 ## Automatic operation
 
-The host creates the engine during service startup and calls `start()`. This runs each configured scope once, then repeats on an interval. Applications should call `notifyRecordAppended(scope)` after committing a meaningful experience. The host calls `stop()` during graceful shutdown. A persistent repository is required for restart recovery; the in-process timer is only a trigger, not the source of truth.
+The host creates the engine during service startup and calls `start()`. This runs each configured scope once, then repeats on an interval. Applications should call `notifyRecordAppended(scope)` after committing a meaningful experience. The host calls `shutdown()` during graceful shutdown. The repository must implement `stageProposal` as a durable review queue, as well as idempotent candidate commits. A persistent repository is required for restart recovery; the in-process timer is only a trigger, not the source of truth.
 
 ## Non-goals
 
