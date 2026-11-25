@@ -44,6 +44,7 @@ test('review queue is durable, idempotent and only applies on approval',async()=
 });
 test('feedback event IDs are idempotent and conflicting reuse is rejected',async()=>{
  const x=setup();try{
+  await x.store.upsertMemory({id:'m1',scope:'s',content:'memory',status:'candidate',importance:.5,sourceRefs:['r1']});
   const event={id:'f1',scope:'s',memoryId:'m1',kind:'retrieval' as const,outcome:'useful' as const,occurredAt:'2026-01-01T00:00:00.000Z'};
   await x.store.recordFeedback(event);await x.store.recordFeedback(event);
   await assert.rejects(()=>x.store.recordFeedback({...event,outcome:'not-useful'}),/Conflicting/);
