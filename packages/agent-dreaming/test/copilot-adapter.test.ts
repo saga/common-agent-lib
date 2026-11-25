@@ -15,6 +15,7 @@ const jsonResult = {
 };
 
 class FakeSession implements CopilotSessionLike {
+  constructor(readonly sessionId: string) {}
   lastOptions?: Record<string, unknown>;
   lastTimeout?: number;
   aborted = false;
@@ -41,12 +42,18 @@ class FakeClient implements CopilotClientLike {
   stopped = 0;
   sessionConfigs: Record<string, unknown>[] = [];
   sessions: FakeSession[] = [];
+  deletedSessionIds: string[] = [];
 
   async start() { this.started += 1; }
   async stop() { this.stopped += 1; }
+  async deleteSession(sessionId: string) {
+    this.deletedSessionIds.push(sessionId);
+    const session = this.sessions.find((item) => item.sessionId === sessionId);
+    if (session) session.disconnected = true;
+  }
   async createSession(config: Record<string, unknown>) {
     this.sessionConfigs.push(config);
-    const session = new FakeSession();
+    const session = new FakeSession(`session-${this.sessions.length + 1}`);
     this.sessions.push(session);
     return session;
   }
@@ -88,6 +95,7 @@ test('Copilot adapter uses an empty tool surface, structured output and isolated
   assert.match(String(client.sessions[0]?.lastOptions?.prompt), /SYSTEM INSTRUCTIONS/);
   assert.match(String(client.sessions[0]?.lastOptions?.prompt), /DREAMING INPUT/);
   assert.equal(client.sessions.every((session) => session.disconnected), true);
+  assert.deepEqual(client.deletedSessionIds, ['session-1', 'session-2']);
 
   await runtime.close();
   assert.equal(client.stopped, 1);
@@ -99,8 +107,9 @@ test('Copilot adapter aborts the active session when the caller cancels', async 
   const client: CopilotClientLike = {
     async start() {},
     async stop() {},
+    async deleteSession() {},
     async createSession() {
-      const session = new FakeSession();
+      const session = new FakeSession('cancelled-session');
       sessionRef = session;
       session.sendAndWait = () => new Promise((_resolve, reject) => { rejectGeneration = reject; });
       const originalAbort = session.abort.bind(session);
