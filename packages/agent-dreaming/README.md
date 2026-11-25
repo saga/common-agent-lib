@@ -31,6 +31,7 @@ const dreaming = new DreamingEngine(runtimeAdapter, repository, evidenceResolver
   maxMemories: 100,
   maxRelationships: 200,
   maxEvidenceItems: 100,
+  maxPromptChars: 120_000,
   reviewIntervalMs: 7 * 24 * 60 * 60_000,
 });
 
@@ -82,7 +83,9 @@ The engine does not require a long-lived session. An adapter may create a short-
 - Call `notifyRecordAppended(scope)` after meaningful records are committed. Concurrent notifications for the same scope are coalesced.
 - A durable per-scope lease prevents two processes from dreaming the same scope concurrently. The engine renews it while the run is active, waits for an in-flight renewal before releasing it, and aborts the run if renewal fails; the repository must implement owner-checked acquire/renew/release operations.
 - `stop()` stops future scheduling but lets active runs finish. `shutdown()` aborts active runs and waits for their cleanup, including lease release.
+- `onRun` is an observer hook; callback failures are reported through `onError` and do not turn a completed run into a failed run.
 - Checkpoints advance only through records explicitly reported as processed. Failed runs remain visible and are retried by a later trigger.
+- The serialized batch prompt has a configurable character ceiling (`maxPromptChars`, default 120,000) to prevent unexpectedly large model requests. Keep evidence excerpts concise in the resolver.
 - Re-review is host-selected through `reviewBefore`; the repository decides which older records need replay.
 - The host must keep the repository and evidence resolver durable across restarts.
 
