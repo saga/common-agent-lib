@@ -26,6 +26,8 @@ export interface DreamingMemory {
   importance: number;
   sourceRefs: readonly string[];
   lastValidatedAt?: string;
+  validUntil?: string;
+  confidence?: number;
   metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -46,6 +48,14 @@ export interface DreamingEvidence {
   metadata?: Readonly<Record<string, unknown>>;
 }
 
+export interface DreamingQualityAssessment {
+  /** Model estimate for triage only; never a trust or promotion signal. */
+  confidence: number;
+  durability: number;
+  specificity: number;
+  contradictionRisk: number;
+}
+
 export interface DreamingProposal {
   id: string;
   scope: string;
@@ -55,6 +65,7 @@ export interface DreamingProposal {
   rationale: string;
   evidenceRefs: string[];
   relationships?: DreamingRelationship[];
+  quality?: DreamingQualityAssessment;
 }
 
 export interface DreamingModelResult {
@@ -102,6 +113,7 @@ export interface DreamingRun {
   processedRecordIds: string[];
   appliedProposalIds: string[];
   rejectedProposalIds: string[];
+  pendingProposalIds: string[];
   error?: string;
   runtimeId: string;
   model?: string;
@@ -122,7 +134,14 @@ export interface DreamingRepository {
     limit: number;
   }): Promise<DreamingPage<DreamingExperience>>;
   /** Return the most relevant memories for this batch, bounded by limit. */
-  loadMemories(input: { scope: string; experienceIds: readonly string[]; limit: number }): Promise<readonly DreamingMemory[]>;
+  /** Include relevant memories plus those due for periodic or expiry review. */
+  loadMemories(input: {
+    scope: string;
+    experienceIds: readonly string[];
+    reviewBefore?: string;
+    expiredBefore?: string;
+    limit: number;
+  }): Promise<readonly DreamingMemory[]>;
   loadRelationships(input: { scope: string; memoryIds: readonly string[]; limit: number }): Promise<readonly DreamingRelationship[]>;
   loadCheckpoint(scope: string): Promise<DreamingCheckpoint>;
   /** Persist review timestamps so the same old experience is not selected on every tick. */
@@ -139,6 +158,13 @@ export interface DreamingRepository {
     evidence: readonly DreamingEvidence[];
     runId: string;
   }): Promise<{ applied: boolean; reason?: string }>;
+  /** Persist non-automatic proposals in a durable review queue; idempotent by proposal.id. */
+  stageProposal(input: {
+    proposal: DreamingProposal;
+    evidence: readonly DreamingEvidence[];
+    runId: string;
+    reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment';
+  }): Promise<{ staged: boolean; reason?: string }>;
   /** Distributed lease: only one worker may dream a scope at a time. */
   acquireLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
   renewLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
@@ -163,6 +189,9 @@ export interface DreamingOptions {
   maxPromptChars?: number;
   leaseMs?: number;
   reviewIntervalMs?: number;
+  /** Re-review memories that have not been validated recently. Defaults to 30 days. */
+  memoryReviewIntervalMs?: number;
+  autoCandidateThresholds?: Partial<DreamingQualityAssessment>;
   /** Called after each persisted run; suitable for logs/metrics. */
   onRun?: (run: Readonly<DreamingRun>) => void | Promise<void>;
   onError?: (error: unknown, scope: string) => void | Promise<void>;
@@ -194,7 +223,8 @@ Return JSON with this shape:
     },
     "rationale": "why this change is justified",
     "evidenceRefs": ["exact evidence refs"],
-    "relationships": []
+    "relationships": [],
+    "quality": { "confidence": 0.0, "durability": 0.0, "specificity": 0.0, "contradictionRisk": 0.0 }
   }],
   "processedRecordIds": ["experience ids reviewed"],
   "notes": []
@@ -206,7 +236,10 @@ Rules:
 - Use supersede rather than silently erasing historical truth.
 - Do not create a memory for one-off noise, speculation or unverified model output.
 - Keep memories concise, specific, attributable and useful to future tasks.
-- If evidence is insufficient or contradictory, do not force a resolution.
+- If evidence is insufficient or contradictory, do not force a resolution; report a high contradictionRisk and leave the proposal for review.
+- Assess confidence, durability, specificity and contradictionRisk from 0 to 1. These are triage estimates, not proof of truth.
+- Expired or stale memories must be re-evaluated against current evidence. Never silently delete, archive or overwrite them.
+- Updates, merges, supersedes and archives are review-only proposals; do not assume permission to mutate existing memory.
 - Return no markdown fences or prose outside the JSON object.`;
 
 export class DreamingEngine {
@@ -338,6 +371,7 @@ export class DreamingEngine {
       processedRecordIds: [],
       appliedProposalIds: [],
       rejectedProposalIds: [],
+      pendingProposalIds: [],
       runtimeId: this.runtime.id,
     };
     await this.repository.createRun(run);
@@ -367,8 +401,12 @@ export class DreamingEngine {
           if (experienceIds.has(experience.id)) throw new Error('Repository returned duplicate experience IDs.');
           experienceIds.add(experience.id);
         }
+        const memoryReviewBefore = new Date(Date.now() - (this.options.memoryReviewIntervalMs ?? 30 * 24 * 60 * 60_000)).toISOString();
         const memories = await this.repository.loadMemories({
-          scope, experienceIds: experiences.map((item) => item.id),
+          scope,
+          experienceIds: experiences.map((item) => item.id),
+          reviewBefore: memoryReviewBefore,
+          expiredBefore: new Date().toISOString(),
           limit: Math.max(1, this.options.maxMemories ?? 100),
         });
         if (memories.some((item) => item.scope !== scope) || new Set(memories.map((item) => item.id)).size !== memories.length) {
@@ -439,13 +477,19 @@ export class DreamingEngine {
             run.rejectedProposalIds.push(proposal.id);
             continue;
           }
-          const outcome = await this.repository.commitProposal({
-            proposal,
-            evidence: evidence.filter((item) => allowedRefs.has(item.ref)),
-            runId: run.id,
-          });
-          if (outcome.applied) run.appliedProposalIds.push(proposal.id);
-          else run.rejectedProposalIds.push(proposal.id);
+          const proposalEvidence = evidence.filter((item) => allowedRefs.has(item.ref));
+          const decision = classifyProposal(proposal, this.options.autoCandidateThresholds);
+          if (decision.autoCandidate) {
+            const outcome = await this.repository.commitProposal({ proposal, evidence: proposalEvidence, runId: run.id });
+            if (outcome.applied) run.appliedProposalIds.push(proposal.id);
+            else run.rejectedProposalIds.push(proposal.id);
+          } else {
+            const outcome = await this.repository.stageProposal({
+              proposal, evidence: proposalEvidence, runId: run.id, reason: decision.reason,
+            });
+            if (outcome.staged) run.pendingProposalIds.push(proposal.id);
+            else run.rejectedProposalIds.push(proposal.id);
+          }
         }
 
         run.processedRecordIds.push(...result.processedRecordIds);
@@ -534,6 +578,7 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
     rationale: requiredString(value.rationale, 'proposal.rationale'),
     evidenceRefs: stringArray(value.evidenceRefs, 'evidenceRefs'),
     ...(value.relationships === undefined ? {} : { relationships: parseRelationships(value.relationships, scope) }),
+    ...(value.quality === undefined ? {} : { quality: parseQuality(value.quality) }),
   };
   if (value.proposedRecord !== undefined) {
     if (!isObject(value.proposedRecord)) throw new Error('proposedRecord must be an object.');
@@ -565,6 +610,46 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
     throw new Error('Proposed record scope does not match the active scope.');
   }
   return proposal;
+}
+
+function parseQuality(value: unknown): DreamingQualityAssessment {
+  if (!isObject(value)) throw new Error('quality must be an object.');
+  const score = (field: keyof DreamingQualityAssessment): number => {
+    const item = value[field];
+    if (typeof item !== 'number' || !Number.isFinite(item) || item < 0 || item > 1) {
+      throw new Error(`quality.${field} must be a number between 0 and 1.`);
+    }
+    return item;
+  };
+  return {
+    confidence: score('confidence'),
+    durability: score('durability'),
+    specificity: score('specificity'),
+    contradictionRisk: score('contradictionRisk'),
+  };
+}
+
+function classifyProposal(
+  proposal: DreamingProposal,
+  configured: DreamingOptions['autoCandidateThresholds'],
+): { autoCandidate: boolean; reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' } {
+  if (proposal.operation !== 'add') return { autoCandidate: false, reason: 'mutation' };
+  if (!proposal.quality) return { autoCandidate: false, reason: 'missing-assessment' };
+  const thresholds = {
+    confidence: configured?.confidence ?? 0.8,
+    durability: configured?.durability ?? 0.6,
+    specificity: configured?.specificity ?? 0.6,
+    contradictionRisk: configured?.contradictionRisk ?? 0.2,
+  };
+  if (proposal.quality.contradictionRisk > thresholds.contradictionRisk) {
+    return { autoCandidate: false, reason: 'conflict-risk' };
+  }
+  const passes = proposal.quality.confidence >= thresholds.confidence
+    && proposal.quality.durability >= thresholds.durability
+    && proposal.quality.specificity >= thresholds.specificity;
+  return passes
+    ? { autoCandidate: true, reason: 'quality-gate' }
+    : { autoCandidate: false, reason: 'quality-gate' };
 }
 
 function parseRelationships(value: unknown, scope: string): DreamingRelationship[] {
