@@ -348,15 +348,31 @@ export class DreamingEngine {
           scope, afterSequence, reviewBefore, limit: batchSize,
         });
         if (!page.items.length) break;
+        if (page.items.length > batchSize) throw new Error('Repository returned more experiences than the requested batch limit.');
         const experiences = [...page.items].sort((a, b) => a.sequence - b.sequence);
+        const experienceIds = new Set<string>();
+        for (const experience of experiences) {
+          if (experience.scope !== scope || !Number.isSafeInteger(experience.sequence) || experience.sequence < 1) {
+            throw new Error('Repository returned an invalid experience or scope.');
+          }
+          if (experienceIds.has(experience.id)) throw new Error('Repository returned duplicate experience IDs.');
+          experienceIds.add(experience.id);
+        }
         const memories = await this.repository.loadMemories({
           scope, experienceIds: experiences.map((item) => item.id),
           limit: Math.max(1, this.options.maxMemories ?? 100),
         });
+        if (memories.some((item) => item.scope !== scope) || new Set(memories.map((item) => item.id)).size !== memories.length) {
+          throw new Error('Repository returned invalid memories for the active scope.');
+        }
         const relationships = await this.repository.loadRelationships({
           scope, memoryIds: memories.map((item) => item.id),
           limit: Math.max(1, this.options.maxRelationships ?? 200),
         });
+        const knownMemoryIds = new Set(memories.map((item) => item.id));
+        if (relationships.some((item) => item.scope !== scope || !knownMemoryIds.has(item.fromId) || !knownMemoryIds.has(item.toId))) {
+          throw new Error('Repository returned invalid relationships for the active scope.');
+        }
         const refs = unique([
           ...experiences.flatMap((item) => [...item.sourceRefs]),
           ...memories.flatMap((item) => [...item.sourceRefs]),
@@ -398,6 +414,11 @@ export class DreamingEngine {
           const recordRefs = proposal.proposedRecord?.sourceRefs ?? [];
           const relationshipRefs = proposal.relationships?.flatMap((item) => item.sourceRefs) ?? [];
           if ([...recordRefs, ...relationshipRefs].some((ref) => !allowedRefs.has(ref) || !evidenceRefs.has(ref))) {
+            run.rejectedProposalIds.push(proposal.id);
+            continue;
+          }
+          const validRelationshipIds = new Set([...memoryIds, ...(proposal.proposedRecord ? [proposal.proposedRecord.id] : [])]);
+          if (proposal.relationships?.some((item) => !validRelationshipIds.has(item.fromId) || !validRelationshipIds.has(item.toId))) {
             run.rejectedProposalIds.push(proposal.id);
             continue;
           }
@@ -474,7 +495,8 @@ function buildPrompt(
 
 function parseResult(value: unknown, scope: string): DreamingModelResult {
   if (!isObject(value)) throw new Error('Dreaming runtime returned a non-object result.');
-  const proposals = Array.isArray(value.proposals) ? value.proposals.map((item) => parseProposal(item, scope)) : [];
+  if (!Array.isArray(value.proposals)) throw new Error('Dreaming result proposals must be an array.');
+  const proposals = value.proposals.map((item) => parseProposal(item, scope));
   const processedRecordIds = stringArray(value.processedRecordIds, 'processedRecordIds');
   const notes = value.notes === undefined ? [] : stringArray(value.notes, 'notes');
   return { proposals, processedRecordIds, notes };
