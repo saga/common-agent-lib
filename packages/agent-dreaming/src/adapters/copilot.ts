@@ -5,6 +5,7 @@ import type {
 } from '../types.js';
 
 export interface CopilotSessionLike {
+  readonly sessionId: string;
   sendAndWait(
     options: Record<string, unknown>,
     timeoutMs?: number,
@@ -18,6 +19,7 @@ export interface CopilotClientLike {
   start(): Promise<void>;
   stop(): Promise<unknown>;
   createSession(config: Record<string, unknown>): Promise<CopilotSessionLike>;
+  deleteSession(sessionId: string): Promise<void>;
 }
 
 export interface CopilotSdkModuleLike {
@@ -237,9 +239,15 @@ export class CopilotDreamingRuntime implements DreamingRuntime {
       unsubscribeUsage?.();
       this.activeSessions.delete(session);
       try {
-        await session.disconnect();
+        // Dreaming sessions are intentionally ephemeral. disconnect() preserves
+        // their history on disk; deleteSession() also removes that temporary state.
+        await client.deleteSession(session.sessionId);
       } catch {
-        // Preserve the generation outcome; client.stop() remains the final cleanup boundary.
+        try {
+          await session.disconnect();
+        } catch {
+          // Preserve the generation outcome; client.stop() remains the final cleanup boundary.
+        }
       }
     }
   }
