@@ -229,7 +229,7 @@ export class DreamingEngine {
     this.timer = setInterval(() => {
       for (const scope of this.options.scopes) void this.safeRun({ scope, trigger: 'interval' }).catch(() => undefined);
     }, interval);
-    this.timer.unref?.();
+    unrefTimer(this.timer);
   }
 
   /** Stop scheduling; an in-flight runtime call is not forcefully killed. */
@@ -277,7 +277,7 @@ export class DreamingEngine {
         .catch((error: unknown) => controller.abort(error))
         .finally(() => { renewing = false; });
     }, Math.max(1_000, Math.floor(leaseMs / 3)));
-    heartbeat.unref?.();
+    unrefTimer(heartbeat);
 
     let run: DreamingRun | undefined;
     try {
@@ -489,4 +489,8 @@ function stringArray(value: unknown, field: string): string[] {
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function createId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function unrefTimer(timer: ReturnType<typeof setInterval>): void {
+  (timer as unknown as { unref?: () => void }).unref?.();
 }
