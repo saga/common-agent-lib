@@ -213,6 +213,8 @@ export class DreamingEngine {
   private timer?: ReturnType<typeof setInterval>;
   private stopped = true;
   private readonly active = new Map<string, Promise<DreamingRun | undefined>>();
+  private readonly controllers = new Map<string, AbortController>();
+  private readonly scopes: ReadonlySet<string>;
 
   constructor(
     private readonly runtime: DreamingRuntime,
@@ -221,7 +223,11 @@ export class DreamingEngine {
     private readonly options: DreamingOptions,
   ) {
     if (!options.scopes.length) throw new Error('Dreaming requires at least one scope.');
+    if (options.scopes.some((scope) => !scope.trim()) || new Set(options.scopes).size !== options.scopes.length) {
+      throw new Error('Dreaming scopes must be non-empty and unique.');
+    }
     if (!runtime.id) throw new Error('Dreaming runtime must have a stable id.');
+    this.scopes = new Set(options.scopes);
   }
 
   /** Starts automatic startup + periodic dreaming. Call once when the host starts. */
@@ -236,30 +242,46 @@ export class DreamingEngine {
     unrefTimer(this.timer);
   }
 
-  /** Stop scheduling; an in-flight runtime call is not forcefully killed. */
+  /** Stop scheduling. Existing runs are allowed to finish. */
   stop(): void {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
   }
 
+  /** Stop scheduling, abort active runs and wait for lease cleanup. */
+  async shutdown(reason: unknown = new Error('Dreaming engine is shutting down.')): Promise<void> {
+    this.stop();
+    for (const controller of this.controllers.values()) controller.abort(reason);
+    await Promise.allSettled([...this.active.values()]);
+  }
+
   /** Call after appending a meaningful record; runs are coalesced per scope. */
   notifyRecordAppended(scope: string): Promise<DreamingRun | undefined> {
+    this.assertScope(scope);
     if (this.stopped) return Promise.resolve(undefined);
     return this.safeRun({ scope, trigger: 'record-appended' });
   }
 
   runNow(scope: string, signal?: AbortSignal): Promise<DreamingRun | undefined> {
+    this.assertScope(scope);
     return this.safeRun({ scope, trigger: 'manual', signal });
+  }
+
+  private assertScope(scope: string): void {
+    if (!this.scopes.has(scope)) throw new Error(`Unknown dreaming scope: ${scope}`);
   }
 
   private safeRun(input: DreamingRunInput): Promise<DreamingRun | undefined> {
     const existing = this.active.get(input.scope);
     if (existing) return existing;
     const task = this.runOnce(input).catch(async (error: unknown) => {
-      await this.options.onError?.(error, input.scope);
+      try { await this.options.onError?.(error, input.scope); } catch { /* Preserve the run failure. */ }
       throw error;
-    }).finally(() => this.active.delete(input.scope));
+    }).finally(() => {
+      this.active.delete(input.scope);
+      this.controllers.delete(input.scope);
+    });
     this.active.set(input.scope, task);
     return task;
   }
@@ -271,15 +293,16 @@ export class DreamingEngine {
     if (!acquired) return undefined;
 
     const controller = new AbortController();
+    this.controllers.set(scope, controller);
     const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
-    let renewing = false;
+    let renewal: Promise<void> | undefined;
     const heartbeat = setInterval(() => {
-      if (renewing || signal.aborted) return;
-      renewing = true;
-      void this.repository.renewLease({ scope, owner: this.owner, leaseMs })
+      if (renewal || signal.aborted) return;
+      renewal = this.repository.renewLease({ scope, owner: this.owner, leaseMs })
         .then((renewed) => { if (!renewed) controller.abort(new Error('Dreaming lease was lost.')); })
         .catch((error: unknown) => controller.abort(error))
-        .finally(() => { renewing = false; });
+        .then(() => undefined)
+        .finally(() => { renewal = undefined; });
     }, Math.max(1_000, Math.floor(leaseMs / 3)));
     unrefTimer(heartbeat);
 
@@ -345,15 +368,17 @@ export class DreamingEngine {
         lastModel = response.model;
         lastUsage = response.usage;
         const result = parseResult(response.output, scope);
+        if (signal.aborted) throw signal.reason ?? new Error('Dreaming aborted.');
         const batchIds = new Set(experiences.map((item) => item.id));
         for (const id of result.processedRecordIds) {
           if (!batchIds.has(id)) throw new Error(`Runtime marked an unknown experience as processed: ${id}`);
         }
 
+        const memoryIds = new Set(memories.map((item) => item.id));
         for (const proposal of result.proposals) {
+          if (signal.aborted) throw signal.reason ?? new Error('Dreaming aborted.');
           if (proposal.scope !== scope) throw new Error('Proposal scope does not match the active scope.');
-          const targetIds = new Set([...memories.map((item) => item.id), ...experiences.map((item) => item.id)]);
-          if (proposal.targetRecordIds.some((id) => !targetIds.has(id))) {
+          if (proposal.targetRecordIds.some((id) => !memoryIds.has(id))) {
             run.rejectedProposalIds.push(proposal.id);
             continue;
           }
@@ -361,8 +386,15 @@ export class DreamingEngine {
             run.rejectedProposalIds.push(proposal.id);
             continue;
           }
-          const proposalEvidence = evidence.filter((item) => proposal.evidenceRefs.includes(item.ref));
+          const allowedRefs = new Set(proposal.evidenceRefs);
+          const recordRefs = proposal.proposedRecord?.sourceRefs ?? [];
+          const relationshipRefs = proposal.relationships?.flatMap((item) => item.sourceRefs) ?? [];
+          if ([...recordRefs, ...relationshipRefs].some((ref) => !evidenceRefs.has(ref))) {
+            run.rejectedProposalIds.push(proposal.id);
+            continue;
+          }
           const outcome = await this.repository.commitProposal({
+            proposal,
             proposal, evidence: proposalEvidence, runId: run.id,
           });
           if (outcome.applied) run.appliedProposalIds.push(proposal.id);
@@ -409,6 +441,7 @@ export class DreamingEngine {
       throw error;
     } finally {
       clearInterval(heartbeat);
+      if (renewal) await renewal;
       await this.repository.releaseLease({ scope, owner: this.owner });
     }
   }
