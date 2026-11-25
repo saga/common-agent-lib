@@ -38,6 +38,7 @@ function fixture(
   const staged: Array<{ proposal: DreamingProposal; reason: string }> = [];
   const reviewedMemories: string[] = [];
   const feedbackEvents: DreamingFeedbackEvent[] = [];
+  const prompts: string[] = [];
   const memoryReviewRequests: Array<{ reviewBefore?: string; expiredBefore?: string }> = [];
   const repository: DreamingRepository = {
     async loadExperiences({ afterSequence }) {
@@ -85,7 +86,8 @@ function fixture(
   };
   const runtime: DreamingRuntime = {
     id: 'test-runtime',
-    async generate() {
+    async generate(request) {
+      prompts.push(request.prompt);
       return {
         model: 'test-model',
         output: modelOutput ?? {
@@ -113,7 +115,7 @@ function fixture(
   const engine = new DreamingEngine(runtime, repository, resolver, {
     scopes: ['user-1'], batchSize: 10, maxBatchesPerRun: 1, ...callbacks,
   });
-  return { engine, checkpoint: () => checkpoint, runs, commits, committed, staged, reviewedMemories, memoryReviewRequests, feedbackEvents };
+  return { engine, checkpoint: () => checkpoint, runs, commits, committed, staged, reviewedMemories, memoryReviewRequests, feedbackEvents, prompts };
 }
 
 test('runNow resolves evidence, submits proposals and advances checkpoint', async () => {
@@ -427,4 +429,22 @@ test('future and expired feedback are excluded from the evaluation window', () =
   const quality = evaluateMemoryQuality(events, '2026-11-25T00:00:00.000Z');
   assert.equal(quality.sampleCount, 0);
   assert.equal(quality.recommendation, 'none');
+});
+
+
+test('long-term feedback summaries are supplied to the dreaming runtime', async () => {
+  const f = fixture('trace:t1:event:e1', {}, undefined, [{
+    id: 'm-feedback', scope: 'user-1', content: 'A memory with repeated poor retrieval outcomes.',
+    status: 'confirmed', importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
+  }]);
+  for (let index = 0; index < 5; index += 1) {
+    await f.engine.recordFeedback({
+      id: `negative-${index}`, scope: 'user-1', memoryId: 'm-feedback',
+      kind: 'retrieval', outcome: 'not-useful', occurredAt: '2026-11-24T00:00:00.000Z',
+      taskId: `task-${index}`,
+    });
+  }
+  await f.engine.runNow('user-1');
+  assert.match(f.prompts[0] ?? '', /low-retrieval-usefulness/);
+  assert.match(f.prompts[0] ?? '', /"recommendation": "review"/);
 });
