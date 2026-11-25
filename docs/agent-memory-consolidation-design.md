@@ -31,7 +31,7 @@ flowchart TD
   J --> K["Future context assembly"]
 ```
 
-A run is bounded by batch size and maximum batches. The repository selects both unprocessed records and older records due for re-review. The engine records run state, checkpoints only a contiguous processed prefix, and records review timestamps to avoid selecting the same old records on every tick. A per-scope distributed lease prevents concurrent workers from applying the same work; the engine renews the lease during long model calls.
+A run is bounded by batch size, maximum batches, memory count, relationship count and evidence count. The host ranks memory candidates per batch and resolves redacted, bounded evidence excerpts. The repository selects both unprocessed records and older records due for re-review. The engine records run state, checkpoints only a contiguous processed prefix, and records review timestamps to avoid selecting the same old records on every tick. A per-scope distributed lease prevents concurrent workers from applying the same work; the engine renews the lease during long model calls.
 
 ## Runtime contract
 

@@ -28,6 +28,9 @@ const dreaming = new DreamingEngine(runtimeAdapter, repository, evidenceResolver
   intervalMs: 30 * 60_000,
   batchSize: 40,
   maxBatchesPerRun: 3,
+  maxMemories: 100,
+  maxRelationships: 200,
+  maxEvidenceItems: 100,
   reviewIntervalMs: 7 * 24 * 60 * 60_000,
 });
 

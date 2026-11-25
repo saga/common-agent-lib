@@ -121,8 +121,9 @@ export interface DreamingRepository {
     reviewBefore?: string;
     limit: number;
   }): Promise<DreamingPage<DreamingExperience>>;
-  loadMemories(scope: string): Promise<readonly DreamingMemory[]>;
-  loadRelationships(scope: string): Promise<readonly DreamingRelationship[]>;
+  /** Return the most relevant memories for this batch, bounded by limit. */
+  loadMemories(input: { scope: string; experienceIds: readonly string[]; limit: number }): Promise<readonly DreamingMemory[]>;
+  loadRelationships(input: { scope: string; memoryIds: readonly string[]; limit: number }): Promise<readonly DreamingRelationship[]>;
   loadCheckpoint(scope: string): Promise<DreamingCheckpoint>;
   /** Persist review timestamps so the same old experience is not selected on every tick. */
   markExperiencesReviewed(input: { scope: string; ids: readonly string[]; reviewedAt: string }): Promise<void>;
@@ -156,6 +157,9 @@ export interface DreamingOptions {
   intervalMs?: number;
   batchSize?: number;
   maxBatchesPerRun?: number;
+  maxMemories?: number;
+  maxRelationships?: number;
+  maxEvidenceItems?: number;
   leaseMs?: number;
   reviewIntervalMs?: number;
   /** Called after each persisted run; suitable for logs/metrics. */
@@ -314,13 +318,21 @@ export class DreamingEngine {
         });
         if (!page.items.length) break;
         const experiences = [...page.items].sort((a, b) => a.sequence - b.sequence);
-        const memories = await this.repository.loadMemories(scope);
-        const relationships = await this.repository.loadRelationships(scope);
+        const memories = await this.repository.loadMemories({
+          scope, experienceIds: experiences.map((item) => item.id),
+          limit: Math.max(1, this.options.maxMemories ?? 100),
+        });
+        const relationships = await this.repository.loadRelationships({
+          scope, memoryIds: memories.map((item) => item.id),
+          limit: Math.max(1, this.options.maxRelationships ?? 200),
+        });
         const refs = unique([
           ...experiences.flatMap((item) => [...item.sourceRefs]),
           ...memories.flatMap((item) => [...item.sourceRefs]),
         ]);
-        const evidence = await this.evidenceResolver.resolve({ scope, refs });
+        const evidence = (await this.evidenceResolver.resolve({
+          scope, refs: refs.slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100)),
+        })).slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100));
         const evidenceRefs = new Set(evidence.map((item) => item.ref));
 
         const response = await this.runtime.generate({
