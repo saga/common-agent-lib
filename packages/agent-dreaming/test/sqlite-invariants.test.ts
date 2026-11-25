@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SqliteDreamingStore } from '../src/sqlite-store.js';
-import type { DreamingMemory, DreamingProposal } from '../src/index.js';
+import type { DreamingMemory, DreamingProposal, DreamingRun } from '../src/index.js';
 
 const createStore = () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'dreaming-invariants-'));
@@ -183,6 +183,92 @@ test('feedback must refer to a memory in the same scope', async () => {
       id: 'feedback-wrong-scope', scope: 'scope-b', memoryId: 'owned-memory',
       kind: 'retrieval', outcome: 'useful', occurredAt: '2026-01-01T00:00:00.000Z',
     }), /not found in scope/);
+  } finally {
+    await close();
+  }
+});
+
+test('memory selection prioritizes source references linked to the current experiences', async () => {
+  const { store, close } = createStore();
+  try {
+    await store.appendExperience({
+      id: 'current-experience', scope: 'scope-a', content: 'Current task',
+      createdAt: '2026-11-26T00:00:00.000Z', sourceRefs: ['shared-source'],
+    });
+    await store.upsertMemory({
+      ...record('high-importance-unrelated'), importance: 0.99,
+      sourceRefs: ['other-source'], lastValidatedAt: '2026-10-01T00:00:00.000Z',
+      validUntil: '2027-01-01T00:00:00.000Z',
+    });
+    await store.upsertMemory({
+      ...record('relevant-memory'), importance: 0.2,
+      sourceRefs: ['shared-source'], lastValidatedAt: '2026-10-01T00:00:00.000Z',
+      validUntil: '2027-01-01T00:00:00.000Z',
+    });
+    const selected = await store.loadMemories({
+      scope: 'scope-a',
+      experienceIds: ['current-experience'],
+      reviewBefore: '2026-01-01T00:00:00.000Z',
+      expiredBefore: '2026-11-26T00:00:00.000Z',
+      limit: 1,
+    });
+    assert.deepEqual(selected.map((memory) => memory.id), ['relevant-memory']);
+  } finally {
+    await close();
+  }
+});
+
+test('approved memory changes preserve queryable prior versions', async () => {
+  const { store, close } = createStore();
+  try {
+    await store.upsertMemory(record('versioned-memory', 'Original content'));
+    const update = proposal('version-update', 'update', ['versioned-memory'], {
+      ...record('model-id', 'Updated content'), status: 'candidate',
+    });
+    await store.stageProposal({
+      proposal: update, evidence: [evidence], runId: 'run-v1', reason: 'mutation',
+    });
+    await store.resolveReview({
+      scope: 'scope-a', proposalId: 'version-update', decision: 'approve', reviewedBy: 'reviewer',
+    });
+
+    const archive = proposal('version-archive', 'archive', ['versioned-memory']);
+    await store.stageProposal({
+      proposal: archive, evidence: [evidence], runId: 'run-v2', reason: 'mutation',
+    });
+    await store.resolveReview({
+      scope: 'scope-a', proposalId: 'version-archive', decision: 'approve', reviewedBy: 'reviewer',
+    });
+
+    const history = await store.listMemoryVersions({ scope: 'scope-a', memoryId: 'versioned-memory' });
+    assert.equal(history.length, 2);
+    assert.equal(history[0]?.version, 2);
+    assert.equal(history[0]?.snapshot.content, 'Updated content');
+    assert.equal(history[0]?.snapshot.status, 'confirmed');
+    assert.equal(history[0]?.reason, 'archive');
+    assert.equal(history[1]?.version, 1);
+    assert.equal(history[1]?.snapshot.content, 'Original content');
+    assert.equal(history[1]?.reason, 'update');
+    assert.equal((await store.listMemories('scope-a')).find((memory) => memory.id === 'versioned-memory')?.status, 'archived');
+  } finally {
+    await close();
+  }
+});
+
+test('run ledger exposes durable lookup and bounded history', async () => {
+  const { store, close } = createStore();
+  try {
+    const run: DreamingRun = {
+      id: 'run-ledger-1', scope: 'scope-a', status: 'running', trigger: 'manual',
+      startedAt: '2026-11-26T01:00:00.000Z', fromSequence: 1, toSequence: 0,
+      processedRecordIds: [], appliedProposalIds: [], rejectedProposalIds: [],
+      pendingProposalIds: [], reviewedMemoryIds: [], runtimeId: 'test-runtime',
+    };
+    await store.createRun(run);
+    await store.updateRun({ ...run, status: 'completed', finishedAt: '2026-11-26T01:01:00.000Z' });
+    assert.equal((await store.getRun({ scope: 'scope-a', runId: run.id }))?.status, 'completed');
+    assert.equal((await store.listRuns({ scope: 'scope-a', status: 'completed', limit: 1 }))[0]?.id, run.id);
+    assert.equal(await store.getRun({ scope: 'scope-b', runId: run.id }), undefined);
   } finally {
     await close();
   }
