@@ -375,6 +375,7 @@ export class DreamingEngine {
         const refs = unique([
           ...experiences.flatMap((item) => [...item.sourceRefs]),
           ...memories.flatMap((item) => [...item.sourceRefs]),
+          ...relationships.flatMap((item) => [...item.sourceRefs]),
         ]);
         const evidence = (await this.evidenceResolver.resolve({
           scope, refs: refs.slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100)),
@@ -495,6 +496,7 @@ function buildPrompt(
 function parseResult(value: unknown, scope: string): DreamingModelResult {
   if (!isObject(value)) throw new Error('Dreaming runtime returned a non-object result.');
   if (!Array.isArray(value.proposals)) throw new Error('Dreaming result proposals must be an array.');
+  if (value.proposals.length > 100) throw new Error('Dreaming result exceeds the proposal limit.');
   const proposals = value.proposals.map((item) => parseProposal(item, scope));
   const processedRecordIds = stringArray(value.processedRecordIds, 'processedRecordIds');
   const notes = value.notes === undefined ? [] : stringArray(value.notes, 'notes');
@@ -522,7 +524,7 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
     proposal.proposedRecord = {
       id: requiredString(record.id, 'proposedRecord.id'),
       scope: requiredString(record.scope, 'proposedRecord.scope'),
-      content: requiredString(record.content, 'proposedRecord.content'),
+      content: boundedString(record.content, 'proposedRecord.content', 4_000),
       status: record.status === 'confirmed' || record.status === 'superseded' ? record.status : 'candidate',
       importance: typeof record.importance === 'number' ? Math.max(0, Math.min(1, record.importance)) : 0.5,
       sourceRefs: stringArray(record.sourceRefs ?? [], 'proposedRecord.sourceRefs'),
@@ -572,6 +574,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} must be a non-empty string.`);
   return value;
+}
+function boundedString(value: unknown, field: string, maxLength: number): string {
+  const result = requiredString(value, field);
+  if (result.length > maxLength) throw new Error(`${field} exceeds ${maxLength} characters.`);
+  return result;
 }
 function stringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
