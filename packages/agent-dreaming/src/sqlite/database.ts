@@ -72,6 +72,8 @@ export class SqliteDatabase {
       'CREATE INDEX IF NOT EXISTS experiences_scope_seq ON experiences(scope,sequence);' +
       'CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,importance REAL NOT NULL,refs TEXT NOT NULL,last_validated_at TEXT,valid_until TEXT,confidence REAL,metadata TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS memories_scope_status ON memories(scope,status,importance DESC);' +
+      'CREATE TABLE IF NOT EXISTS memory_versions(version_id INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,memory_id TEXT NOT NULL,version INTEGER NOT NULL,reason TEXT NOT NULL,captured_at TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(scope,memory_id,version));' +
+      'CREATE INDEX IF NOT EXISTS memory_versions_lookup ON memory_versions(scope,memory_id,version DESC);' +
       'CREATE TABLE IF NOT EXISTS relationships(id TEXT PRIMARY KEY,scope TEXT NOT NULL,from_id TEXT NOT NULL,to_id TEXT NOT NULL,kind TEXT NOT NULL,refs TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS relationships_scope_from ON relationships(scope,from_id);' +
       'CREATE INDEX IF NOT EXISTS relationships_scope_to ON relationships(scope,to_id);' +
