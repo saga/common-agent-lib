@@ -6,13 +6,14 @@ import {
   type DreamingEvidence,
   type DreamingExperience,
   type DreamingMemory,
+  type DreamingOptions,
   type DreamingProposal,
   type DreamingRepository,
   type DreamingRun,
   type DreamingRuntime,
 } from '../src/index.js';
 
-function fixture(proposalEvidenceRef = 'trace:t1:event:e1') {
+function fixture(proposalEvidenceRef = 'trace:t1:event:e1', callbacks: Pick<DreamingOptions, 'onRun' | 'onError'> = {}) {
   const experience: DreamingExperience = {
     id: 'e1', sequence: 1, scope: 'user-1', content: 'User prefers concise technical answers.',
     createdAt: '2026-11-01T00:00:00.000Z', sourceRefs: ['trace:t1:event:e1'],
@@ -80,7 +81,7 @@ function fixture(proposalEvidenceRef = 'trace:t1:event:e1') {
     },
   };
   const engine = new DreamingEngine(runtime, repository, resolver, {
-    scopes: ['user-1'], batchSize: 10, maxBatchesPerRun: 1,
+    scopes: ['user-1'], batchSize: 10, maxBatchesPerRun: 1, ...callbacks,
   });
   return { engine, checkpoint: () => checkpoint, runs, commits, committed };
 }
@@ -134,4 +135,17 @@ test('runNow rejects scopes that were not configured', async () => {
 test('notifyRecordAppended rejects scopes that were not configured', async () => {
   const f = fixture();
   assert.throws(() => f.engine.notifyRecordAppended('another-user'), /Unknown dreaming scope/);
+});
+
+
+test('observer callback failures do not fail a completed run', async () => {
+  const observedErrors: unknown[] = [];
+  const f = fixture('trace:t1:event:e1', {
+    onRun() { throw new Error('metrics backend unavailable'); },
+    onError(error) { observedErrors.push(error); },
+  });
+  const run = await f.engine.runNow('user-1');
+  assert.equal(run?.status, 'completed');
+  assert.equal(f.runs[0]?.status, 'completed');
+  assert.equal(observedErrors.length, 1);
 });
