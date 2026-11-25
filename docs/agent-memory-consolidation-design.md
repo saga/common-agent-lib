@@ -53,3 +53,12 @@ The host creates the engine during service startup and calls `start()`. This run
 ## Non-goals
 
 No built-in database, vector store, graph engine, provider SDK, hosted queue, multi-tenant authorization, autonomous trust promotion or application-specific retention policy. SQLite is a suitable host implementation for a single process; multi-process deployments should use a transactional database and distributed lease.
+
+## Long-term quality feedback
+
+The host records immutable feedback against a memory ID: task usefulness after retrieval, later evidence support/contradiction, explicit user corrections, and human review outcomes. A retrieval event is not automatically positive; the host should emit useful/not-useful only when the task outcome is known.
+
+`evaluateMemoryQuality()` computes separate recency-weighted usefulness and evidence-support rates over a 180-day window with a 90-day half-life. It reports sample size, effective sample size, corrections and human rejections. Review thresholds require repeated observations; a single negative retrieval is not enough. Human rejection is treated as an explicit review request.
+
+The engine loads these summaries with the selected memories and supplies them to the runtime as additional context. They can trigger a new staged review proposal, but cannot directly mutate, delete or demote a memory. Feedback is immutable and host-authenticated; the model cannot author feedback events or claim user confirmation.
+
