@@ -29,7 +29,7 @@ Memory relationships support `supports`, `contradicts`, `derived_from`, `superse
 
 - `MemoryStore`, `MemoryArchiveStore` and optional `MemoryRelationshipStore` define persistence boundaries.
 - Cursor pagination and archive summaries keep old records accessible.
-- `buildWorkingMemory()` selects a bounded prompt-ready subset and excludes archived, superseded and expired records. Candidate records remain eligible unless the host filters them before calling the helper.
+- `buildWorkingMemory()` selects a bounded prompt-ready subset and excludes archived, expired, superseded, candidate and unclassified legacy records by default. A caller must explicitly set `includeCandidates: true` when it has a reason to inspect unconfirmed proposals.
 - `selectArchiveCandidates()` identifies old active records for host-managed archival.
 
 The default working-memory budget is character-based, not a model token count. Hosts should use `@saga/agent-context` with their target model's tokenizer for final prompt assembly.

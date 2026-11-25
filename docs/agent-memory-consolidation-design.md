@@ -41,7 +41,7 @@ A run is bounded by batch size and maximum batches. The repository selects both 
 
 The model only proposes changes. The engine rejects malformed proposals, scope mismatches, unknown targets, unknown evidence references and attempts to promote a new memory to confirmed. The host's `commitProposal` must re-check permissions, target versions, evidence and domain rules, then apply changes and the proposal idempotency key in one transaction. It must preserve original evidence and prior memory versions.
 
-A confirmed status is assigned only by host-owned policy after independent validation. Conflicting evidence should remain explicit until a domain-aware resolver can decide; the model must not silently overwrite history.
+A confirmed status is assigned only by host-owned policy after independent validation. `buildWorkingMemory()` excludes candidate and unclassified legacy records by default, so proposed memories cannot silently leak into normal prompt context. Conflicting evidence should remain explicit until a domain-aware resolver can decide; the model must not silently overwrite history.
 
 ## Automatic operation
 

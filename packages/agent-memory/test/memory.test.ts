@@ -15,9 +15,19 @@ function record(sequence: number, content: string, importance = 0.5): MemoryReco
 }
 
 test('工作记忆优先保留高重要度记录，再补最新记录', () => {
-  const result = buildWorkingMemory([record(1, 'old', 1), record(2, 'new-1'), record(3, 'new-2'), record(4, 'latest')], { maxItems: 2, maxChars: 100 });
+  const result = buildWorkingMemory([record(1, 'old', 1), record(2, 'new-1'), record(3, 'new-2'), record(4, 'latest')], { maxItems: 2, maxChars: 100, includeCandidates: true });
   assert.deepEqual(result.included.map((item) => item.sequence), [1, 4]);
   assert.equal(result.omittedCount, 2);
+});
+
+test('candidate and legacy unclassified memories are excluded by default', () => {
+  const candidate = record(1, 'candidate');
+  const legacy = { ...record(2, 'legacy'), status: undefined };
+  const confirmed = { ...record(3, 'confirmed'), status: 'confirmed' as const };
+  const result = buildWorkingMemory([candidate, legacy, confirmed], { maxItems: 10, maxChars: 1000 });
+  assert.deepEqual(result.included.map((item) => item.id), ['m-3']);
+  const optedIn = buildWorkingMemory([candidate], { maxItems: 10, maxChars: 1000, includeCandidates: true });
+  assert.deepEqual(optedIn.included.map((item) => item.id), ['m-1']);
 });
 
 test('超过活跃窗口时返回旧记录作为 archive 候选', () => {

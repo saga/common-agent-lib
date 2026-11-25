@@ -63,6 +63,16 @@ const runtimeAdapter: DreamingRuntime = {
 
 For CodeBuddy or pi.dev, only this adapter changes. Keep model selection, credentials, SDK lifecycle and provider-specific retry policy in the host application.
 
+The same contract works with other SDKs. Keep provider-specific event handling inside the adapter:
+
+| Runtime | Adapter responsibility |
+| --- | --- |
+| Copilot SDK | Send the system + task prompt to a session, wait for the final assistant response, parse JSON, and forward abort. |
+| CodeBuddy SDK | Invoke `query()`, collect the final assistant text/structured result, parse JSON, and forward timeout/abort. |
+| pi.dev | Send the prompt through the selected AgentSession, extract the final assistant response, parse JSON, and forward abort. |
+
+The engine does not require a long-lived session. An adapter may create a short-lived session per batch or reuse a host-managed session, provided each call returns one complete `DreamingRuntimeResponse`. Credentials, model selection, tool permissions and session cleanup remain host-owned.
+
 ## Automatic execution and operations
 
 - Call `start()` once during host startup. It immediately schedules one run per configured scope and then runs on the configured interval.

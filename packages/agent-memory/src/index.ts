@@ -145,7 +145,7 @@ export interface MemoryArchiveStore {
   pageArchives(scope: string, request: MemoryPageRequest): Promise<MemoryPage<MemoryArchive>>;
 }
 
-export interface WorkingMemoryPolicy { maxItems: number; maxChars: number; keepImportanceAtLeast?: number; /** Fixed clock for deterministic expiry filtering; defaults to now. */ now?: string; }
+export interface WorkingMemoryPolicy { maxItems: number; maxChars: number; keepImportanceAtLeast?: number; /** Candidate memories are excluded unless the caller explicitly opts in. */ includeCandidates?: boolean; /** Fixed clock for deterministic expiry filtering; defaults to now. */ now?: string; }
 export interface WorkingMemoryResult { included: MemoryRecord[]; omitted: MemoryRecord[]; includedChars: number; omittedCount: number; }
 
 /** 从持久化记忆中构造有界工作记忆；被排除的记录仍可通过分页再次读取。 */
@@ -158,7 +158,7 @@ export function buildWorkingMemory(records: MemoryRecord[], policy: WorkingMemor
   const ordered = [...records].sort((a, b) => b.sequence - a.sequence);
   const eligible = ordered.filter((record) =>
     record.lifecycle === 'active' &&
-    record.status !== 'superseded' &&
+    (record.status === 'confirmed' || (policy.includeCandidates === true && record.status === 'candidate')) &&
     (!record.validUntil || Date.parse(record.validUntil) > now),
   );
   const kept: MemoryRecord[] = [];
