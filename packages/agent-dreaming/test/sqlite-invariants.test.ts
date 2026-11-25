@@ -61,6 +61,12 @@ test('auto-committed add proposals are provenance-checked and idempotent', async
     assert.deepEqual(await store.commitProposal(input), { applied: true });
     assert.equal((await store.listMemories('scope-a')).length, 1);
     assert.equal((await store.listMemories('scope-a'))[0]?.status, 'candidate');
+    const conflictingRetry = proposal('proposal-add', 'add', [], {
+      ...record('different-memory', 'Different payload'), status: 'candidate',
+    });
+    await assert.rejects(() => store.commitProposal({
+      proposal: conflictingRetry, evidence: [evidence], runId: 'run-1',
+    }), /Conflicting applied proposal ID/);
 
     const invalid = proposal('proposal-invalid', 'add', [], {
       ...record('memory-invalid'), sourceRefs: ['unverified:ref'], status: 'candidate',
