@@ -52,7 +52,7 @@ export class SqliteDreamingScheduler {
     if (!Number.isSafeInteger(dueAt)) throw new TypeError('dueAt must be a Unix timestamp in milliseconds.');
     this.db.prepare(
       'INSERT INTO dreaming_jobs(id,scope,due_at,interval_ms,attempts,updated_at) VALUES(?,?,?,?,0,?) ' +
-      'ON CONFLICT(id) DO UPDATE SET scope=excluded.scope,due_at=excluded.due_at,interval_ms=excluded.interval_ms,attempts=0,lease_owner=NULL,lease_until=NULL,last_error=NULL,updated_at=excluded.updated_at',
+      'ON CONFLICT(id) DO NOTHING',
     ).run(input.id, input.scope, dueAt, input.intervalMs ?? null, this.clock());
   }
 
@@ -105,6 +105,19 @@ export class SqliteDreamingScheduler {
     return this.db.prepare(
       'UPDATE dreaming_jobs SET attempts=?,due_at=?,lease_owner=NULL,lease_until=NULL,last_error=?,updated_at=? WHERE id=? AND lease_owner=?',
     ).run(attempts, now + delay, String(input.error).slice(0, 4_000), now, input.id, input.owner).changes === 1;
+  }
+
+  listDeadLetters(limit = 100): Array<{ id: string; scope: string; attempts: number; lastError: string | null }> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) throw new TypeError('limit must be between 1 and 1000.');
+    return this.db.prepare(
+      'SELECT id,scope,attempts,last_error AS lastError FROM dreaming_jobs WHERE attempts>=? ORDER BY updated_at DESC LIMIT ?',
+    ).all(this.maxAttempts, limit) as Array<{ id: string; scope: string; attempts: number; lastError: string | null }>;
+  }
+
+  retry(id: string): boolean {
+    return this.db.prepare(
+      'UPDATE dreaming_jobs SET attempts=0,due_at=?,lease_owner=NULL,lease_until=NULL,last_error=NULL,updated_at=? WHERE id=? AND attempts>=?',
+    ).run(this.clock(), this.clock(), id, this.maxAttempts).changes === 1;
   }
 
   remove(id: string): void {
