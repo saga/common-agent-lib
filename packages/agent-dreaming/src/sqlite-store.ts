@@ -161,9 +161,18 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
     });
   }
   async recordFeedback(e:DreamingFeedbackEvent):Promise<void> {
-    this.ensure(); const old=this.db.prepare('SELECT payload FROM feedback WHERE id=?').get(e.id) as Row|undefined;
-    if(old){if(String(old.payload)!==encode(e))throw new Error('Conflicting feedback event ID: '+e.id);return;}
-    this.db.prepare('INSERT INTO feedback(id,scope,memory_id,occurred_at,payload) VALUES(?,?,?,?,?)').run(e.id,e.scope,e.memoryId,e.occurredAt,encode(e));
+    this.ensure();
+    this.tx(()=>{
+      const memory=this.db.prepare('SELECT 1 FROM memories WHERE id=? AND scope=?').get(e.memoryId,e.scope);
+      if(!memory)throw new Error('Feedback memory not found in scope: '+e.memoryId);
+      const old=this.db.prepare('SELECT payload FROM feedback WHERE id=?').get(e.id) as Row|undefined;
+      if(old){
+        if(String(old.payload)!==encode(e))throw new Error('Conflicting feedback event ID: '+e.id);
+        return;
+      }
+      this.db.prepare('INSERT INTO feedback(id,scope,memory_id,occurred_at,payload) VALUES(?,?,?,?,?)')
+        .run(e.id,e.scope,e.memoryId,e.occurredAt,encode(e));
+    });
   }
   async loadFeedback(i:{scope:string;memoryIds:readonly string[];since:string;limit:number}):Promise<readonly DreamingFeedbackEvent[]> {
     this.ensure(); if(!i.memoryIds.length)return []; const ids=[...i.memoryIds];
@@ -171,12 +180,24 @@ export class SqliteDreamingStore implements DreamingRepository, DreamingEvidence
     return rows.map(r=>decode<DreamingFeedbackEvent>(r.payload));
   }
   async acquireLease(i:{scope:string;owner:string;leaseMs:number}):Promise<boolean> {
-    this.ensure(); return this.tx(()=>{const now=Date.now();const old=this.db.prepare('SELECT owner,expires_at FROM leases WHERE scope=?').get(i.scope) as Row|undefined;
+    this.ensure();
+    if(!i.scope.trim()||!i.owner.trim()||!Number.isSafeInteger(i.leaseMs)||i.leaseMs<1)throw new TypeError('Lease scope, owner and positive integer leaseMs are required');
+    return this.tx(()=>{
+      const now=Date.now();
+      const old=this.db.prepare('SELECT owner,expires_at FROM leases WHERE scope=?').get(i.scope) as Row|undefined;
       if(old&&Number(old.expires_at)>now&&old.owner!==i.owner)return false;
-      this.db.prepare('INSERT INTO leases(scope,owner,expires_at) VALUES(?,?,?) ON CONFLICT(scope) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at').run(i.scope,i.owner,now+i.leaseMs);return true;});
+      this.db.prepare('INSERT INTO leases(scope,owner,expires_at) VALUES(?,?,?) ON CONFLICT(scope) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at')
+        .run(i.scope,i.owner,now+i.leaseMs);
+      return true;
+    });
   }
   async renewLease(i:{scope:string;owner:string;leaseMs:number}):Promise<boolean> {
-    this.ensure(); const r=this.db.prepare('UPDATE leases SET expires_at=? WHERE scope=? AND owner=? AND expires_at>?').run(Date.now()+i.leaseMs,i.scope,i.owner,Date.now());return Number(r.changes)===1;
+    this.ensure();
+    if(!i.scope.trim()||!i.owner.trim()||!Number.isSafeInteger(i.leaseMs)||i.leaseMs<1)throw new TypeError('Lease scope, owner and positive integer leaseMs are required');
+    const now=Date.now();
+    const r=this.db.prepare('UPDATE leases SET expires_at=? WHERE scope=? AND owner=? AND expires_at>?')
+      .run(now+i.leaseMs,i.scope,i.owner,now);
+    return Number(r.changes)===1;
   }
   async releaseLease(i:{scope:string;owner:string}):Promise<void> { this.ensure();this.db.prepare('DELETE FROM leases WHERE scope=? AND owner=?').run(i.scope,i.owner); }
   async listReviewQueue(i:{scope:string;status?:DreamingReviewQueueItem['status'];limit?:number}):Promise<DreamingReviewQueueItem[]> {
