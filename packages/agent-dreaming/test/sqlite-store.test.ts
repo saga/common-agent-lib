@@ -49,3 +49,17 @@ test('feedback event IDs are idempotent and conflicting reuse is rejected',async
   await assert.rejects(()=>x.store.recordFeedback({...event,outcome:'not-useful'}),/Conflicting/);
  }finally{await x.close();}
 });
+
+test('approved update preserves the existing memory identity',async()=>{
+ const x=setup();try{
+  await x.store.upsertMemory({id:'existing',scope:'s',content:'old',status:'confirmed',importance:.5,sourceRefs:['r0']});
+  const proposal={id:'update-1',scope:'s',operation:'update' as const,targetRecordIds:['existing'],proposedRecord:{id:'model-new-id',scope:'s',content:'corrected',status:'candidate' as const,importance:.8,sourceRefs:['r1']},rationale:'new evidence',evidenceRefs:['r1']};
+  await x.store.stageProposal({proposal,evidence:[{ref:'r1',kind:'note',content:'new source'}],runId:'run2',reason:'mutation'});
+  await x.store.resolveReview({scope:'s',proposalId:'update-1',decision:'approve',reviewedBy:'reviewer'});
+  const memories=await x.store.listMemories('s');
+  assert.equal(memories.length,1);
+  assert.equal(memories[0]?.id,'existing');
+  assert.equal(memories[0]?.content,'corrected');
+  assert.equal(memories[0]?.status,'confirmed');
+ }finally{await x.close();}
+});
