@@ -18,6 +18,7 @@ function fixture(
   callbacks: Pick<DreamingOptions, 'onRun' | 'onError'> = {},
   modelOutput?: unknown,
   initialMemories: DreamingMemory[] = [],
+  noExperiences = false,
 ) {
   const experience: DreamingExperience = {
     id: 'e1', sequence: 1, scope: 'user-1', content: 'User prefers concise technical answers.',
@@ -37,7 +38,7 @@ function fixture(
   const memoryReviewRequests: Array<{ reviewBefore?: string; expiredBefore?: string }> = [];
   const repository: DreamingRepository = {
     async loadExperiences({ afterSequence }) {
-      const items = experience.sequence > afterSequence ? [experience] : [];
+      const items = !noExperiences && experience.sequence > afterSequence ? [experience] : [];
       return { items, hasMore: false };
     },
     async loadMemories(input) {
@@ -312,4 +313,18 @@ test('runtime cannot mark a memory outside the loaded scope as reviewed', async 
   const f = fixture('trace:t1:event:e1', {}, output);
   await assert.rejects(() => f.engine.runNow('user-1'), /unknown memory as reviewed/);
   assert.deepEqual(f.reviewedMemories, []);
+});
+
+
+test('stale memories can be reviewed even when there are no new experience rows', async () => {
+  const output = { proposals: [], processedRecordIds: [], reviewedMemoryIds: ['m-seeded'] };
+  const f = fixture('trace:t1:event:e1', {}, output, [{
+    id: 'm-seeded', scope: 'user-1', content: 'Seeded durable memory.',
+    status: 'confirmed', importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
+    lastValidatedAt: '2026-01-01T00:00:00.000Z',
+  }], true);
+  const run = await f.engine.runNow('user-1');
+  assert.equal(run?.status, 'completed');
+  assert.deepEqual(f.reviewedMemories, ['m-seeded']);
+  assert.deepEqual(run?.processedRecordIds, []);
 });
