@@ -62,3 +62,6 @@ The host records immutable feedback against a memory ID: task usefulness after r
 
 The engine loads these summaries with the selected memories and supplies them to the runtime as additional context. They can trigger a new staged review proposal, but cannot directly mutate, delete or demote a memory. Feedback is immutable and host-authenticated; the model cannot author feedback events or claim user confirmation.
 
+### Checking whether a review helped
+
+An accepted human review (`confirmed` or `edited`) creates a comparison point. When there are at least three non-neutral retrieval outcomes before and three after that point, quality evaluation reports baseline and follow-up usefulness, the difference, and an improving/declining/stable trend. These cohort rates are unweighted to avoid making the earlier baseline appear worse solely because it is older. A decline triggers another review recommendation. The comparison is descriptive, not causal; insufficient samples remain inconclusive.
