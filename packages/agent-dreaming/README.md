@@ -90,7 +90,7 @@ The engine does not require a long-lived session. An adapter may create a short-
 - `onRun` is an observer hook; callback failures are reported through `onError` and do not turn a completed run into a failed run.
 - Checkpoints advance only through records explicitly reported as processed. Failed runs remain visible and are retried by a later trigger.
 - The serialized batch prompt has a configurable character ceiling (`maxPromptChars`, default 120,000) to prevent unexpectedly large model requests. Keep evidence excerpts concise in the resolver.
-- Experiences are re-reviewed through `reviewBefore`. Memories are reloaded when stale (`memoryReviewIntervalMs`, default 30 days) or expired (`validUntil <= now`); the repository must include these records even when they are not directly linked to the current experience batch.
+- Experiences are re-reviewed through `reviewBefore`. Memories are reloaded when stale (`memoryReviewIntervalMs`, default 30 days) or expired (`validUntil <= now`); the repository must include these records even when they are not directly linked to the current experience batch. The runtime reports `reviewedMemoryIds`, and the engine persists only those IDs through `markMemoriesReviewed`.
 - `quality` is a model-generated triage assessment (confidence, durability, specificity, contradiction risk), not a calibrated probability or trust score. Only `add` proposals that pass all thresholds are automatically committed as candidates. Missing assessments, missing provenance, weak quality, conflicts and all mutations of existing memories go to `stageProposal` for host review.
 - Expiry triggers review, not deletion. The model may propose supersede/archive, but these operations are staged and never automatically applied.
 - The host must keep the repository and evidence resolver durable across restarts.
@@ -99,6 +99,6 @@ The engine does not require a long-lived session. An adapter may create a short-
 
 Model output is untrusted. The package rejects invalid operations, mismatched scopes, unknown processed IDs, unresolved evidence references, invalid relationship payloads and targets that are not loaded memories. Configured scopes are enforced at the public API. Proposed records are forced to `candidate`; the model cannot promote memory to `confirmed`. Existing-memory mutations and expiry actions are review-only. The host must implement `stageProposal` as a durable, idempotent review queue and keep its approval action separate from model execution.
 
-The repository must provide transactionality, idempotent proposal commits, evidence resolution and authorization. A lease is required for multi-process deployments. Do not let the model directly access the memory database or call commit APIs.
+The repository must provide transactionality, idempotent candidate commits and review staging, durable review timestamps for experiences and memories, evidence resolution and authorization. A lease is required for multi-process deployments. Do not let the model directly access the memory database or call commit APIs.
 
 The package does not prescribe a database, scheduler service, vector index, graph database or agent framework. A host can use SQLite for a single-process deployment or a transactional database/queue for multiple workers.
