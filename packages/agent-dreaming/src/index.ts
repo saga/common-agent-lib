@@ -369,8 +369,7 @@ export class DreamingEngine {
           scope, memoryIds: memories.map((item) => item.id),
           limit: Math.max(1, this.options.maxRelationships ?? 200),
         });
-        const knownMemoryIds = new Set(memories.map((item) => item.id));
-        if (relationships.some((item) => item.scope !== scope || !knownMemoryIds.has(item.fromId) || !knownMemoryIds.has(item.toId))) {
+        if (relationships.some((item) => item.scope !== scope || !item.id || !item.fromId || !item.toId || item.fromId === item.toId)) {
           throw new Error('Repository returned invalid relationships for the active scope.');
         }
         const refs = unique([
