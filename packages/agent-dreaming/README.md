@@ -102,3 +102,19 @@ Model output is untrusted. The package rejects invalid operations, mismatched sc
 The repository must provide transactionality, idempotent candidate commits and review staging, durable review timestamps for experiences and memories, evidence resolution and authorization. A lease is required for multi-process deployments. Do not let the model directly access the memory database or call commit APIs.
 
 The package does not prescribe a database, scheduler service, vector index, graph database or agent framework. A host can use SQLite for a single-process deployment or a transactional database/queue for multiple workers.
+
+## Long-term memory quality
+
+The host records immutable `DreamingFeedbackEvent` entries when it has a real signal:
+
+- `retrieval`: `useful`, `not-useful` or `neutral`. Emit useful/not-useful only when the task outcome is known; retrieval alone is not evidence of usefulness.
+- `evidence`: `supports` or `contradicts`, linked to a source reference where possible.
+- `user-correction`: `incorrect`, `outdated` or `not-applicable`.
+- `human-review`: `confirmed`, `rejected` or `edited`.
+
+Call `dreaming.recordFeedback(event)` after host-side authorization. Event IDs are idempotency keys. The repository stores events immutably and implements `loadFeedback` for bounded retrieval. Keep actor identity and authorization in the host; do not let model output manufacture user or human feedback.
+
+`evaluateMemoryQuality(events)` produces a deterministic, 180-day, recency-weighted summary (90-day half-life). It keeps retrieval usefulness separate from evidence support, and reports correction and human-rejection counts. Small samples do not trigger a review recommendation: retrieval needs at least five outcomes, evidence needs at least three observations, and user correction needs at least two. A human rejection is an explicit review signal.
+
+During dreaming, the engine loads feedback for the selected memories and includes the summaries in the model prompt. The runtime can use them to propose a review, but all changes to existing memories remain staged for host review. The evaluator never changes memory status, deletes a memory or promotes a candidate. Treat these metrics as operational signals, not calibrated probabilities.
+
