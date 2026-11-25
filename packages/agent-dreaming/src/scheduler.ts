@@ -43,6 +43,8 @@ export class SqliteDreamingScheduler {
     );
   }
 
+  get heartbeatIntervalMs(): number { return Math.max(1_000, Math.floor(this.leaseMs / 3)); }
+
   schedule(input: { id: string; scope: string; dueAt?: number; intervalMs?: number }): void {
     if (!input.id.trim() || !input.scope.trim()) throw new TypeError('Job id and scope are required.');
     if (input.intervalMs !== undefined && (!Number.isSafeInteger(input.intervalMs) || input.intervalMs < 1_000)) {
@@ -80,6 +82,13 @@ export class SqliteDreamingScheduler {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  renew(input: { id: string; owner: string }): boolean {
+    const now = this.clock();
+    return this.db.prepare(
+      'UPDATE dreaming_jobs SET lease_until=?,updated_at=? WHERE id=? AND lease_owner=? AND lease_until>?',
+    ).run(now + this.leaseMs, now, input.id, input.owner, now).changes === 1;
   }
 
   complete(input: { id: string; owner: string }): boolean {
