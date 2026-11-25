@@ -643,7 +643,11 @@ export function evaluateMemoryQuality(
   const evaluatedAt = now instanceof Date ? now : new Date(now);
   if (!Number.isFinite(evaluatedAt.getTime())) throw new Error('Invalid quality evaluation time.');
   const uniqueEvents = new Map<string, DreamingFeedbackEvent>();
+  const identity = events[0] ? { scope: events[0].scope, memoryId: events[0].memoryId } : undefined;
   for (const event of events) {
+    if (identity && (event.scope !== identity.scope || event.memoryId !== identity.memoryId)) {
+      throw new Error('Quality evaluation accepts events for one memory and scope only.');
+    }
     validateFeedbackEvent(event);
     const previous = uniqueEvents.get(event.id);
     if (previous && JSON.stringify(previous) !== JSON.stringify(event)) {
