@@ -6,8 +6,8 @@ export type DreamingAction =
 export interface DreamingActor {
   /** Stable subject ID supplied by an authenticated identity provider. */
   subject: string;
-  /** The caller's authenticated roles for this scope. */
-  roles: readonly DreamingRole[];
+  /** Informational identity-provider claims; these never grant permissions by themselves. */
+  roles?: readonly DreamingRole[];
 }
 
 export interface DreamingAuthorizationRequest {
@@ -42,8 +42,7 @@ export class RoleBasedDreamingAuthorization implements DreamingAuthorizationPoli
     if (!request.actor.subject.trim() || !request.scope.trim()) return false;
     const configuredRoles = this.grants.get(request.actor.subject)?.get(request.scope);
     if (!configuredRoles?.length) return false;
-    const roles = new Set([...configuredRoles, ...request.actor.roles]);
-    return [...roles].some((role) => roleActions[role]?.has(request.action) === true);
+    return configuredRoles.some((role) => roleActions[role]?.has(request.action) === true);
   }
 }
 
