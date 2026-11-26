@@ -40,7 +40,9 @@ test('durable scheduler claims jobs exclusively, retries failures and recovers e
   assert.equal(scheduler.claim('worker-b').length, 0, 're-registering a recurring job must not steal its lease');
   now += 50;
   assert.equal(scheduler.renew({ id: 'job-1', owner: 'worker-a' }), true);
-  now += 51;
+  now += 101;
+  assert.equal(scheduler.claim('worker-b').length, 0, 'renewal extends the lease');
+  now += 50;
   assert.equal(scheduler.claim('worker-b')[0]?.id, 'job-1');
   assert.equal(scheduler.fail({ id: 'job-1', owner: 'worker-b', error: 'temporary' }), true);
   assert.equal(scheduler.claim('worker-c').length, 0);
