@@ -36,7 +36,11 @@ test('durable scheduler claims jobs exclusively, retries failures and recovers e
   scheduler.schedule({ id: 'job-1', scope: 'alice' });
   assert.equal(scheduler.claim('worker-a').length, 1);
   assert.equal(scheduler.claim('worker-b').length, 0);
-  now += 101;
+  scheduler.schedule({ id: 'job-1', scope: 'alice' });
+  assert.equal(scheduler.claim('worker-b').length, 0, 're-registering a recurring job must not steal its lease');
+  now += 50;
+  assert.equal(scheduler.renew({ id: 'job-1', owner: 'worker-a' }), true);
+  now += 51;
   assert.equal(scheduler.claim('worker-b')[0]?.id, 'job-1');
   assert.equal(scheduler.fail({ id: 'job-1', owner: 'worker-b', error: 'temporary' }), true);
   assert.equal(scheduler.claim('worker-c').length, 0);
@@ -98,4 +102,20 @@ test('SQLite memory recall uses built-in vector ranking with an injected embeddi
     await store.close();
     await dbDir.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('scheduler exposes exhausted jobs and supports explicit retry', () => {
+  const db = new DatabaseSync(':memory:');
+  let now = 10_000;
+  const scheduler = new SqliteDreamingScheduler(db, {
+    leaseMs: 100, retryBaseMs: 10, maxAttempts: 1, clock: () => now,
+  });
+  scheduler.schedule({ id: 'job-dead', scope: 'alice' });
+  scheduler.claim('worker');
+  assert.equal(scheduler.fail({ id: 'job-dead', owner: 'worker', error: 'permanent' }), true);
+  assert.equal(scheduler.claim('worker').length, 0);
+  assert.equal(scheduler.listDeadLetters()[0]?.id, 'job-dead');
+  assert.equal(scheduler.retry('job-dead'), true);
+  assert.equal(scheduler.claim('worker')[0]?.id, 'job-dead');
+  db.close();
 });
