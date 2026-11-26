@@ -92,28 +92,28 @@ export class SqliteDreamingScheduler {
   }
 
   complete(input: { id: string; owner: string }): boolean {
-    const row = this.db.prepare('SELECT interval_ms FROM dreaming_jobs WHERE id=? AND lease_owner=?')
-      .get(input.id, input.owner) as { interval_ms: number | null } | undefined;
+    const row = this.db.prepare('SELECT interval_ms FROM dreaming_jobs WHERE id=? AND lease_owner=? AND lease_until>?')
+      .get(input.id, input.owner, this.clock()) as { interval_ms: number | null } | undefined;
     if (!row) return false;
     if (row.interval_ms === null) {
-      return this.db.prepare('DELETE FROM dreaming_jobs WHERE id=? AND lease_owner=?').run(input.id, input.owner).changes === 1;
+      return this.db.prepare('DELETE FROM dreaming_jobs WHERE id=? AND lease_owner=? AND lease_until>?').run(input.id, input.owner, this.clock()).changes === 1;
     }
     const nextDue = this.clock() + row.interval_ms;
     return this.db.prepare(
-      'UPDATE dreaming_jobs SET due_at=?,attempts=0,lease_owner=NULL,lease_until=NULL,last_error=NULL,updated_at=? WHERE id=? AND lease_owner=?',
-    ).run(nextDue, this.clock(), input.id, input.owner).changes === 1;
+      'UPDATE dreaming_jobs SET due_at=?,attempts=0,lease_owner=NULL,lease_until=NULL,last_error=NULL,updated_at=? WHERE id=? AND lease_owner=? AND lease_until>?',
+    ).run(nextDue, this.clock(), input.id, input.owner, this.clock()).changes === 1;
   }
 
   fail(input: { id: string; owner: string; error: unknown }): boolean {
     const now = this.clock();
-    const row = this.db.prepare('SELECT attempts,interval_ms FROM dreaming_jobs WHERE id=? AND lease_owner=?')
-      .get(input.id, input.owner) as { attempts: number; interval_ms: number | null } | undefined;
+    const row = this.db.prepare('SELECT attempts,interval_ms FROM dreaming_jobs WHERE id=? AND lease_owner=? AND lease_until>?')
+      .get(input.id, input.owner, now) as { attempts: number; interval_ms: number | null } | undefined;
     if (!row) return false;
     const attempts = row.attempts + 1;
     const delay = Math.min(60 * 60_000, this.retryBaseMs * 2 ** Math.min(attempts - 1, 10));
     return this.db.prepare(
-      'UPDATE dreaming_jobs SET attempts=?,due_at=?,lease_owner=NULL,lease_until=NULL,last_error=?,updated_at=? WHERE id=? AND lease_owner=?',
-    ).run(attempts, now + delay, String(input.error).slice(0, 4_000), now, input.id, input.owner).changes === 1;
+      'UPDATE dreaming_jobs SET attempts=?,due_at=?,lease_owner=NULL,lease_until=NULL,last_error=?,updated_at=? WHERE id=? AND lease_owner=? AND lease_until>?',
+    ).run(attempts, now + delay, String(input.error).slice(0, 4_000), now, input.id, input.owner, now).changes === 1;
   }
 
   listDeadLetters(limit = 100): Array<{ id: string; scope: string; attempts: number; lastError: string | null }> {
