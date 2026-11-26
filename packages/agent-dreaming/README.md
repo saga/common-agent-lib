@@ -53,7 +53,7 @@ Implement the small `DreamingRuntime.generate()` contract to connect CodeBuddy, 
 ## What Dreaming does
 
 1. Loads new experiences and experiences due for re-review.
-2. Selects memories linked by source references, then includes stale, expired and important memories within the configured limit.
+2. Selects memories through local vector similarity and source-reference overlap, while prioritizing stale and expired memories.
 3. Loads related memory edges and resolves original evidence.
 4. Sends a bounded, structured task to the configured runtime.
 5. Validates scope, targets, provenance, relationships and quality assessment.
@@ -76,11 +76,11 @@ SQLite uses Node's built-in `node:sqlite`; no native addon or third-party SQLite
 
 ## Host responsibilities and boundaries
 
-The host authenticates users, authorizes scope access and review decisions, and decides when a candidate may become confirmed. Do not expose database or review methods directly as untrusted model tools.
+The host authenticates users and supplies a trusted subject identity. The package applies configured scope grants and review permissions through its authorization policy. Candidate promotion remains quality-gated; changing a confirmed memory requires an authorized review decision. Do not expose persistence methods directly as untrusted model tools.
 
 The built-in memory ranking uses a persisted SQLite vector index with cosine similarity, source-reference overlap, stale/expiry status and importance. The default local embedding provider uses optional Transformers.js with a multilingual MiniLM model; install @huggingface/transformers to enable local semantic embeddings. Without that optional package, Dreaming falls back to source-reference and recency ranking. Supply a custom EmbeddingProvider or MemoryRetriever to override the default. Embeddings are cached by content hash and isolated by scope and provider ID.
 
-The timer is process-local. For guaranteed scheduling across restarts, run `DreamingEngine` from a durable worker or external scheduler and keep the repository lease enabled. The in-process timer is a trigger, not a durable queue.
+The package includes `SqliteDreamingScheduler` and `DreamingWorker`. Jobs, recurring intervals, attempts and claim leases are persisted in SQLite. Expired claims are recovered after process crashes; workers renew leases during long runs, retry failures with bounded exponential backoff and expose exhausted jobs for manual retry. `DreamingEngine.start()` remains a convenience process-local trigger; use the durable worker for restart-safe scheduling.
 
 ## Built-in authorization and review
 
