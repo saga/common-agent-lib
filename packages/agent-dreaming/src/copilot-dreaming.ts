@@ -61,6 +61,7 @@ export function createSqliteCopilotDreaming(
 ): CopilotDreamingInstance & { store: typeof store } {
   const dreaming = createCopilotDreaming(store, store, options, runtimeOptions);
   const scheduler = store.createScheduler();
+  let started = false;
   const worker = new DreamingWorker(dreaming.engine, scheduler, {
     workerId: createId('dreaming-worker'),
     scopes: options.scopes,
@@ -71,10 +72,14 @@ export function createSqliteCopilotDreaming(
     ...dreaming,
     store,
     worker,
-    start: () => worker.start(),
+    start() { started = true; worker.start(); },
     async stop() {
+      started = false;
       await worker.stop();
       dreaming.engine.stop();
+    },
+    notifyRecordAppended(scope) {
+      return started ? dreaming.engine.runNow(scope, undefined) : Promise.resolve(undefined);
     },
     async shutdown(reason) {
       try {
