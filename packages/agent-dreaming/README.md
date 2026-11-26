@@ -1,63 +1,87 @@
 # @saga/agent-dreaming
 
-Standalone memory-dreaming engine for Node.js 24.15+. It includes durable SQLite persistence; the host supplies a model runtime adapter and may add external evidence connectors.
+Background memory consolidation for Node.js 24.15+. The package owns the Dreaming loop, durable local storage, evidence lookup, review workflow and run history. It does not depend on an Agent runtime package.
 
-## Included
+## Default runtime: Copilot SDK
 
-- Dreaming engine, prompt construction, output validation and candidate quality gates.
-- SQLite persistence for experiences, memories, relationships, evidence, feedback, checkpoints, runs, proposals and leases.
-- Durable review queue with explicit approve/reject operations.
-- Scope-isolated atomic leases, WAL mode and idempotent proposal/feedback writes.
-- SQLite-backed evidence resolver.
-- Feedback quality and post-review effectiveness evaluation.
+Install the SDK when using the built-in adapter:
 
-No dependency on another `@saga/*` package, Agent framework or provider SDK.
-
-## Use
-
-```ts
-import { DreamingEngine } from '@saga/agent-dreaming';
-import { SqliteDreamingStore } from '@saga/agent-dreaming/sqlite';
-
-const store = new SqliteDreamingStore({ filename: './data/dreaming.sqlite' });
-await store.appendExperience({
-  id: 'exp-1', scope: 'user:1', content: 'A durable experience',
-  createdAt: new Date().toISOString(), sourceRefs: ['note:1'],
-});
-await store.putEvidence('user:1', { ref: 'note:1', kind: 'note', content: 'Original source' });
-
-const runtime = {
-  id: 'my-runtime',
-  async generate(request) {
-    return { output: await callYourModel(request) };
-  },
-};
-const engine = new DreamingEngine(runtime, store, store, { scopes: ['user:1'] });
-engine.start();
-await engine.runNow('user:1');
-await engine.shutdown();
-await store.close();
+```sh
+npm install @saga/agent-dreaming @microsoft/copilot-sdk
 ```
 
-The SQLite store implements `DreamingRepository`, `DreamingEvidenceResolver` and `DreamingReviewQueue`. The queue contract is exported independently of the SQLite implementation. Replace the repository or resolver only when integrating another database or external source system.
+```ts
+import {
+  createSqliteCopilotDreaming,
+  SqliteDreamingStore,
+} from '@saga/agent-dreaming';
 
-## Store API
+const store = new SqliteDreamingStore({ filename: './data/dreaming.sqlite' });
+const dreaming = createSqliteCopilotDreaming(store, {
+  scopes: ['user:1'],
+  intervalMs: 15 * 60_000,
+});
 
-- `appendExperience` assigns a per-scope sequence if omitted.
-- `upsertMemory`, `appendRelationship`, `putEvidence` manage durable source data.
-- `listMemories`, `listReviewQueue` query persisted state.
-- `resolveReview` applies an explicit human approval or rejection.
-- `recordFeedback` is immutable and idempotent by event ID.
-- `close` closes the SQLite connection.
+await store.putEvidence('user:1', {
+  ref: 'note:1',
+  kind: 'note',
+  content: 'Original source text',
+});
+await store.appendExperience({
+  id: 'experience:1',
+  scope: 'user:1',
+  content: 'A meaningful interaction or task outcome',
+  createdAt: new Date().toISOString(),
+  sourceRefs: ['note:1'],
+});
 
-The host must authenticate users and authorize scope access and review decisions. Do not expose persistence methods directly as untrusted model tools.
+dreaming.start();
+await dreaming.runNow('user:1');
+await dreaming.shutdown(); // Stops the engine, Copilot client and SQLite store.
+```
 
-## Runtime and evidence adapters
+The `createSqliteCopilotDreaming()` factory composes the engine, SQLite store, Copilot adapter and durable SQLite worker. Its `start()` method schedules recurring jobs in the database; it does not rely on the engine's in-process interval. Use `createCopilotDreaming(repository, evidenceResolver, options)` when persistence is supplied separately, or construct `DreamingEngine` and a custom `DreamingRuntime` yourself.
 
-The only required application adapter is `DreamingRuntime.generate()`. Copilot SDK, CodeBuddy SDK and pi.dev can be used without becoming dependencies of this package. SQLite evidence is resolved locally; GitHub, Jira, Confluence and other remote sources remain optional resolver adapters.
+The adapter uses `@microsoft/copilot-sdk` directly. It creates a short-lived, isolated session for each generation call and defaults to the SDK's `empty` mode, so Dreaming receives supplied experiences and evidence but has no tool access by default. The SDK client is reused; conversation history is not. Each temporary session is deleted after the response so Copilot session files do not accumulate. Structured output is requested with a JSON Schema and validated again by the Dreaming engine.
 
-## SQLite
+The Copilot SDK is an optional peer dependency. The core package can be installed and used with a custom runtime without installing Copilot. The adapter does not depend on `@saga/copilot-agent-runtime`.
 
-Uses Node's built-in `node:sqlite`; no native addon or third-party SQLite package. Node.js 24.15+ is required. SQLite calls are synchronous internally, so transactions must remain short; never perform model or network calls inside a transaction. WAL supports multiple local processes sharing a database file, not multi-host distributed storage.
+## Other model runtimes
 
-Only provenance-backed, quality-gated additions are committed automatically, and remain `candidate`. Mutations of existing memories enter the durable review queue. Human approval is explicit; the host is responsible for reviewer authentication and authorization.
+Implement the small `DreamingRuntime.generate()` contract to connect CodeBuddy, pi.dev, DeepAgents, or another provider. The core package does not depend on their session APIs or lifecycle. Provider-specific authentication, model selection and retry policy belong in the adapter.
+
+## What Dreaming does
+
+1. Loads new experiences and experiences due for re-review.
+2. Selects memories through local vector similarity and source-reference overlap, while prioritizing stale and expired memories.
+3. Loads related memory edges and resolves original evidence.
+4. Sends a bounded, structured task to the configured runtime.
+5. Validates scope, targets, provenance, relationships and quality assessment.
+6. Commits only provenance-backed, quality-gated new memories as `candidate`; other changes enter the durable review queue.
+7. Records reviewed IDs, run outcomes and a contiguous checkpoint.
+
+Dreaming does not decide that a memory is trusted. Updates, merges, supersedes and archives require explicit review. Prior memory snapshots are retained before mutations.
+
+## Storage
+
+`SqliteDreamingStore` implements:
+
+- `DreamingRepository`: experiences, memories, relationships, checkpoints and run persistence.
+- `DreamingEvidenceResolver`: scope-isolated local evidence lookup. Evidence refs are immutable; publish changed source content under a new versioned ref so earlier evidence remains available for review.
+- `DreamingReviewQueue`: durable proposal review and explicit approve/reject.
+- `DreamingRunStore`: query individual runs or bounded run history.
+- `DreamingMemoryHistoryStore`: inspect snapshots preserved before memory changes.
+
+SQLite uses Node's built-in `node:sqlite`; no native addon or third-party SQLite driver is required. WAL supports multiple local processes sharing a file, not multi-host distributed storage. Keep transactions short: model calls and external evidence access happen outside database transactions.
+
+## Host responsibilities and boundaries
+
+The host authenticates users and supplies a trusted subject identity. The package applies configured scope grants and review permissions through its authorization policy. Candidate promotion remains quality-gated; changing a confirmed memory requires an authorized review decision. Do not expose persistence methods directly as untrusted model tools.
+
+The built-in memory ranking uses a persisted SQLite vector index with cosine similarity, source-reference overlap, stale/expiry status and importance. The default local embedding provider uses optional Transformers.js with a multilingual MiniLM model; install @huggingface/transformers to enable local semantic embeddings. Without that optional package, Dreaming falls back to source-reference and recency ranking. Supply a custom EmbeddingProvider or MemoryRetriever to override the default. Embeddings are cached by content hash and isolated by scope and provider ID.
+
+The package includes `SqliteDreamingScheduler` and `DreamingWorker`. Jobs, recurring intervals, attempts and claim leases are persisted in SQLite. Expired claims are recovered after process crashes; workers renew leases during long runs, retry failures with bounded exponential backoff and expose exhausted jobs for manual retry. `DreamingEngine.start()` remains a convenience process-local trigger; use the durable worker for restart-safe scheduling.
+
+## Built-in authorization and review
+
+The package exports RoleBasedDreamingAuthorization, DenyAllDreamingAuthorization and AuthorizedDreamingReviewQueue. The role policy is default-deny and grants permissions by authenticated subject and scope. Review reads and approve/reject operations go through the authorized facade, which checks permissions before touching the underlying durable queue. Authentication and trusted subject identification remain the host's responsibility; caller-provided role claims are not permission grants. Use a custom DreamingAuthorizationPolicy to integrate an existing IAM or policy engine.

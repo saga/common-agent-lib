@@ -21,6 +21,9 @@ function fixture(
   modelOutput?: unknown,
   initialMemories: DreamingMemory[] = [],
   noExperiences = false,
+  resolverOverride?: { resolve(input: { scope: string; refs: readonly string[] }): Promise<readonly DreamingEvidence[]> },
+  experiencesOverride?: DreamingExperience[],
+  initialCheckpoint = 0,
 ) {
   const experience: DreamingExperience = {
     id: 'e1', sequence: 1, scope: 'user-1', content: 'User prefers concise technical answers.',
@@ -31,7 +34,7 @@ function fixture(
   };
   const memory: DreamingMemory[] = [...initialMemories];
   const runs: DreamingRun[] = [];
-  let checkpoint: DreamingCheckpoint = { scope: 'user-1', afterSequence: 0 };
+  let checkpoint: DreamingCheckpoint = { scope: 'user-1', afterSequence: initialCheckpoint };
   let lease = false;
   const commits: string[] = [];
   const committed: DreamingProposal[] = [];
@@ -42,7 +45,9 @@ function fixture(
   const memoryReviewRequests: Array<{ reviewBefore?: string; expiredBefore?: string }> = [];
   const repository: DreamingRepository = {
     async loadExperiences({ afterSequence }) {
-      const items = !noExperiences && experience.sequence > afterSequence ? [experience] : [];
+      const items = experiencesOverride
+        ? experiencesOverride
+        : (!noExperiences && experience.sequence > afterSequence ? [experience] : []);
       return { items, hasMore: false };
     },
     async loadMemories(input) {
@@ -107,7 +112,7 @@ function fixture(
       };
     },
   };
-  const resolver = {
+  const resolver = resolverOverride ?? {
     async resolve({ refs }: { scope: string; refs: readonly string[] }) {
       return refs.includes(evidence.ref) ? [evidence] : [];
     },
@@ -134,6 +139,45 @@ test('model cannot promote a proposed memory to confirmed', async () => {
   const run = await f.engine.runNow('user-1');
   assert.equal(run?.status, 'completed');
   assert.equal(f.committed[0]?.proposedRecord?.status, 'candidate');
+});
+
+test('evidence resolver cannot inject unrelated or duplicate evidence into a Dreaming run', async () => {
+  const resolver = {
+    async resolve() {
+      return [
+        { ref: 'unrequested:1', content: 'unrelated', kind: 'note' },
+        { ref: 'unrequested:1', content: 'duplicate', kind: 'note' },
+      ];
+    },
+  };
+  const f = fixture('trace:t1:event:e1', {}, undefined, [], false, resolver);
+  await assert.rejects(() => f.engine.runNow('user-1'), /invalid, duplicate or unrequested evidence/);
+  assert.deepEqual(f.commits, []);
+  assert.equal(f.runs[0]?.status, 'failed');
+});
+
+test('re-review experiences at or before the checkpoint do not block new experience progress', async () => {
+  const oldReviewed: DreamingExperience = {
+    id: 'old-review', sequence: 4, scope: 'user-1', content: 'An older experience due for maintenance review.',
+    createdAt: '2026-10-01T00:00:00.000Z', sourceRefs: ['trace:t1:event:e1'],
+  };
+  const newExperience: DreamingExperience = {
+    id: 'new-experience', sequence: 6, scope: 'user-1', content: 'A new experience after the checkpoint.',
+    createdAt: '2026-11-26T00:00:00.000Z', sourceRefs: ['trace:t1:event:e1'],
+  };
+  const f = fixture(
+    'trace:t1:event:e1',
+    {},
+    { proposals: [], processedRecordIds: ['new-experience'], reviewedMemoryIds: [], notes: [] },
+    [],
+    false,
+    undefined,
+    [oldReviewed, newExperience],
+    5,
+  );
+  const run = await f.engine.runNow('user-1');
+  assert.equal(run?.status, 'completed');
+  assert.equal(f.checkpoint().afterSequence, 6);
 });
 
 test('unknown evidence references reject a proposal before commit', async () => {

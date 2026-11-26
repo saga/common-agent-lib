@@ -1,36 +1,49 @@
-# ADR 0016: Add a runtime-neutral Agent Dreaming package
+# ADR 0016: Build an independent Agent Dreaming package with Copilot as the default adapter
 
 - Status: Accepted
-- Date: 2026-11-25
+- Date: 2026-11-26
 
 ## Context
 
-The existing agent-memory package defines records, relationships, consolidation proposals and working-memory helpers, but does not execute background consolidation. Requiring each host application to implement replay, scheduling, checkpoints and run tracking duplicates operational logic. Binding this behavior to Copilot or CodeBuddy would prevent other runtimes from using it.
+The memory model defines durable records, relationships, consolidation proposals and working-memory selection, but it does not run the background consolidation lifecycle. Hosts should not each have to reimplement scheduling, replay, evidence resolution, review queues, checkpoints, leases and run tracking.
+
+Binding the core engine to an Agent runtime package would couple storage and memory semantics to one provider's session model. At the same time, leaving every provider integration to each host makes the default path unnecessarily hard to use.
 
 ## Decision
 
-Add `@saga/agent-dreaming` as a separate package. The package owns a bounded background execution loop and exposes three host boundaries:
+Keep the Dreaming engine independent of Agent runtime packages and make the Copilot SDK the built-in default model adapter.
 
-1. `DreamingRuntime`: one structured generation call, implemented by Copilot SDK, CodeBuddy SDK, pi.dev or another runtime.
-2. `DreamingRepository`: durable experience/memory access, run/checkpoint persistence, per-scope lease and atomic idempotent proposal commit.
-3. `DreamingEvidenceResolver`: resolves original evidence referenced by experiences and memories.
+- `DreamingEngine` owns bounded replay, context assembly, schema validation, quality gates, candidate handling, checkpoints, lease renewal and run state.
+- `CopilotDreamingRuntime` calls `@microsoft/copilot-sdk` directly. It uses an isolated short-lived session, structured JSON output and an empty tool surface by default. The SDK is an optional peer dependency; the core package still works with any `DreamingRuntime`.
+- CodeBuddy, pi.dev, DeepAgents and other providers integrate by implementing the small `DreamingRuntime.generate()` contract. The package does not depend on `@saga/copilot-agent-runtime`, `@saga/codebuddy-agent-runtime` or another orchestration runtime.
+- `SqliteDreamingStore` provides a built-in local implementation of experiences, memories, relationships, evidence, feedback, checkpoints, runs, review proposals, leases and memory history. Hosts can replace it with a transactional database implementation.
+- Separate modules own types, prompts, parsing, quality evaluation, engine orchestration and each SQLite concern.
 
-Calling `start()` performs startup dreaming and schedules periodic runs. Hosts can trigger an immediate run after persisting a meaningful experience. The engine replays new and review-due experiences, validates structured proposals and advances only contiguous processed checkpoints.
+## Dreaming lifecycle
+
+1. Load new and review-due experiences for one scope.
+2. Select memories linked to the batch's source references, then prioritize expired, stale and important memories within the configured bound.
+3. Load relevant relationships and resolve original source evidence.
+4. Ask the configured runtime for structured proposals and IDs actually reviewed.
+5. Validate scope, known targets, evidence provenance, relationship endpoints and quality assessment.
+6. Commit only eligible new memories as `candidate`; stage all mutations and uncertain proposals for explicit review.
+7. Preserve the previous memory snapshot before update, merge, supersede or archive.
+8. Persist review timestamps, run state and only the contiguous processed checkpoint.
+
+The engine supports startup, periodic, manual and record-appended triggers. The process-local timer is not a durable queue; production systems that require guaranteed scheduling should use an external worker or scheduler.
 
 ## Trust and operational boundaries
 
-The host remains authoritative for storage, authorization, domain validation, confidence calibration, memory promotion, indexes and retention. The model cannot commit directly or promote a memory to confirmed. Multi-process hosts must implement owner-checked durable lease acquire/renew/release and idempotent commits. The package does not import a provider SDK, database, queue or graph engine.
+The model only proposes changes. It cannot directly write durable memory, promote a candidate to confirmed or author feedback that claims a human decision.
+
+The host authenticates users and authorizes scopes and reviewers. It remains responsible for domain validation, candidate promotion, retention policy and any semantic/vector ranking. Review approval is an application action, not a model tool.
+
+SQLite enforces scope separation, atomic review transactions, proposal idempotency, lease ownership and version history for local single-host use. Multi-host deployments need a transactional shared repository and distributed lease implementation. The host must keep source evidence available for later inspection.
 
 ## Consequences
 
-- Multiple runtimes can drive the same Dreaming workflow without provider coupling.
-- Hosts implement persistence and policy once, against explicit interfaces.
-- Background work is recoverable across restarts when the repository persists runs and checkpoints.
-- The timer is process-local; deployments requiring guaranteed scheduled execution must run the engine in a durable worker/service and implement repository leases.
-
-## Long-term quality feedback
-
-Add immutable, host-authenticated feedback events for retrieval usefulness, evidence support/contradiction, user corrections and human review outcomes. The engine loads bounded feedback for selected memories and passes deterministic recency-weighted summaries to the runtime. Retrieval alone is not positive feedback; the host records usefulness only when task outcome is known.
-
-The evaluator uses a 180-day window and 90-day half-life, keeps usage and evidence signals separate, and requires repeated negative observations before recommending review. Human rejection is an explicit review signal. Quality feedback never mutates memory state; existing-memory changes continue through the durable review queue.
-
+- The default integration path uses the Copilot SDK without importing an Agent runtime wrapper.
+- Other model providers can reuse the same orchestration and persistence contracts.
+- Local installations can run without a separate database service.
+- The package does not attempt to become a vector store, full memory retrieval framework, durable job scheduler or authorization system.
+- SQLite ranking uses source-reference overlap, staleness and importance. Hosts can implement semantic retrieval through their own repository.
