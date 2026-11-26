@@ -46,7 +46,7 @@ export class DreamingWorker {
   }
 
   async runOnce(): Promise<number> {
-    const jobs = this.scheduler.claim(this.options.workerId, this.options.batchSize ?? 10);
+    const jobs = this.scheduler.claim(this.options.workerId, 1);
     let completed = 0;
     for (const job of jobs) {
       const controller = new AbortController();
