@@ -2,6 +2,7 @@ import type {
   DreamingMemory, DreamingRelationship, DreamingMemoryVersion,
 } from '../types.js';
 import type { SqliteDatabase } from './database.js';
+import type { MemoryRetriever } from '../retrieval.js';
 import { encode, mapMemory, type SqliteRow } from './database.js';
 
 function assertLimit(limit: number, max = 10_000): number {
@@ -12,7 +13,7 @@ function assertLimit(limit: number, max = 10_000): number {
 }
 
 export class SqliteMemoryStore {
-  constructor(private readonly context: SqliteDatabase) {}
+  constructor(private readonly context: SqliteDatabase, private readonly retriever?: MemoryRetriever) {}
 
   private snapshotBeforeChange(row: SqliteRow, reason: string): void {
     const memory = mapMemory(row);
@@ -52,44 +53,74 @@ export class SqliteMemoryStore {
     const limit = assertLimit(input.limit);
     const experienceIds = [...new Set(input.experienceIds)].filter(Boolean);
     let relevantRefs: string[] = [];
+    let experienceTexts: string[] = [];
     if (experienceIds.length) {
       const placeholders = experienceIds.map(() => '?').join(',');
       const rows = this.context.db.prepare(
-        `SELECT refs FROM experiences WHERE scope=? AND id IN (${placeholders})`
+        `SELECT refs,content FROM experiences WHERE scope=? AND id IN (${placeholders})`
       ).all(input.scope, ...experienceIds) as SqliteRow[];
       relevantRefs = [...new Set(rows.flatMap((row) => {
         try { return JSON.parse(String(row.refs)) as string[]; } catch { return []; }
       }))].filter(Boolean).slice(0, 500);
+      experienceTexts = rows.map((row) => String(row.content)).filter((value) => value.trim()).slice(0, 20);
     }
 
-    let relevanceOrder = '3';
-    const relevanceParams: (string | number)[] = [];
-    if (relevantRefs.length) {
-      const placeholders = relevantRefs.map(() => '?').join(',');
-      relevanceOrder = `CASE WHEN EXISTS (
-        SELECT 1 FROM json_each(memories.refs) AS source_ref
-        WHERE source_ref.value IN (${placeholders})
-      ) THEN 2 ELSE 3 END`;
-      relevanceParams.push(...relevantRefs);
-    }
     const rows = this.context.db.prepare(
       `SELECT * FROM memories
        WHERE scope=? AND status IN ('candidate','confirmed')
        ORDER BY CASE
          WHEN valid_until IS NOT NULL AND valid_until<=? THEN 0
          WHEN last_validated_at IS NULL OR last_validated_at<=? THEN 1
-         ELSE ${relevanceOrder}
+         ELSE 2
        END,
        importance DESC, updated_at DESC
-       LIMIT ?`
+       LIMIT 10000`
     ).all(
       input.scope,
       input.expiredBefore ?? new Date().toISOString(),
       input.reviewBefore ?? '1970-01-01T00:00:00.000Z',
-      ...relevanceParams,
-      limit,
     ) as SqliteRow[];
-    return rows.map(mapMemory);
+
+    const memories = rows.map(mapMemory);
+    const vectorScores = new Map<string, number>();
+    if (this.retriever && experienceTexts.length && memories.length) {
+      try {
+        // Backfill missing vectors lazily. The index implementation is idempotent by scope/id/provider.
+        for (const memory of memories) {
+          await this.retriever.index({
+            scope: input.scope, memoryId: memory.id, content: memory.content,
+          });
+        }
+        for (const query of experienceTexts) {
+          const matches = await this.retriever.search({
+            scope: input.scope, query, limit: Math.min(200, memories.length), minScore: 0.15,
+          });
+          for (const match of matches) {
+            vectorScores.set(match.memoryId, Math.max(vectorScores.get(match.memoryId) ?? -1, match.score));
+          }
+        }
+      } catch (error) {
+        // Transformers.js is optional. Without it, source-reference and recency ranking remain available.
+        if (!(error instanceof Error) || !error.message.includes('optional @huggingface/transformers')) throw error;
+      }
+    }
+
+    const refSet = new Set(relevantRefs);
+    const now = input.expiredBefore ?? new Date().toISOString();
+    const reviewBefore = input.reviewBefore ?? '1970-01-01T00:00:00.000Z';
+    const ranked = memories.map((memory) => {
+      const dueRank = memory.validUntil && memory.validUntil <= now ? 0
+        : !memory.lastValidatedAt || memory.lastValidatedAt <= reviewBefore ? 1 : 2;
+      const sourceMatch = memory.sourceRefs.some((ref) => refSet.has(ref));
+      return { memory, dueRank, vectorScore: vectorScores.get(memory.id) ?? -1, sourceMatch };
+    });
+    ranked.sort((a, b) =>
+      a.dueRank - b.dueRank
+      || b.vectorScore - a.vectorScore
+      || Number(b.sourceMatch) - Number(a.sourceMatch)
+      || b.memory.importance - a.memory.importance,
+    );
+    return ranked.slice(0, limit).map((item) => item.memory);
   }
 
   async appendRelationship(relationship: DreamingRelationship): Promise<void> {

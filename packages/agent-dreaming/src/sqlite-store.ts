@@ -11,8 +11,12 @@ import { SqliteEvidenceStore } from './sqlite/evidence.js';
 import { SqliteFeedbackStore } from './sqlite/feedback.js';
 import { SqliteLeaseStore } from './sqlite/leases.js';
 import { SqliteReviewQueueStore, type ProposalReviewReason } from './sqlite/review-queue.js';
+import { SqliteVectorIndex, type EmbeddingProvider } from './retrieval.js';
+import { TransformersJsEmbeddingProvider } from './embedding.js';
+import { SqliteDreamingScheduler, type DurableSchedulerOptions } from './scheduler.js';
 
 export type { SqliteDreamingOptions, ProposalReviewReason };
+export type SqliteDreamingStoreOptions = SqliteDreamingOptions & { embeddingProvider?: EmbeddingProvider | false };
 export type { DreamingReviewQueueItem as ReviewQueueItem } from './types.js';
 export type AppendExperienceInput = Omit<DreamingExperience, 'sequence'> & { sequence?: number };
 
@@ -34,10 +38,12 @@ export class SqliteDreamingStore implements
   private readonly leases: SqliteLeaseStore;
   private readonly reviews: SqliteReviewQueueStore;
 
-  constructor(options: SqliteDreamingOptions) {
+  constructor(options: SqliteDreamingStoreOptions) {
     this.database = new SqliteDatabase(options);
     this.experiences = new SqliteExperienceStore(this.database);
-    this.memories = new SqliteMemoryStore(this.database);
+    const vectorIndex = options.embeddingProvider === false ? undefined
+      : new SqliteVectorIndex(this.database.db, options.embeddingProvider ?? new TransformersJsEmbeddingProvider());
+    this.memories = new SqliteMemoryStore(this.database, vectorIndex);
     this.evidence = new SqliteEvidenceStore(this.database);
     this.feedback = new SqliteFeedbackStore(this.database);
     this.leases = new SqliteLeaseStore(this.database);
@@ -155,6 +161,16 @@ export class SqliteDreamingStore implements
     scope: string; proposalId: string; decision: 'approve' | 'reject'; reviewedBy: string;
   }): Promise<DreamingReviewQueueItem['status']> {
     return this.reviews.resolveReview(input);
+  }
+
+  createVectorIndex(provider: EmbeddingProvider): SqliteVectorIndex {
+    this.database.ensureOpen();
+    return new SqliteVectorIndex(this.database.db, provider);
+  }
+
+  createScheduler(options: DurableSchedulerOptions = {}): SqliteDreamingScheduler {
+    this.database.ensureOpen();
+    return new SqliteDreamingScheduler(this.database.db, options);
   }
 
   async close(): Promise<void> {

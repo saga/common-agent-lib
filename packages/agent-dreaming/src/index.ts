@@ -3,12 +3,18 @@ export { DreamingEngine } from './engine.js';
 export { evaluateMemoryQuality, validateFeedbackEvent } from './quality.js';
 export { parseResult, classifyProposal } from './validation.js';
 export { SqliteDreamingStore } from './sqlite-store.js';
-export type { SqliteDreamingOptions, AppendExperienceInput, ReviewQueueItem, ProposalReviewReason } from './sqlite-store.js';
+export type { SqliteDreamingOptions, SqliteDreamingStoreOptions, AppendExperienceInput, ReviewQueueItem, ProposalReviewReason } from './sqlite-store.js';
 export { CopilotDreamingRuntime } from './adapters/copilot.js';
-export type {
-  CopilotDreamingRuntimeOptions,
-  CopilotClientLike,
-  CopilotSessionLike,
-} from './adapters/copilot.js';
+export type { CopilotDreamingRuntimeOptions, CopilotClientLike, CopilotSessionLike } from './adapters/copilot.js';
 export { createCopilotDreaming, createSqliteCopilotDreaming } from './copilot-dreaming.js';
 export type { CopilotDreamingInstance } from './copilot-dreaming.js';
+export { TransformersJsEmbeddingProvider } from './embedding.js';
+export { SqliteVectorIndex } from './retrieval.js';
+export type { EmbeddingProvider, MemoryRetriever, MemorySearchResult } from './retrieval.js';
+export { SqliteDreamingScheduler } from './scheduler.js';
+export type { DurableSchedulerOptions, ScheduledDreamingJob } from './scheduler.js';
+export { RoleBasedDreamingAuthorization, DenyAllDreamingAuthorization, assertDreamingAuthorized } from './authorization.js';
+export type { DreamingActor, DreamingAction, DreamingAuthorizationPolicy, DreamingAuthorizationRequest, DreamingRole } from './authorization.js';
+export { DreamingWorker } from './worker.js';
+export type { DreamingWorkerOptions } from './worker.js';
+export { AuthorizedDreamingReviewQueue } from './authorized-review-queue.js';

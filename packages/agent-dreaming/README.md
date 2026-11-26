@@ -40,7 +40,7 @@ await dreaming.runNow('user:1');
 await dreaming.shutdown(); // Stops the engine, Copilot client and SQLite store.
 ```
 
-The `createSqliteCopilotDreaming()` factory composes the engine, SQLite store and Copilot adapter. Use `createCopilotDreaming(repository, evidenceResolver, options)` when persistence is supplied separately, or construct `DreamingEngine` and a custom `DreamingRuntime` yourself.
+The `createSqliteCopilotDreaming()` factory composes the engine, SQLite store, Copilot adapter and durable SQLite worker. Its `start()` method schedules recurring jobs in the database; it does not rely on the engine's in-process interval. Use `createCopilotDreaming(repository, evidenceResolver, options)` when persistence is supplied separately, or construct `DreamingEngine` and a custom `DreamingRuntime` yourself.
 
 The adapter uses `@microsoft/copilot-sdk` directly. It creates a short-lived, isolated session for each generation call and defaults to the SDK's `empty` mode, so Dreaming receives supplied experiences and evidence but has no tool access by default. The SDK client is reused; conversation history is not. Each temporary session is deleted after the response so Copilot session files do not accumulate. Structured output is requested with a JSON Schema and validated again by the Dreaming engine.
 
@@ -53,7 +53,7 @@ Implement the small `DreamingRuntime.generate()` contract to connect CodeBuddy, 
 ## What Dreaming does
 
 1. Loads new experiences and experiences due for re-review.
-2. Selects memories linked by source references, then includes stale, expired and important memories within the configured limit.
+2. Selects memories through local vector similarity and source-reference overlap, while prioritizing stale and expired memories.
 3. Loads related memory edges and resolves original evidence.
 4. Sends a bounded, structured task to the configured runtime.
 5. Validates scope, targets, provenance, relationships and quality assessment.
@@ -76,8 +76,12 @@ SQLite uses Node's built-in `node:sqlite`; no native addon or third-party SQLite
 
 ## Host responsibilities and boundaries
 
-The host authenticates users, authorizes scope access and review decisions, and decides when a candidate may become confirmed. Do not expose database or review methods directly as untrusted model tools.
+The host authenticates users and supplies a trusted subject identity. The package applies configured scope grants and review permissions through its authorization policy. Candidate promotion remains quality-gated; changing a confirmed memory requires an authorized review decision. Do not expose persistence methods directly as untrusted model tools.
 
-The built-in memory ranking uses source-reference overlap, stale/expiry status and importance. It does not include embeddings or vector search; a host can provide its own repository to add semantic retrieval or domain-specific ranking.
+The built-in memory ranking uses a persisted SQLite vector index with cosine similarity, source-reference overlap, stale/expiry status and importance. The default local embedding provider uses optional Transformers.js with a multilingual MiniLM model; install @huggingface/transformers to enable local semantic embeddings. Without that optional package, Dreaming falls back to source-reference and recency ranking. Supply a custom EmbeddingProvider or MemoryRetriever to override the default. Embeddings are cached by content hash and isolated by scope and provider ID.
 
-The timer is process-local. For guaranteed scheduling across restarts, run `DreamingEngine` from a durable worker or external scheduler and keep the repository lease enabled. The in-process timer is a trigger, not a durable queue.
+The package includes `SqliteDreamingScheduler` and `DreamingWorker`. Jobs, recurring intervals, attempts and claim leases are persisted in SQLite. Expired claims are recovered after process crashes; workers renew leases during long runs, retry failures with bounded exponential backoff and expose exhausted jobs for manual retry. `DreamingEngine.start()` remains a convenience process-local trigger; use the durable worker for restart-safe scheduling.
+
+## Built-in authorization and review
+
+The package exports RoleBasedDreamingAuthorization, DenyAllDreamingAuthorization and AuthorizedDreamingReviewQueue. The role policy is default-deny and grants permissions by authenticated subject and scope. Review reads and approve/reject operations go through the authorized facade, which checks permissions before touching the underlying durable queue. Authentication and trusted subject identification remain the host's responsibility; caller-provided role claims are not permission grants. Use a custom DreamingAuthorizationPolicy to integrate an existing IAM or policy engine.

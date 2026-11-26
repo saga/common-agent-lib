@@ -1,37 +1,25 @@
 {
   "name": "@saga/agent-dreaming",
   "version": "0.2.0",
-  "description": "Standalone background memory dreaming with built-in SQLite persistence.",
+  "description": "Standalone background memory dreaming with built-in SQLite persistence, retrieval, scheduling and authorization.",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/src/index.d.ts",
-      "import": "./dist/src/index.js"
-    },
-    "./sqlite": {
-      "types": "./dist/src/sqlite-store.d.ts",
-      "import": "./dist/src/sqlite-store.js"
-    },
-    "./copilot": {
-      "types": "./dist/src/adapters/copilot.d.ts",
-      "import": "./dist/src/adapters/copilot.js"
-    }
+    ".": { "types": "./dist/src/index.d.ts", "import": "./dist/src/index.js" },
+    "./sqlite": { "types": "./dist/src/sqlite-store.d.ts", "import": "./dist/src/sqlite-store.js" },
+    "./copilot": { "types": "./dist/src/adapters/copilot.d.ts", "import": "./dist/src/adapters/copilot.js" },
+    "./retrieval": { "types": "./dist/src/retrieval.d.ts", "import": "./dist/src/retrieval.js" },
+    "./scheduler": { "types": "./dist/src/scheduler.d.ts", "import": "./dist/src/scheduler.js" },
+    "./authorization": { "types": "./dist/src/authorization.d.ts", "import": "./dist/src/authorization.js" }
   },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "engines": {
-    "node": ">=24.15.0"
-  },
+  "engines": { "node": ">=24.15.0" },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
@@ -41,8 +29,6 @@
     "@microsoft/copilot-sdk": "^2.0.2"
   },
   "peerDependenciesMeta": {
-    "@microsoft/copilot-sdk": {
-      "optional": true
-    }
+    "@microsoft/copilot-sdk": { "optional": true }
   }
 }
