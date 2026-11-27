@@ -36,12 +36,12 @@ export class SqliteMemoryStore {
       if (old) this.snapshotBeforeChange(old, 'upsert');
       const now = new Date().toISOString();
       this.context.db.prepare(
-        'INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ' +
-        'ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,importance=excluded.importance,refs=excluded.refs,last_validated_at=excluded.last_validated_at,valid_until=excluded.valid_until,confidence=excluded.confidence,metadata=excluded.metadata,updated_at=excluded.updated_at'
+        'INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at,memory_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ' +
+        'ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,importance=excluded.importance,refs=excluded.refs,last_validated_at=excluded.last_validated_at,valid_until=excluded.valid_until,confidence=excluded.confidence,metadata=excluded.metadata,updated_at=excluded.updated_at,memory_type=excluded.memory_type'
       ).run(
         memory.id, memory.scope, memory.content, memory.status, memory.importance,
         encode(memory.sourceRefs), memory.lastValidatedAt ?? null, memory.validUntil ?? null,
-        memory.confidence ?? null, encode(memory.metadata ?? {}), now, now,
+        memory.confidence ?? null, encode(memory.metadata ?? {}), now, now, memory.memoryType ?? null,
       );
     });
   }
