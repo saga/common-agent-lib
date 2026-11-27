@@ -19,3 +19,6 @@ export { DreamingWorker } from './worker.js';
 export type { DreamingWorkerOptions } from './worker.js';
 export { AuthorizedDreamingReviewQueue } from './authorized-review-queue.js';
 export { detectUserMemoryDirective } from './user-directives.js';
+
+export { SqliteSearchStore } from './sqlite/search.js';
+export { SqliteContextStore } from './sqlite/context.js';

@@ -11,7 +11,6 @@ export type DreamingMemoryAuthority = 'derived' | 'user-explicit';
 export type DreamingUserDirectiveKind = 'remember' | 'avoid';
 
 export interface DreamingUserDirectiveInput {
-  /** Stable source message ID, used for idempotency. */
   id: string;
   scope: string;
   kind: DreamingUserDirectiveKind;
@@ -37,37 +36,28 @@ export interface ParsedDreamingUserDirective {
 
 /** Provenance for an experience or evidence item; never an isolation boundary. */
 export interface DreamingOrigin {
-  /** Provider or source system, for example chatgpt, claude, copilot or browser. */
   system: string;
-  /** Application or surface that captured the record, when known. */
   application?: string;
-  /** Source channel, for example conversation, task, document or manual entry. */
   channel?: string;
-  /** Stable identifier in the source system; do not store credentials or secrets. */
   recordId?: string;
 }
 
 export interface DreamingExperience {
   id: string;
   sequence: number;
-  /** Stable memory-owner partition. For personal memory, reuse one person scope across apps. */
   scope: string;
   content: string;
   createdAt: string;
   sourceRefs: readonly string[];
-  /** Capturing application/provider is provenance, not a separate memory scope. */
   origin?: DreamingOrigin;
   metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface DreamingMemory {
   id: string;
-  /** Same owner scope as the source experiences; do not scope memories by app or session. */
   scope: string;
   content: string;
-  /** Optional classification for durable personal knowledge; older records remain valid. */
   memoryType?: DreamingMemoryType;
-  /** Derived records are maintained automatically; explicit user instructions are protected. */
   authority?: DreamingMemoryAuthority;
   status: 'candidate' | 'confirmed' | 'superseded' | 'archived';
   importance: number;
@@ -92,13 +82,110 @@ export interface DreamingEvidence {
   content: string;
   kind: string;
   createdAt?: string;
-  /** Origin is retained for attribution, not used to partition by application. */
   origin?: DreamingOrigin;
   metadata?: Readonly<Record<string, unknown>>;
 }
 
+export type DreamingSearchSourceType = 'memory' | 'experience' | 'evidence';
+
+export interface DreamingSearchHit {
+  id: string;
+  scope: string;
+  sourceType: DreamingSearchSourceType;
+  content: string;
+  score: number;
+  sourceRefs: readonly string[];
+  createdAt?: string;
+  revision?: string;
+  kind?: string;
+  memoryType?: DreamingMemoryType;
+  authority?: DreamingMemoryAuthority;
+  status?: DreamingMemory['status'];
+  importance?: number;
+  confidence?: number;
+  origin?: DreamingOrigin;
+  metadata?: Readonly<Record<string, unknown>>;
+}
+
+export interface DreamingSearchRequest {
+  scope: string;
+  query: string;
+  limit?: number;
+  sourceTypes?: readonly DreamingSearchSourceType[];
+  includeCandidates?: boolean;
+}
+
+/** Budget is measured against the complete rendered context, including headers. */
+export interface DreamingContextBudget {
+  maxUnits: number;
+  unit?: 'characters' | 'tokens';
+  /** Keep this much capacity unused for the live task and runtime instructions. */
+  reservedUnits?: number;
+  maxItems?: number;
+}
+
+export interface DreamingContextRequest {
+  scope: string;
+  task: string;
+  query?: string;
+  budget: DreamingContextBudget;
+  /** Maximum durable memories in the always-on index. Explicit memories are prioritized. */
+  alwaysOnLimit?: number;
+  maxSearchResults?: number;
+  maxEvidence?: number;
+  maxItemChars?: number;
+  includeEvidence?: boolean;
+  /** Optional tokenizer for exact model-specific token budgets. */
+  measure?: (text: string) => number;
+}
+
+export interface DreamingContextItem {
+  id: string;
+  sourceType: 'always-on-memory' | DreamingSearchSourceType;
+  text: string;
+  score: number;
+  required: boolean;
+  sourceRefs: readonly string[];
+  revision?: string;
+  authority?: DreamingMemoryAuthority;
+  memoryType?: DreamingMemoryType;
+  origin?: DreamingOrigin;
+}
+
+export interface DreamingContextOmission {
+  id: string;
+  sourceType: DreamingContextItem['sourceType'];
+  reason: 'duplicate' | 'budget-exceeded' | 'max-items';
+}
+
+export interface DreamingContextResult {
+  id: string;
+  scope: string;
+  task: string;
+  text: string;
+  items: readonly DreamingContextItem[];
+  omittedItems: readonly DreamingContextOmission[];
+  manifest: {
+    text: string;
+    itemIds: readonly string[];
+    hash: string;
+    truncated: boolean;
+  };
+  budget: {
+    maxUnits: number;
+    reservedUnits: number;
+    availableUnits: number;
+    usedUnits: number;
+    overflowUnits: number;
+    unit: 'characters' | 'tokens';
+    estimated: boolean;
+    exceeded: boolean;
+  };
+  hash: string;
+  createdAt: string;
+}
+
 export interface DreamingQualityAssessment {
-  /** Model estimate for triage only; never a trust or promotion signal. */
   confidence: number;
   durability: number;
   specificity: number;
@@ -112,7 +199,6 @@ export type DreamingFeedbackOutcome =
   | 'incorrect' | 'outdated' | 'not-applicable'
   | 'confirmed' | 'rejected' | 'edited';
 
-/** Immutable, host-authenticated feedback about one memory. */
 export interface DreamingFeedbackEvent {
   id: string;
   scope: string;
@@ -157,7 +243,6 @@ export interface DreamingProposal {
   proposedRecord?: DreamingMemory;
   rationale: string;
   evidenceRefs: string[];
-  /** Existing memories the model believes are contradicted by this proposal. */
   conflictsWith?: string[];
   relationships?: DreamingRelationship[];
   quality?: DreamingQualityAssessment;
@@ -166,7 +251,6 @@ export interface DreamingProposal {
 export interface DreamingModelResult {
   proposals: DreamingProposal[];
   processedRecordIds: string[];
-  /** Existing memories actually checked against current evidence. */
   reviewedMemoryIds: string[];
   notes?: string[];
 }
@@ -185,7 +269,6 @@ export interface DreamingRuntimeResponse {
   usage?: Readonly<Record<string, number>>;
 }
 
-/** Implement this small adapter with Copilot SDK, CodeBuddy SDK, pi.dev, etc. */
 export interface DreamingRuntime {
   readonly id: string;
   generate(request: DreamingRuntimeRequest): Promise<DreamingRuntimeResponse>;
@@ -223,7 +306,6 @@ export interface DreamingPage<T> {
   hasMore: boolean;
 }
 
-/** A durable snapshot captured before a memory is changed or archived. */
 export interface DreamingMemoryVersion {
   scope: string;
   memoryId: string;
@@ -234,88 +316,36 @@ export interface DreamingMemoryVersion {
 }
 
 export interface DreamingMemoryHistoryStore {
-  listMemoryVersions(input: {
-    scope: string;
-    memoryId: string;
-    limit?: number;
-  }): Promise<DreamingMemoryVersion[]>;
+  listMemoryVersions(input: { scope: string; memoryId: string; limit?: number }): Promise<DreamingMemoryVersion[]>;
 }
 
-/** Queryable run ledger for operational dashboards and recovery tooling. */
 export interface DreamingRunStore {
   getRun(input: { scope: string; runId: string }): Promise<DreamingRun | undefined>;
-  listRuns(input: {
-    scope: string;
-    status?: DreamingRunStatus;
-    limit?: number;
-    before?: string;
-  }): Promise<DreamingRun[]>;
+  listRuns(input: { scope: string; status?: DreamingRunStatus; limit?: number; before?: string }): Promise<DreamingRun[]>;
 }
 
 export interface DreamingRepository {
-  /** Return new records and records due for re-review, ordered by sequence ascending. */
-  loadExperiences(input: {
-    scope: string;
-    afterSequence: number;
-    reviewBefore?: string;
-    limit: number;
-  }): Promise<DreamingPage<DreamingExperience>>;
-  /** Return the most relevant memories for this batch, bounded by limit. */
-  /** Include relevant memories plus those due for periodic or expiry review. */
-  loadMemories(input: {
-    scope: string;
-    experienceIds: readonly string[];
-    reviewBefore?: string;
-    expiredBefore?: string;
-    limit: number;
-  }): Promise<readonly DreamingMemory[]>;
+  loadExperiences(input: { scope: string; afterSequence: number; reviewBefore?: string; limit: number }): Promise<DreamingPage<DreamingExperience>>;
+  loadMemories(input: { scope: string; experienceIds: readonly string[]; reviewBefore?: string; expiredBefore?: string; limit: number }): Promise<readonly DreamingMemory[]>;
   loadRelationships(input: { scope: string; memoryIds: readonly string[]; limit: number }): Promise<readonly DreamingRelationship[]>;
   loadCheckpoint(scope: string): Promise<DreamingCheckpoint>;
-  /** Persist review timestamps so the same old experience is not selected on every tick. */
   markExperiencesReviewed(input: { scope: string; ids: readonly string[]; reviewedAt: string }): Promise<void>;
   markMemoriesReviewed(input: { scope: string; ids: readonly string[]; reviewedAt: string }): Promise<void>;
   saveCheckpoint(checkpoint: DreamingCheckpoint): Promise<void>;
   createRun(run: DreamingRun): Promise<void>;
   updateRun(run: DreamingRun): Promise<void>;
-  /**
-   * Must resolve scope/evidence/targets, enforce host policy and atomically apply
-   * the proposal. proposal.id must be an idempotency key.
-   */
-  /** Apply any valid proposal atomically. Model-derived proposals never require human approval. */
-  commitProposal(input: {
-    proposal: DreamingProposal;
-    evidence: readonly DreamingEvidence[];
-    runId: string;
-  }): Promise<{ applied: boolean; reason?: string }>;
-  /** Optional direct-write path for a message authenticated as coming from the memory owner. */
+  commitProposal(input: { proposal: DreamingProposal; evidence: readonly DreamingEvidence[]; runId: string }): Promise<{ applied: boolean; reason?: string }>;
   applyUserDirective?(input: DreamingUserDirectiveInput): Promise<DreamingMemory>;
-  /** @deprecated Legacy queue API. DreamingEngine no longer stages proposals for human review. */
-  stageProposal(input: {
-    proposal: DreamingProposal;
-    evidence: readonly DreamingEvidence[];
-    runId: string;
-    reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' | 'missing-provenance';
-  }): Promise<{ staged: boolean; reason?: string }>;
-  /** Store immutable, idempotent feedback events. The host validates actor authorization and memory ownership. */
+  stageProposal(input: { proposal: DreamingProposal; evidence: readonly DreamingEvidence[]; runId: string; reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' | 'missing-provenance' }): Promise<{ staged: boolean; reason?: string }>;
   recordFeedback(event: DreamingFeedbackEvent): Promise<void>;
-  /** Load bounded feedback for selected memories within the requested time window. */
-  loadFeedback(input: {
-    scope: string;
-    memoryIds: readonly string[];
-    since: string;
-    limit: number;
-  }): Promise<readonly DreamingFeedbackEvent[]>;
-  /** Distributed lease: only one worker may dream a scope at a time. */
+  loadFeedback(input: { scope: string; memoryIds: readonly string[]; since: string; limit: number }): Promise<readonly DreamingFeedbackEvent[]>;
   acquireLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
   renewLease(input: { scope: string; owner: string; leaseMs: number }): Promise<boolean>;
   releaseLease(input: { scope: string; owner: string }): Promise<void>;
 }
 
 export interface DreamingEvidenceResolver {
-  resolve(input: {
-    scope: string;
-    refs: readonly string[];
-  }): Promise<readonly DreamingEvidence[]>;
+  resolve(input: { scope: string; refs: readonly string[] }): Promise<readonly DreamingEvidence[]>;
 }
 
 export interface DreamingReviewQueueItem {
@@ -329,23 +359,12 @@ export interface DreamingReviewQueueItem {
   reviewedBy?: string;
 }
 
-/** Durable review operations. The host must authorize the reviewer before resolving a proposal. */
 export interface DreamingReviewQueue {
-  listReviewQueue(input: {
-    scope: string;
-    status?: DreamingReviewQueueItem['status'];
-    limit?: number;
-  }): Promise<DreamingReviewQueueItem[]>;
-  resolveReview(input: {
-    scope: string;
-    proposalId: string;
-    decision: 'approve' | 'reject';
-    reviewedBy: string;
-  }): Promise<DreamingReviewQueueItem['status']>;
+  listReviewQueue(input: { scope: string; status?: DreamingReviewQueueItem['status']; limit?: number }): Promise<DreamingReviewQueueItem[]>;
+  resolveReview(input: { scope: string; proposalId: string; decision: 'approve' | 'reject'; reviewedBy: string }): Promise<DreamingReviewQueueItem['status']>;
 }
 
 export interface DreamingOptions {
-  /** Stable memory-owner scopes; never create one scope per app, provider, session or project. */
   scopes: readonly string[];
   intervalMs?: number;
   batchSize?: number;
@@ -356,11 +375,8 @@ export interface DreamingOptions {
   maxPromptChars?: number;
   leaseMs?: number;
   reviewIntervalMs?: number;
-  /** Re-review memories that have not been validated recently. Defaults to 30 days. */
   memoryReviewIntervalMs?: number;
-  /** @deprecated Kept for API compatibility; default Dreaming no longer uses human-review gates. */
   autoCandidateThresholds?: Partial<DreamingQualityAssessment>;
-  /** Called after each persisted run; suitable for logs/metrics. */
   onRun?: (run: Readonly<DreamingRun>) => void | Promise<void>;
   onError?: (error: unknown, scope: string) => void | Promise<void>;
 }

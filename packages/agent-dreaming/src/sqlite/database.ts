@@ -53,7 +53,6 @@ export function mapEvidence(row: SqliteRow): DreamingEvidence {
   };
 }
 
-/** Owns the SQLite connection, schema and transaction boundary shared by store modules. */
 export class SqliteDatabase {
   readonly db: DatabaseSync;
   private closed = false;
@@ -74,14 +73,17 @@ export class SqliteDatabase {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS experiences(id TEXT PRIMARY KEY,scope TEXT NOT NULL,sequence INTEGER NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL,refs TEXT NOT NULL,metadata TEXT NOT NULL,reviewed_at TEXT,origin TEXT,UNIQUE(scope,sequence));' +
       'CREATE INDEX IF NOT EXISTS experiences_scope_seq ON experiences(scope,sequence);' +
+      'CREATE INDEX IF NOT EXISTS experiences_scope_created ON experiences(scope,created_at DESC);' +
       'CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,importance REAL NOT NULL,refs TEXT NOT NULL,last_validated_at TEXT,valid_until TEXT,confidence REAL,metadata TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,memory_type TEXT,authority TEXT NOT NULL DEFAULT \'derived\');' +
       'CREATE INDEX IF NOT EXISTS memories_scope_status ON memories(scope,status,importance DESC);' +
+      'CREATE INDEX IF NOT EXISTS memories_scope_updated ON memories(scope,updated_at DESC);' +
       'CREATE TABLE IF NOT EXISTS memory_versions(version_id INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,memory_id TEXT NOT NULL,version INTEGER NOT NULL,reason TEXT NOT NULL,captured_at TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(scope,memory_id,version));' +
       'CREATE INDEX IF NOT EXISTS memory_versions_lookup ON memory_versions(scope,memory_id,version DESC);' +
       'CREATE TABLE IF NOT EXISTS relationships(id TEXT PRIMARY KEY,scope TEXT NOT NULL,from_id TEXT NOT NULL,to_id TEXT NOT NULL,kind TEXT NOT NULL,refs TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS relationships_scope_from ON relationships(scope,from_id);' +
       'CREATE INDEX IF NOT EXISTS relationships_scope_to ON relationships(scope,to_id);' +
       'CREATE TABLE IF NOT EXISTS evidence(ref TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT,metadata TEXT NOT NULL,origin TEXT);' +
+      'CREATE INDEX IF NOT EXISTS evidence_scope_created ON evidence(scope,created_at DESC);' +
       'CREATE TABLE IF NOT EXISTS feedback(id TEXT PRIMARY KEY,scope TEXT NOT NULL,memory_id TEXT NOT NULL,occurred_at TEXT NOT NULL,payload TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS feedback_memory_time ON feedback(scope,memory_id,occurred_at);' +
       'CREATE TABLE IF NOT EXISTS checkpoints(scope TEXT PRIMARY KEY,after_sequence INTEGER NOT NULL,last_run_at TEXT,last_run_id TEXT);' +
@@ -95,7 +97,6 @@ export class SqliteDatabase {
       'CREATE INDEX IF NOT EXISTS user_directives_scope_time ON user_directives(scope,occurred_at DESC);'
     );
 
-    // Additive migration: preserve old records while adding source provenance and memory classification.
     const ensureColumn = (table: string, column: string, definition: string) => {
       const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[];
       if (!columns.some((item) => item.name === column)) {
@@ -106,12 +107,33 @@ export class SqliteDatabase {
     ensureColumn('evidence', 'origin', 'TEXT');
     ensureColumn('memories', 'memory_type', 'TEXT');
     ensureColumn('memories', 'authority', "TEXT NOT NULL DEFAULT 'derived'");
-
     const appliedColumns = this.db.prepare('PRAGMA table_info(applied_proposals)').all() as SqliteRow[];
     if (!appliedColumns.some((column) => column.name === 'payload')) {
       this.db.exec("ALTER TABLE applied_proposals ADD COLUMN payload TEXT NOT NULL DEFAULT ''");
     }
-    this.db.exec('PRAGMA user_version=4');
+
+    // FTS5 is package-owned and scope-filtered; CJK fallback matching lives in SqliteSearchStore.
+    this.db.exec(
+      "CREATE VIRTUAL TABLE IF NOT EXISTS memory_search USING fts5(id UNINDEXED, scope UNINDEXED, content, tokenize='unicode61');" +
+      "CREATE VIRTUAL TABLE IF NOT EXISTS experience_search USING fts5(id UNINDEXED, scope UNINDEXED, content, tokenize='unicode61');" +
+      "CREATE VIRTUAL TABLE IF NOT EXISTS evidence_search USING fts5(ref UNINDEXED, scope UNINDEXED, content, tokenize='unicode61');" +
+      "CREATE TRIGGER IF NOT EXISTS memories_search_insert AFTER INSERT ON memories BEGIN INSERT INTO memory_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS memories_search_update AFTER UPDATE OF id,scope,content ON memories BEGIN INSERT INTO memory_search(memory_search,rowid,id,scope,content) VALUES('delete',old.rowid,old.id,old.scope,old.content); INSERT INTO memory_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS memories_search_delete AFTER DELETE ON memories BEGIN INSERT INTO memory_search(memory_search,rowid,id,scope,content) VALUES('delete',old.rowid,old.id,old.scope,old.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS experiences_search_insert AFTER INSERT ON experiences BEGIN INSERT INTO experience_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS experiences_search_update AFTER UPDATE OF id,scope,content ON experiences BEGIN INSERT INTO experience_search(experience_search,rowid,id,scope,content) VALUES('delete',old.rowid,old.id,old.scope,old.content); INSERT INTO experience_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS experiences_search_delete AFTER DELETE ON experiences BEGIN INSERT INTO experience_search(experience_search,rowid,id,scope,content) VALUES('delete',old.rowid,old.id,old.scope,old.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS evidence_search_insert AFTER INSERT ON evidence BEGIN INSERT INTO evidence_search(rowid,ref,scope,content) VALUES(new.rowid,new.ref,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS evidence_search_update AFTER UPDATE OF ref,scope,content ON evidence BEGIN INSERT INTO evidence_search(evidence_search,rowid,ref,scope,content) VALUES('delete',old.rowid,old.ref,old.scope,old.content); INSERT INTO evidence_search(rowid,ref,scope,content) VALUES(new.rowid,new.ref,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS evidence_search_delete AFTER DELETE ON evidence BEGIN INSERT INTO evidence_search(evidence_search,rowid,ref,scope,content) VALUES('delete',old.rowid,old.ref,old.scope,old.content); END;"
+    );
+    // Backfill indexes for databases created before FTS support was introduced.
+    this.db.exec(
+      'INSERT INTO memory_search(rowid,id,scope,content) SELECT m.rowid,m.id,m.scope,m.content FROM memories m WHERE NOT EXISTS (SELECT 1 FROM memory_search f WHERE f.rowid=m.rowid);' +
+      'INSERT INTO experience_search(rowid,id,scope,content) SELECT e.rowid,e.id,e.scope,e.content FROM experiences e WHERE NOT EXISTS (SELECT 1 FROM experience_search f WHERE f.rowid=e.rowid);' +
+      'INSERT INTO evidence_search(rowid,ref,scope,content) SELECT e.rowid,e.ref,e.scope,e.content FROM evidence e WHERE NOT EXISTS (SELECT 1 FROM evidence_search f WHERE f.rowid=e.rowid);'
+    );
+    this.db.exec('PRAGMA user_version=5');
     if (filename !== ':memory:') {
       try { chmodSync(filename, 0o600); } catch { /* Directory permissions still protect the database. */ }
     }

@@ -1,8 +1,8 @@
 import type {
-  DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience,
+  DreamingCheckpoint, DreamingContextRequest, DreamingContextResult, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience,
   DreamingFeedbackEvent, DreamingMemory, DreamingMemoryHistoryStore, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingRunStore,
-  DreamingReviewQueue, DreamingReviewQueueItem, DreamingUserDirectiveInput,
+  DreamingReviewQueue, DreamingReviewQueueItem, DreamingSearchHit, DreamingSearchRequest, DreamingUserDirectiveInput,
 } from './types.js';
 import { SqliteDatabase, type SqliteDreamingOptions } from './sqlite/database.js';
 import { SqliteExperienceStore } from './sqlite/experiences.js';
@@ -15,6 +15,8 @@ import { SqliteVectorIndex, type EmbeddingProvider } from './retrieval.js';
 import { TransformersJsEmbeddingProvider } from './embedding.js';
 import { SqliteDreamingScheduler, type DurableSchedulerOptions } from './scheduler.js';
 import { SqliteUserDirectiveStore } from './sqlite/directives.js';
+import { SqliteSearchStore } from './sqlite/search.js';
+import { SqliteContextStore } from './sqlite/context.js';
 
 export type { SqliteDreamingOptions, ProposalReviewReason };
 export type SqliteDreamingStoreOptions = SqliteDreamingOptions & { embeddingProvider?: EmbeddingProvider | false };
@@ -39,6 +41,8 @@ export class SqliteDreamingStore implements
   private readonly leases: SqliteLeaseStore;
   private readonly reviews: SqliteReviewQueueStore;
   private readonly directives: SqliteUserDirectiveStore;
+  private readonly searchStore: SqliteSearchStore;
+  private readonly contextStore: SqliteContextStore;
 
   constructor(options: SqliteDreamingStoreOptions) {
     this.database = new SqliteDatabase(options);
@@ -51,6 +55,8 @@ export class SqliteDreamingStore implements
     this.leases = new SqliteLeaseStore(this.database);
     this.reviews = new SqliteReviewQueueStore(this.database, this.memories);
     this.directives = new SqliteUserDirectiveStore(this.database, this.memories);
+    this.searchStore = new SqliteSearchStore(this.database);
+    this.contextStore = new SqliteContextStore(this.database);
   }
 
   appendExperience(input: AppendExperienceInput): Promise<DreamingExperience> {
@@ -123,6 +129,14 @@ export class SqliteDreamingStore implements
   }
   resolve(input: { scope: string; refs: readonly string[] }): Promise<readonly DreamingEvidence[]> {
     return this.evidence.resolve(input);
+  }
+
+  search(input: DreamingSearchRequest): Promise<DreamingSearchHit[]> {
+    return this.searchStore.search(input);
+  }
+
+  buildContext(input: DreamingContextRequest): Promise<DreamingContextResult> {
+    return this.contextStore.build(input);
   }
 
   applyUserDirective(input: DreamingUserDirectiveInput): Promise<DreamingMemory> {

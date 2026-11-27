@@ -2,6 +2,32 @@
 
 A self-contained Agent Memory package for Node.js 24.15+. The package boundary and accepted architecture put the complete lifecycle here: experiences, evidence, durable memory, knowledge maintenance, retrieval, context assembly, feedback, scheduling, persistence and run history. It has no dependency on another internal `@saga/*` package.
 
+## Search and task-aware context
+
+The SQLite store includes scope-isolated FTS5 search for durable memories, experiences and original evidence. Chinese/CJK queries also use a bounded substring fallback because the default SQLite tokenizer does not segment CJK text like an English tokenizer.
+
+```ts
+const hits = await store.search({
+  scope: 'person:opaque-user-id',
+  query: 'architecture recovery and idempotent writes',
+  sourceTypes: ['memory', 'experience', 'evidence'],
+  limit: 20,
+});
+
+const context = await store.buildContext({
+  scope: 'person:opaque-user-id',
+  task: 'Review the recovery design for the payment service',
+  budget: { maxUnits: 12_000, unit: 'tokens', reservedUnits: 2_000 },
+});
+
+// Inject context.text into the next Agent request. Keep context.hash and
+// context.items to attribute later task-outcome feedback to exact sources.
+```
+
+Candidate, expired, superseded and archived memories are excluded from normal context. Explicit user memories are treated as required context: when they exceed the available budget they remain present and the result reports overflow. Token measurement uses the supplied `measure` callback when exact model-token accounting is required; the built-in fallback is approximate and is marked in `context.budget.estimated`.
+
+The context result includes a bounded always-on memory index, the rendered text, included items and source references, omitted items with reasons, a context hash and budget diagnostics. This is the first usable context path; persisted manifest snapshots and context-use feedback remain on the checklist.
+
 ## Implementation status
 
 The current release implements the Dreaming engine, Experience / Evidence / Memory persistence, automatic evidence-validated consolidation, version history, feedback, local retrieval, SQLite scheduling and run recovery. Knowledge-page maintenance and the end-to-end Memory Manifest / task-aware Context Builder are accepted package-owned decisions, documented in [ARCHITECTURE-ANALYSIS.md](./ARCHITECTURE-ANALYSIS.md), but are not yet implemented. They will be added here rather than delegated to another package.
