@@ -13,7 +13,7 @@ Binding the core engine to an Agent runtime package would couple storage and mem
 
 Keep the Dreaming engine independent of Agent runtime packages and make the Copilot SDK the built-in default model adapter.
 
-- `DreamingEngine` owns bounded replay, context assembly, schema validation, quality gates, candidate handling, checkpoints, lease renewal and run state.
+- `DreamingEngine` owns bounded replay, context assembly, schema validation, automatic proposal application, checkpoints, lease renewal and run state.
 - `CopilotDreamingRuntime` calls `@microsoft/copilot-sdk` directly. It uses an isolated short-lived session, structured JSON output and an empty tool surface by default. The SDK is an optional peer dependency; the core package still works with any `DreamingRuntime`.
 - CodeBuddy, pi.dev, DeepAgents and other providers integrate by implementing the small `DreamingRuntime.generate()` contract. The package does not depend on `@saga/copilot-agent-runtime`, `@saga/codebuddy-agent-runtime` or another orchestration runtime.
 - `SqliteDreamingStore` provides a built-in local implementation of experiences, memories, relationships, evidence, feedback, checkpoints, runs, review proposals, leases and memory history. Hosts can replace it with a transactional database implementation.
@@ -26,17 +26,19 @@ Keep the Dreaming engine independent of Agent runtime packages and make the Copi
 3. Load relevant relationships and resolve original source evidence.
 4. Ask the configured runtime for structured proposals and IDs actually reviewed.
 5. Validate scope, known targets, evidence provenance, relationship endpoints and quality assessment.
-6. Commit only eligible new memories as `candidate`; stage all mutations and uncertain proposals for explicit review.
+6. Apply every scope- and provenance-valid proposal automatically. New or uncertain memories remain `candidate`; candidate is not a request for human approval.
 7. Preserve the previous memory snapshot before update, merge, supersede or archive.
-8. Persist review timestamps, run state and only the contiguous processed checkpoint.
+8. Persist reviewed timestamps, run state and only the contiguous processed checkpoint. The default lifecycle never stages proposals for human review.
 
 The engine supports startup, periodic, manual and record-appended triggers. The process-local timer is not a durable queue; production systems that require guaranteed scheduling should use an external worker or scheduler.
 
 ## Trust and operational boundaries
 
-The model only proposes changes. It cannot directly write durable memory, promote a candidate to confirmed or author feedback that claims a human decision.
+The model proposes changes, while the engine validates and applies them automatically. Candidate records remain eligible for recall and future consolidation; they do not wait for a reviewer.
 
-The host authenticates users and authorizes scopes and reviewers. It remains responsible for domain validation, candidate promotion, retention policy and any semantic/vector ranking. Review approval is an application action, not a model tool.
+A direct user message can express an explicit memory instruction. The host passes only authenticated user-authored messages to `DreamingEngine.applyUserMessage()`. Recognized `remember` and `avoid` instructions are persisted immediately as confirmed memories with `authority=user-explicit`, without a model call or review step. Passwords and authentication secrets are not stored. Explicit memories are recalled ahead of derived memories and cannot be changed by model-derived proposals. A later direct user instruction is the only path that can change this authority level.
+
+The host remains responsible for authentication, mapping the user to a stable scope, source authorization, retention policy and semantic/vector ranking. These are application trust boundaries, not approval gates in the Dreaming lifecycle.
 
 SQLite enforces scope separation, atomic review transactions, proposal idempotency, lease ownership and version history for local single-host use. Multi-host deployments need a transactional shared repository and distributed lease implementation. The host must keep source evidence available for later inspection.
 
@@ -61,3 +63,17 @@ The memory owner and the source application are different concepts.
 - Different owner scopes remain strictly isolated. Cross-source consolidation is allowed only after the host has authenticated and authorized the source records for that owner.
 
 The new fields are optional. SQLite adds them through an additive schema migration so existing experiences, evidence and memories remain readable.
+
+
+## 2026-11-27 amendment: automatic memory maintenance and explicit user authority
+
+The previous review-gated mutation flow is replaced by an automatic lifecycle.
+
+- Valid additions, updates, merges, supersedes and archives are committed automatically after scope, target and evidence validation. Mutations retain version history. Invalid proposals are rejected; uncertain additions may remain candidates without being queued for human approval.
+- The engine no longer calls `stageProposal()` during normal runs. The review queue and authorized review facade remain only for compatibility with earlier integrations and already-staged records.
+- Memory records carry an `authority` field: `derived` or `user-explicit`. User-explicit records have the highest precedence, are prioritized during recall and are protected from model-derived mutation.
+- `detectUserMemoryDirective()` recognizes direct remember/avoid phrasing. The host calls `DreamingEngine.applyUserMessage()` only for a message authored by the authenticated memory owner. The SQLite implementation writes the directive and immutable source evidence immediately, with idempotency by source message ID.
+- Explicit instructions bypass model generation, quality gates and review queues. Ordinary model inference cannot overwrite them; a subsequent direct user instruction can add or update user-explicit memory.
+- SQLite schema version 4 adds memory authority and a durable user-directive ledger with an additive migration. Existing records default to `derived`.
+
+This amendment removes human approval from the normal memory lifecycle without removing authentication, provenance validation, scope isolation or version history.
