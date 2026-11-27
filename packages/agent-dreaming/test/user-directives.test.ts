@@ -59,7 +59,7 @@ test('explicit user instruction is written immediately without calling the model
     assert.equal(first.directive.kind, 'remember');
     assert.equal(first.memory.status, 'confirmed');
     assert.equal(first.memory.authority, 'user-explicit');
-    assert.equal(first.memory.memoryType, 'fact');
+    assert.equal(first.memory.memoryType, 'preference');
     assert.equal(first.memory.importance, 1);
     assert.equal(first.memory.id, retry.memory.id);
     assert.equal(first.memory.sourceRefs.length, 1);
