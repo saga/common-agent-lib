@@ -47,3 +47,17 @@ SQLite enforces scope separation, atomic review transactions, proposal idempoten
 - Local installations can run without a separate database service.
 - The package does not attempt to become a vector store, full memory retrieval framework, durable job scheduler or authorization system.
 - SQLite ranking uses source-reference overlap, staleness and importance. Hosts can implement semantic retrieval through their own repository.
+
+
+## Person-centric memory semantics
+
+The memory owner and the source application are different concepts.
+
+- A `scope` is a stable owner/isolation boundary. For personal memory, the host derives it from the authenticated person and reuses it across applications, providers, devices and conversations.
+- An application, website, model provider or session must not become its own personal-memory scope. This would fragment one person's history and prevent cross-source consolidation.
+- Experiences and evidence carry optional `origin` provenance (system, application, channel and source record ID). Origin helps attribute and inspect evidence; it does not identify the memory owner or partition retrieval.
+- Memories carry an optional `memoryType` to distinguish facts, preferences, goals, constraints, knowledge, recurring behavior and ongoing context. It is descriptive metadata, not a trust level.
+- Dreaming compares observations across origins but must preserve context, distinguish one-off actions from repeated patterns, and avoid turning project-specific preferences into global traits.
+- Different owner scopes remain strictly isolated. Cross-source consolidation is allowed only after the host has authenticated and authorized the source records for that owner.
+
+The new fields are optional. SQLite adds them through an additive schema migration so existing experiences, evidence and memories remain readable.
