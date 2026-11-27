@@ -24,7 +24,8 @@ export class SqliteExperienceStore {
           && old.created_at === input.createdAt
           && (input.sequence === undefined || Number(old.sequence) === input.sequence)
           && String(old.refs) === encode(input.sourceRefs)
-          && String(old.metadata) === encode(input.metadata ?? {});
+          && String(old.metadata) === encode(input.metadata ?? {})
+          && (old.origin == null ? input.origin === undefined : String(old.origin) === encode(input.origin));
         if (!same) throw new Error('Conflicting experience ID: ' + input.id);
         return;
       }
@@ -35,10 +36,10 @@ export class SqliteExperienceStore {
         throw new TypeError('Experience sequence must be a positive safe integer');
       }
       this.context.db.prepare(
-        'INSERT INTO experiences(id,scope,sequence,content,created_at,refs,metadata) VALUES(?,?,?,?,?,?,?)'
+        'INSERT INTO experiences(id,scope,sequence,content,created_at,refs,metadata,origin) VALUES(?,?,?,?,?,?,?,?)'
       ).run(
         input.id, input.scope, sequence, input.content, input.createdAt,
-        encode(input.sourceRefs), encode(input.metadata ?? {}),
+        encode(input.sourceRefs), encode(input.metadata ?? {}), input.origin ? encode(input.origin) : null,
       );
     });
     return mapExperience(this.context.db.prepare('SELECT * FROM experiences WHERE id=?').get(input.id) as SqliteRow);
