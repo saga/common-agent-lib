@@ -1,6 +1,10 @@
 # @saga/agent-dreaming
 
-A self-contained Agent Memory system for Node.js 24.15+. This package owns the complete memory lifecycle: experiences, evidence, durable memory, knowledge maintenance, retrieval, context assembly, feedback, scheduling, persistence and run history. It has no dependency on another internal `@saga/*` package.
+A self-contained Agent Memory package for Node.js 24.15+. The package boundary and accepted architecture put the complete lifecycle here: experiences, evidence, durable memory, knowledge maintenance, retrieval, context assembly, feedback, scheduling, persistence and run history. It has no dependency on another internal `@saga/*` package.
+
+## Implementation status
+
+The current release implements the Dreaming engine, Experience / Evidence / Memory persistence, automatic evidence-validated consolidation, version history, feedback, local retrieval, SQLite scheduling and run recovery. Knowledge-page maintenance and the end-to-end Memory Manifest / task-aware Context Builder are accepted package-owned decisions, documented in [ARCHITECTURE-ANALYSIS.md](./ARCHITECTURE-ANALYSIS.md), but are not yet implemented. They will be added here rather than delegated to another package.
 
 ## Default runtime: Copilot SDK
 
@@ -63,7 +67,7 @@ The Copilot SDK is an optional peer dependency. The package can be installed and
 - [DECISION.md](./DECISION.md): `agent-dreaming` is self-contained. It must not import or require another internal package; all Memory, Knowledge, Evidence Search, Retrieval and Context Assembly capabilities belong here.
 - [ARCHITECTURE-ANALYSIS.md](./ARCHITECTURE-ANALYSIS.md): comparison with Anthropic's Agent Memory research and Claude Code's recovered AutoDream implementation, including the concrete Knowledge Maintenance and Context Injection design.
 
-The package exposes focused internal modules but one complete installable capability. Consumers do not need to compose it with sibling memory, knowledge or context packages. The host still supplies authenticated identity, authorized source records and any application-specific source adapter; the memory lifecycle and its search / consolidation / context logic remain inside this package.
+The package exposes focused internal modules but one installable capability. Consumers do not need to compose it with sibling memory, knowledge or context packages. The host supplies authenticated identity, authorized source records and any application-specific source adapter; the memory lifecycle and its search / consolidation / context logic remain inside this package. Features listed in the accepted target architecture are not implied to be present until they appear in the implementation status and public API.
 
 ## Other model runtimes
 
