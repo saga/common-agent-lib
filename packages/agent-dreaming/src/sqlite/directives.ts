@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DreamingMemory, DreamingUserDirectiveInput } from '../types.js';
 import type { SqliteDatabase } from './database.js';
 import { encode, mapMemory, type SqliteRow } from './database.js';
+import type { SqliteMemoryStore } from './memories.js';
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -9,7 +10,10 @@ function hash(value: string): string {
 
 /** Writes explicit user instructions directly as protected, confirmed memories. */
 export class SqliteUserDirectiveStore {
-  constructor(private readonly context: SqliteDatabase) {}
+  constructor(
+    private readonly context: SqliteDatabase,
+    private readonly memories: SqliteMemoryStore,
+  ) {}
 
   async applyUserDirective(input: DreamingUserDirectiveInput): Promise<DreamingMemory> {
     this.context.ensureOpen();
@@ -103,14 +107,7 @@ export class SqliteUserDirectiveStore {
       };
 
       if (oldMemory) {
-        this.context.db.prepare(
-          'INSERT INTO memory_versions(scope,memory_id,version,reason,captured_at,payload) ' +
-          'SELECT scope,id,(SELECT COALESCE(MAX(version),0)+1 FROM memory_versions WHERE scope=? AND memory_id=?),' +
-          '?, ?, json_object(' +
-          "'id',id,'scope',scope,'content',content,'status',status,'importance',importance,'sourceRefs',refs," +
-          "'memoryType',memory_type,'authority',authority,'metadata',metadata" +
-          ') FROM memories WHERE id=? AND scope=?',
-        ).run(input.scope, memoryId, 'user-explicit-directive', occurredAt, memoryId, input.scope);
+        this.memories.recordVersionBeforeMutation(oldMemory, 'user-explicit-directive');
 
         this.context.db.prepare(
           'UPDATE memories SET content=?,status=?,importance=?,refs=?,last_validated_at=?,confidence=?,' +
