@@ -15,7 +15,7 @@ Keep the Dreaming engine independent of Agent runtime packages and make the Copi
 
 - `DreamingEngine` owns bounded replay, context assembly, schema validation, automatic proposal application, checkpoints, lease renewal and run state.
 - `CopilotDreamingRuntime` calls `@microsoft/copilot-sdk` directly. It uses an isolated short-lived session, structured JSON output and an empty tool surface by default. The SDK is an optional peer dependency; the core package still works with any `DreamingRuntime`.
-- CodeBuddy, pi.dev, DeepAgents and other providers integrate by implementing the small `DreamingRuntime.generate()` contract. The package does not depend on `@saga/copilot-agent-runtime`, `@saga/codebuddy-agent-runtime` or another orchestration runtime.
+- Other model providers integrate by implementing the small `DreamingRuntime.generate()` contract. Provider adapters are the only model-runtime boundary; the package has no dependency on another internal `@saga/*` package.
 - `SqliteDreamingStore` provides a built-in local implementation of experiences, memories, relationships, evidence, feedback, checkpoints, runs, review proposals, leases and memory history. Hosts can replace it with a transactional database implementation.
 - Separate modules own types, prompts, parsing, quality evaluation, engine orchestration and each SQLite concern.
 
@@ -38,7 +38,7 @@ The model proposes changes, while the engine validates and applies them automati
 
 A direct user message can express an explicit memory instruction. The host passes only authenticated user-authored messages to `DreamingEngine.applyUserMessage()`. Recognized `remember` and `avoid` instructions are persisted immediately as confirmed memories with `authority=user-explicit`, without a model call or review step. Passwords and authentication secrets are not stored. Explicit memories are recalled ahead of derived memories and cannot be changed by model-derived proposals. A later direct user instruction is the only path that can change this authority level.
 
-The host remains responsible for authentication, mapping the user to a stable scope, source authorization, retention policy and semantic/vector ranking. These are application trust boundaries, not approval gates in the Dreaming lifecycle.
+The host remains responsible for authentication, mapping the user to a stable scope, source authorization and application-specific retention policy. The package owns its built-in evidence search, full-text / optional vector retrieval, knowledge maintenance and context assembly. These application trust boundaries are not approval gates in the Dreaming lifecycle.
 
 SQLite enforces scope separation, atomic review transactions, proposal idempotency, lease ownership and version history for local single-host use. Multi-host deployments need a transactional shared repository and distributed lease implementation. The host must keep source evidence available for later inspection.
 
@@ -47,8 +47,9 @@ SQLite enforces scope separation, atomic review transactions, proposal idempoten
 - The default integration path uses the Copilot SDK without importing an Agent runtime wrapper.
 - Other model providers can reuse the same orchestration and persistence contracts.
 - Local installations can run without a separate database service.
-- The package does not attempt to become a vector store, full memory retrieval framework, durable job scheduler or authorization system.
-- SQLite ranking uses source-reference overlap, staleness and importance. Hosts can implement semantic retrieval through their own repository.
+- The package owns the complete local memory lifecycle, including full-text and optional semantic retrieval, Knowledge Maintenance, context selection and context budgeting.
+- The package has built-in SQLite scheduling, persistence and authorization primitives; hosts still authenticate users and authorize the source records supplied to it.
+- Provider and source adapters may connect external systems, but they do not delegate Memory, Knowledge, Evidence, Retrieval or Context behavior to another internal package.
 
 
 ## Person-centric memory semantics
@@ -77,3 +78,16 @@ The previous review-gated mutation flow is replaced by an automatic lifecycle.
 - SQLite schema version 4 adds memory authority and a durable user-directive ledger with an additive migration. Existing records default to `derived`.
 
 This amendment removes human approval from the normal memory lifecycle without removing authentication, provenance validation, scope isolation or version history.
+
+
+## 2026-11-28 amendment: self-contained Agent Memory package
+
+The package-level decision in [packages/agent-dreaming/DECISION.md](../../packages/agent-dreaming/DECISION.md) makes `@saga/agent-dreaming` the single installable owner of the complete Agent Memory lifecycle.
+
+- Memory, Knowledge, Evidence Search, Retrieval, Context Assembly, feedback, persistence, scheduling and authorization primitives are implemented inside this package.
+- No other internal `@saga/*` package is a runtime or type dependency.
+- The package owns Knowledge pages, relationships, maintenance proposals and history; it also owns the always-on Memory Manifest and task-aware Context Builder.
+- The package may expose adapter contracts for host-specific source ingestion and alternate providers. Adapters do not move core memory behavior outside the package.
+- Existing sibling packages may remain useful independently, but they are not part of the `agent-dreaming` installation or execution path.
+
+This amendment supersedes earlier wording that assigned semantic retrieval or context assembly to the host or another package.
