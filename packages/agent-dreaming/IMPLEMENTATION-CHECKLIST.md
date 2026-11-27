@@ -18,13 +18,13 @@
 
 ## P1 — Knowledge maintenance (next major capability)
 
-- [ ] Add KnowledgePage, KnowledgeLink, KnowledgeProposal and KnowledgeVersion types owned by this package.
-- [ ] Add SQLite tables, additive migrations, FTS index and version snapshots for Knowledge.
-- [ ] Implement create, revise, merge, link, supersede and deprecate operations with scope / provenance validation and idempotency.
-- [ ] Add Knowledge retrieval with bounded link expansion; do not require an external graph database.
+- [x] Add KnowledgePage, KnowledgeLink and KnowledgePageVersion types owned by this package. (KnowledgeProposal is deferred until the page lifecycle is proven.)
+- [x] Add SQLite tables, additive migration, FTS5 index and pre-update version snapshots for Knowledge pages and links.
+- [ ] Implement model-proposed create, revise, merge, link, supersede and deprecate operations with scope / provenance validation and idempotency. (Base page save / revise and link persistence are implemented.)
+- [x] Add scope-isolated Knowledge full-text search (FTS5 + CJK fallback); bounded link expansion remains pending.
 - [ ] Add a bounded Knowledge Maintenance stage after Memory consolidation. Create pages only when multiple experiences or a durable research objective justify them.
 - [ ] Re-check pages affected by contradictory, expired or superseding evidence.
-- [ ] Test duplicate topic prevention, cross-scope isolation, provenance validation, relation integrity and version restoration.
+- [x] Test page revision history, duplicate-save idempotency, CJK retrieval, cross-scope isolation, evidence provenance and relation integrity.
 
 ## P2 — Improve evidence discovery and feedback
 

@@ -1,6 +1,6 @@
 import type {
   DreamingCheckpoint, DreamingContextRequest, DreamingContextResult, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience,
-  DreamingContextFeedbackInput, DreamingFeedbackEvent, DreamingMemory, DreamingMemoryHistoryStore, DreamingPage,
+  DreamingContextFeedbackInput, DreamingFeedbackEvent, DreamingKnowledgeLink, DreamingKnowledgePage, DreamingKnowledgePageInput, DreamingKnowledgePageVersion, DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest, DreamingMemory, DreamingMemoryHistoryStore, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingRunStore,
   DreamingReviewQueue, DreamingReviewQueueItem, DreamingSearchHit, DreamingSearchRequest, DreamingUserDirectiveInput,
 } from './types.js';
@@ -17,6 +17,7 @@ import { SqliteDreamingScheduler, type DurableSchedulerOptions } from './schedul
 import { SqliteUserDirectiveStore } from './sqlite/directives.js';
 import { SqliteSearchStore } from './sqlite/search.js';
 import { SqliteContextStore } from './sqlite/context.js';
+import { SqliteKnowledgeStore } from './sqlite/knowledge.js';
 
 export type { SqliteDreamingOptions, ProposalReviewReason };
 export type SqliteDreamingStoreOptions = SqliteDreamingOptions & { embeddingProvider?: EmbeddingProvider | false };
@@ -43,6 +44,7 @@ export class SqliteDreamingStore implements
   private readonly directives: SqliteUserDirectiveStore;
   private readonly searchStore: SqliteSearchStore;
   private readonly contextStore: SqliteContextStore;
+  private readonly knowledgeStore: SqliteKnowledgeStore;
 
   constructor(options: SqliteDreamingStoreOptions) {
     this.database = new SqliteDatabase(options);
@@ -57,6 +59,7 @@ export class SqliteDreamingStore implements
     this.directives = new SqliteUserDirectiveStore(this.database, this.memories);
     this.searchStore = new SqliteSearchStore(this.database);
     this.contextStore = new SqliteContextStore(this.database);
+    this.knowledgeStore = new SqliteKnowledgeStore(this.database);
   }
 
   appendExperience(input: AppendExperienceInput): Promise<DreamingExperience> {
@@ -129,6 +132,34 @@ export class SqliteDreamingStore implements
   }
   resolve(input: { scope: string; refs: readonly string[] }): Promise<readonly DreamingEvidence[]> {
     return this.evidence.resolve(input);
+  }
+
+  saveKnowledgePage(input: DreamingKnowledgePageInput): Promise<DreamingKnowledgePage> {
+    return this.knowledgeStore.savePage(input);
+  }
+
+  getKnowledgePage(input: { scope: string; pageId: string }): Promise<DreamingKnowledgePage | undefined> {
+    return this.knowledgeStore.getPage(input);
+  }
+
+  listKnowledgePages(input: { scope: string; status?: DreamingKnowledgePage['status']; limit?: number }): Promise<DreamingKnowledgePage[]> {
+    return this.knowledgeStore.listPages(input);
+  }
+
+  listKnowledgePageVersions(input: { scope: string; pageId: string; limit?: number }): Promise<DreamingKnowledgePageVersion[]> {
+    return this.knowledgeStore.listPageVersions(input);
+  }
+
+  appendKnowledgeLink(input: Omit<DreamingKnowledgeLink, 'createdAt'>): Promise<DreamingKnowledgeLink> {
+    return this.knowledgeStore.appendLink(input);
+  }
+
+  listKnowledgeLinks(input: { scope: string; pageIds?: readonly string[]; limit?: number }): Promise<DreamingKnowledgeLink[]> {
+    return this.knowledgeStore.listLinks(input);
+  }
+
+  searchKnowledge(input: DreamingKnowledgeSearchRequest): Promise<DreamingKnowledgeSearchHit[]> {
+    return this.knowledgeStore.search(input);
   }
 
   search(input: DreamingSearchRequest): Promise<DreamingSearchHit[]> {

@@ -86,6 +86,81 @@ export interface DreamingEvidence {
   metadata?: Readonly<Record<string, unknown>>;
 }
 
+
+export type DreamingKnowledgeStatus = 'active' | 'draft' | 'deprecated' | 'superseded';
+export type DreamingKnowledgeLinkKind =
+  | 'related-to' | 'supports' | 'contradicts' | 'derived-from' | 'supersedes';
+
+/** A reusable topic page backed by immutable source evidence. */
+export interface DreamingKnowledgePage {
+  id: string;
+  scope: string;
+  title: string;
+  summary: string;
+  content: string;
+  status: DreamingKnowledgeStatus;
+  tags: readonly string[];
+  sourceRefs: readonly string[];
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}
+
+export interface DreamingKnowledgePageInput {
+  id: string;
+  scope: string;
+  title: string;
+  summary: string;
+  content: string;
+  status?: DreamingKnowledgeStatus;
+  tags?: readonly string[];
+  sourceRefs: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
+  reason?: string;
+}
+
+export interface DreamingKnowledgeLink {
+  id: string;
+  scope: string;
+  fromId: string;
+  toId: string;
+  kind: DreamingKnowledgeLinkKind;
+  sourceRefs: readonly string[];
+  createdAt: string;
+}
+
+export interface DreamingKnowledgePageVersion {
+  scope: string;
+  pageId: string;
+  version: number;
+  reason: string;
+  capturedAt: string;
+  snapshot: DreamingKnowledgePage;
+}
+
+export interface DreamingKnowledgeSearchRequest {
+  scope: string;
+  query: string;
+  limit?: number;
+  includeInactive?: boolean;
+}
+
+export interface DreamingKnowledgeSearchHit {
+  id: string;
+  scope: string;
+  title: string;
+  summary: string;
+  content: string;
+  score: number;
+  status: DreamingKnowledgeStatus;
+  tags: readonly string[];
+  sourceRefs: readonly string[];
+  version: number;
+  updatedAt: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}
+
 export type DreamingSearchSourceType = 'memory' | 'experience' | 'evidence';
 
 export interface DreamingSearchHit {

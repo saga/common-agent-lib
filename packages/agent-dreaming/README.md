@@ -35,6 +35,45 @@ Candidate, expired, superseded and archived memories are excluded from normal co
 
 The context result includes a bounded always-on memory index, rendered text, included items and source references, omitted items with reasons, a context hash and budget diagnostics. `recordContextFeedback()` links a known task outcome to the exact context hash and memory revision; it rejects feedback for a memory that was not included in that context. A durable, separately persisted Memory Manifest remains future work.
 
+## Knowledge pages
+
+Knowledge pages are package-owned, versioned topic records backed by immutable evidence. The first storage and retrieval slice is available directly from `SqliteDreamingStore`:
+
+```ts
+await store.saveKnowledgePage({
+  id: 'knowledge:payment-recovery',
+  scope: 'person:opaque-user-id',
+  title: 'Payment recovery',
+  summary: 'Retry and recovery behavior for payment processing.',
+  content: '...',
+  tags: ['payments', 'recovery'],
+  sourceRefs: ['doc:payment-design:v2'],
+});
+
+// Revisions preserve the previous page snapshot.
+const versions = await store.listKnowledgePageVersions({
+  scope: 'person:opaque-user-id',
+  pageId: 'knowledge:payment-recovery',
+});
+
+// Relationships require both pages and source evidence in the same scope.
+await store.appendKnowledgeLink({
+  id: 'link:payment-recovery-idempotency',
+  scope: 'person:opaque-user-id',
+  fromId: 'knowledge:payment-recovery',
+  toId: 'knowledge:idempotency',
+  kind: 'related-to',
+  sourceRefs: ['doc:payment-design:v2'],
+});
+
+const pages = await store.searchKnowledge({
+  scope: 'person:opaque-user-id',
+  query: 'payment recovery',
+});
+```
+
+Saving a page requires all `sourceRefs` to resolve to immutable Evidence in the same scope. Identical repeated saves are idempotent; changes preserve a pre-update snapshot and increment the page version. Search defaults to active pages; drafts and deprecated pages require `includeInactive: true`. Page and link maintenance proposals and Dreaming-driven automation are still pending.
+
 ## Implementation status
 
 The current release implements the Dreaming engine, Experience / Evidence / Memory persistence, automatic evidence-validated consolidation, version history, feedback, local retrieval, task-aware Context Builder, context-use feedback, SQLite scheduling and run recovery. Knowledge-page maintenance and a separately persisted Memory Manifest remain accepted package-owned work items documented in [ARCHITECTURE-ANALYSIS.md](./ARCHITECTURE-ANALYSIS.md). They will be added here rather than delegated to another package.

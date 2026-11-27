@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { DreamingEvidence, DreamingExperience, DreamingMemory, DreamingMemoryAuthority, DreamingMemoryType, DreamingOrigin } from '../types.js';
+import type { DreamingEvidence, DreamingExperience, DreamingKnowledgePage, DreamingMemory, DreamingMemoryAuthority, DreamingMemoryType, DreamingOrigin } from '../types.js';
 
 export interface SqliteDreamingOptions {
   filename: string;
@@ -53,6 +53,23 @@ export function mapEvidence(row: SqliteRow): DreamingEvidence {
   };
 }
 
+export function mapKnowledgePage(row: SqliteRow): DreamingKnowledgePage {
+  return {
+    id: String(row.id),
+    scope: String(row.scope),
+    title: String(row.title),
+    summary: String(row.summary),
+    content: String(row.content),
+    status: row.status,
+    tags: decode<string[]>(row.tags),
+    sourceRefs: decode<string[]>(row.refs),
+    version: Number(row.version),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    metadata: decode<Record<string, unknown>>(row.metadata),
+  };
+}
+
 export class SqliteDatabase {
   readonly db: DatabaseSync;
   private closed = false;
@@ -84,6 +101,13 @@ export class SqliteDatabase {
       'CREATE INDEX IF NOT EXISTS relationships_scope_to ON relationships(scope,to_id);' +
       'CREATE TABLE IF NOT EXISTS evidence(ref TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT,metadata TEXT NOT NULL,origin TEXT);' +
       'CREATE INDEX IF NOT EXISTS evidence_scope_created ON evidence(scope,created_at DESC);' +
+      'CREATE TABLE IF NOT EXISTS knowledge_pages(id TEXT PRIMARY KEY,scope TEXT NOT NULL,title TEXT NOT NULL,summary TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,tags TEXT NOT NULL,refs TEXT NOT NULL,version INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,metadata TEXT NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS knowledge_pages_scope_status ON knowledge_pages(scope,status,updated_at DESC);' +
+      'CREATE TABLE IF NOT EXISTS knowledge_page_versions(version_id INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,page_id TEXT NOT NULL,version INTEGER NOT NULL,reason TEXT NOT NULL,captured_at TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(scope,page_id,version));' +
+      'CREATE INDEX IF NOT EXISTS knowledge_page_versions_lookup ON knowledge_page_versions(scope,page_id,version DESC);' +
+      'CREATE TABLE IF NOT EXISTS knowledge_links(id TEXT PRIMARY KEY,scope TEXT NOT NULL,from_id TEXT NOT NULL,to_id TEXT NOT NULL,kind TEXT NOT NULL,refs TEXT NOT NULL,created_at TEXT NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS knowledge_links_scope_from ON knowledge_links(scope,from_id);' +
+      'CREATE INDEX IF NOT EXISTS knowledge_links_scope_to ON knowledge_links(scope,to_id);' +
       'CREATE TABLE IF NOT EXISTS feedback(id TEXT PRIMARY KEY,scope TEXT NOT NULL,memory_id TEXT NOT NULL,occurred_at TEXT NOT NULL,payload TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS feedback_memory_time ON feedback(scope,memory_id,occurred_at);' +
       'CREATE TABLE IF NOT EXISTS checkpoints(scope TEXT PRIMARY KEY,after_sequence INTEGER NOT NULL,last_run_at TEXT,last_run_id TEXT);' +
@@ -117,6 +141,7 @@ export class SqliteDatabase {
       "CREATE VIRTUAL TABLE IF NOT EXISTS memory_search USING fts5(id UNINDEXED, scope UNINDEXED, content, tokenize='unicode61');" +
       "CREATE VIRTUAL TABLE IF NOT EXISTS experience_search USING fts5(id UNINDEXED, scope UNINDEXED, content, tokenize='unicode61');" +
       "CREATE VIRTUAL TABLE IF NOT EXISTS evidence_search USING fts5(ref UNINDEXED, scope UNINDEXED, content, tokenize='unicode61');" +
+      "CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_search USING fts5(id UNINDEXED, scope UNINDEXED, title, summary, content, tags, tokenize='unicode61');" +
       "CREATE TRIGGER IF NOT EXISTS memories_search_insert AFTER INSERT ON memories BEGIN INSERT INTO memory_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
       "CREATE TRIGGER IF NOT EXISTS memories_search_update AFTER UPDATE OF id,scope,content ON memories BEGIN DELETE FROM memory_search WHERE rowid=old.rowid; INSERT INTO memory_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
       "CREATE TRIGGER IF NOT EXISTS memories_search_delete AFTER DELETE ON memories BEGIN DELETE FROM memory_search WHERE rowid=old.rowid; END;" +
@@ -125,15 +150,19 @@ export class SqliteDatabase {
       "CREATE TRIGGER IF NOT EXISTS experiences_search_delete AFTER DELETE ON experiences BEGIN DELETE FROM experience_search WHERE rowid=old.rowid; END;" +
       "CREATE TRIGGER IF NOT EXISTS evidence_search_insert AFTER INSERT ON evidence BEGIN INSERT INTO evidence_search(rowid,ref,scope,content) VALUES(new.rowid,new.ref,new.scope,new.content); END;" +
       "CREATE TRIGGER IF NOT EXISTS evidence_search_update AFTER UPDATE OF ref,scope,content ON evidence BEGIN DELETE FROM evidence_search WHERE rowid=old.rowid; INSERT INTO evidence_search(rowid,ref,scope,content) VALUES(new.rowid,new.ref,new.scope,new.content); END;" +
-      "CREATE TRIGGER IF NOT EXISTS evidence_search_delete AFTER DELETE ON evidence BEGIN DELETE FROM evidence_search WHERE rowid=old.rowid; END;"
+      "CREATE TRIGGER IF NOT EXISTS evidence_search_delete AFTER DELETE ON evidence BEGIN DELETE FROM evidence_search WHERE rowid=old.rowid; END;" +
+      "CREATE TRIGGER IF NOT EXISTS knowledge_search_insert AFTER INSERT ON knowledge_pages BEGIN INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) VALUES(new.rowid,new.id,new.scope,new.title,new.summary,new.content,new.tags); END;" +
+      "CREATE TRIGGER IF NOT EXISTS knowledge_search_update AFTER UPDATE OF id,scope,title,summary,content,tags ON knowledge_pages BEGIN DELETE FROM knowledge_search WHERE rowid=old.rowid; INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) VALUES(new.rowid,new.id,new.scope,new.title,new.summary,new.content,new.tags); END;" +
+      "CREATE TRIGGER IF NOT EXISTS knowledge_search_delete AFTER DELETE ON knowledge_pages BEGIN DELETE FROM knowledge_search WHERE rowid=old.rowid; END;"
     );
     // Backfill indexes for databases created before FTS support was introduced.
     this.db.exec(
       'INSERT INTO memory_search(rowid,id,scope,content) SELECT m.rowid,m.id,m.scope,m.content FROM memories m WHERE NOT EXISTS (SELECT 1 FROM memory_search f WHERE f.rowid=m.rowid);' +
       'INSERT INTO experience_search(rowid,id,scope,content) SELECT e.rowid,e.id,e.scope,e.content FROM experiences e WHERE NOT EXISTS (SELECT 1 FROM experience_search f WHERE f.rowid=e.rowid);' +
-      'INSERT INTO evidence_search(rowid,ref,scope,content) SELECT e.rowid,e.ref,e.scope,e.content FROM evidence e WHERE NOT EXISTS (SELECT 1 FROM evidence_search f WHERE f.rowid=e.rowid);'
+      'INSERT INTO evidence_search(rowid,ref,scope,content) SELECT e.rowid,e.ref,e.scope,e.content FROM evidence e WHERE NOT EXISTS (SELECT 1 FROM evidence_search f WHERE f.rowid=e.rowid);' +
+      'INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) SELECT k.rowid,k.id,k.scope,k.title,k.summary,k.content,k.tags FROM knowledge_pages k WHERE NOT EXISTS (SELECT 1 FROM knowledge_search f WHERE f.rowid=k.rowid);'
     );
-    this.db.exec('PRAGMA user_version=5');
+    this.db.exec('PRAGMA user_version=6');
     if (filename !== ':memory:') {
       try { chmodSync(filename, 0o600); } catch { /* Directory permissions still protect the database. */ }
     }
