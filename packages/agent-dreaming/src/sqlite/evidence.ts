@@ -17,16 +17,17 @@ export class SqliteEvidenceStore implements DreamingEvidenceResolver {
         const same = old.content === evidence.content
           && old.kind === evidence.kind
           && old.created_at === (evidence.createdAt ?? null)
-          && String(old.metadata) === encode(evidence.metadata ?? {});
+          && String(old.metadata) === encode(evidence.metadata ?? {})
+          && (old.origin == null ? evidence.origin === undefined : String(old.origin) === encode(evidence.origin));
         if (!same) {
           throw new Error('Evidence references are immutable; use a new versioned reference: ' + evidence.ref);
         }
         return;
       }
       this.context.db.prepare(
-        'INSERT INTO evidence(ref,scope,content,kind,created_at,metadata) VALUES(?,?,?,?,?,?)'
+        'INSERT INTO evidence(ref,scope,content,kind,created_at,metadata,origin) VALUES(?,?,?,?,?,?,?)'
       ).run(evidence.ref, scope, evidence.content, evidence.kind,
-        evidence.createdAt ?? null, encode(evidence.metadata ?? {}));
+        evidence.createdAt ?? null, encode(evidence.metadata ?? {}), evidence.origin ? encode(evidence.origin) : null);
     });
   }
 
