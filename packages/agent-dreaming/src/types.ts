@@ -1,20 +1,42 @@
 export type DreamingRunStatus = 'running' | 'completed' | 'failed' | 'skipped';
 export type DreamingTrigger = 'startup' | 'interval' | 'record-appended' | 'manual';
 
+export type DreamingMemoryType =
+  | 'fact' | 'preference' | 'goal' | 'constraint'
+  | 'knowledge' | 'behavior-pattern' | 'ongoing-context';
+
+/** Provenance for an experience or evidence item; never an isolation boundary. */
+export interface DreamingOrigin {
+  /** Provider or source system, for example chatgpt, claude, copilot or browser. */
+  system: string;
+  /** Application or surface that captured the record, when known. */
+  application?: string;
+  /** Source channel, for example conversation, task, document or manual entry. */
+  channel?: string;
+  /** Stable identifier in the source system; do not store credentials or secrets. */
+  recordId?: string;
+}
+
 export interface DreamingExperience {
   id: string;
   sequence: number;
+  /** Stable memory-owner partition. For personal memory, reuse one person scope across apps. */
   scope: string;
   content: string;
   createdAt: string;
   sourceRefs: readonly string[];
+  /** Capturing application/provider is provenance, not a separate memory scope. */
+  origin?: DreamingOrigin;
   metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface DreamingMemory {
   id: string;
+  /** Same owner scope as the source experiences; do not scope memories by app or session. */
   scope: string;
   content: string;
+  /** Optional classification for durable personal knowledge; older records remain valid. */
+  memoryType?: DreamingMemoryType;
   status: 'candidate' | 'confirmed' | 'superseded' | 'archived';
   importance: number;
   sourceRefs: readonly string[];
@@ -38,6 +60,8 @@ export interface DreamingEvidence {
   content: string;
   kind: string;
   createdAt?: string;
+  /** Origin is retained for attribution, not used to partition by application. */
+  origin?: DreamingOrigin;
   metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -286,6 +310,7 @@ export interface DreamingReviewQueue {
 }
 
 export interface DreamingOptions {
+  /** Stable memory-owner scopes; never create one scope per app, provider, session or project. */
   scopes: readonly string[];
   intervalMs?: number;
   batchSize?: number;
