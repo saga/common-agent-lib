@@ -5,7 +5,7 @@ import type {
   DreamingRunInput, DreamingRuntime, DreamingUserMessageInput, DreamingMemory,
 } from './types.js';
 import { SYSTEM_PROMPT, buildPrompt } from './prompts.js';
-import { parseResult, classifyProposal } from './validation.js';
+import { parseResult } from './validation.js';
 import { evaluateMemoryQuality, validateFeedbackEvent } from './quality.js';
 import { createId, unrefTimer, unique } from './utils.js';
 import { detectUserMemoryDirective } from './user-directives.js';
@@ -323,18 +323,13 @@ export class DreamingEngine {
             continue;
           }
           const proposalEvidence = evidence.filter((item) => allowedRefs.has(item.ref));
-          const decision = classifyProposal(proposal, this.options.autoCandidateThresholds);
-          if (decision.autoCandidate) {
-            const outcome = await this.repository.commitProposal({ proposal, evidence: proposalEvidence, runId: run.id });
-            if (outcome.applied) run.appliedProposalIds.push(proposal.id);
-            else run.rejectedProposalIds.push(proposal.id);
-          } else {
-            const outcome = await this.repository.stageProposal({
-              proposal, evidence: proposalEvidence, runId: run.id, reason: decision.reason,
-            });
-            if (outcome.staged) run.pendingProposalIds.push(proposal.id);
-            else run.rejectedProposalIds.push(proposal.id);
-          }
+          // All valid proposals are applied automatically. Weak additions remain candidates;
+          // existing-memory changes are versioned and protected by explicit-user authority.
+          const outcome = await this.repository.commitProposal({
+            proposal, evidence: proposalEvidence, runId: run.id,
+          });
+          if (outcome.applied) run.appliedProposalIds.push(proposal.id);
+          else run.rejectedProposalIds.push(proposal.id);
         }
 
         run.processedRecordIds.push(...result.processedRecordIds);
