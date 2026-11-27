@@ -38,8 +38,8 @@
 
 - [ ] Add end-to-end evaluation scenarios for personal memory, project memory, knowledge maintenance and context injection.
 - [ ] Add benchmarks for FTS / CJK search and large per-scope memory collections.
-- [ ] Verify npm pack contains the package decision, design and usage docs.
-- [ ] Run package build, typecheck, full test suite and isolated-consumer package test.
+- [x] Verify npm pack contains the package decision, design, implementation checklist and usage docs.
+- [x] Run package build, typecheck, full test suite and isolated-consumer package test (Node.js 24 and 26 CI).
 
 ## Implementation notes
 

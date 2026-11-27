@@ -72,7 +72,7 @@ const pages = await store.searchKnowledge({
 });
 ```
 
-Saving a page requires all `sourceRefs` to resolve to immutable Evidence in the same scope. Identical repeated saves are idempotent; changes preserve a pre-update snapshot and increment the page version. Search defaults to active pages; drafts and deprecated pages require `includeInactive: true`. Page and link maintenance proposals and Dreaming-driven automation are still pending.
+Saving a page requires all `sourceRefs` to resolve to immutable Evidence in the same scope. Identical repeated saves are idempotent; changes preserve a pre-update snapshot and increment the page version. Search defaults to active pages; drafts, deprecated and superseded pages require `includeInactive: true`. Page and link maintenance proposals and Dreaming-driven automation are still pending.
 
 ## Implementation status
 

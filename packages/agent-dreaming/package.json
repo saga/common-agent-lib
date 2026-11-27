@@ -36,6 +36,7 @@
     "README.md",
     "DECISION.md",
     "ARCHITECTURE-ANALYSIS.md",
+    "IMPLEMENTATION-CHECKLIST.md",
     "LICENSE"
   ],
   "scripts": {
