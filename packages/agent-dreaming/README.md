@@ -18,25 +18,27 @@ import {
 
 const store = new SqliteDreamingStore({ filename: './data/dreaming.sqlite' });
 const dreaming = createSqliteCopilotDreaming(store, {
-  scopes: ['user:1'],
+  scopes: ['person:opaque-user-id'],
   intervalMs: 15 * 60_000,
 });
 
-await store.putEvidence('user:1', {
+await store.putEvidence('person:opaque-user-id', {
   ref: 'note:1',
   kind: 'note',
   content: 'Original source text',
+  origin: { system: 'copilot', application: 'assistant-ui', channel: 'conversation' },
 });
 await store.appendExperience({
   id: 'experience:1',
-  scope: 'user:1',
+  scope: 'person:opaque-user-id',
   content: 'A meaningful interaction or task outcome',
   createdAt: new Date().toISOString(),
   sourceRefs: ['note:1'],
+  origin: { system: 'copilot', application: 'assistant-ui', channel: 'conversation' },
 });
 
 dreaming.start();
-await dreaming.runNow('user:1');
+await dreaming.runNow('person:opaque-user-id');
 await dreaming.shutdown(); // Stops the engine, Copilot client and SQLite store.
 ```
 
@@ -60,6 +62,10 @@ Implement the small `DreamingRuntime.generate()` contract to connect CodeBuddy, 
 6. Commits only provenance-backed, quality-gated new memories as `candidate`; other changes enter the durable review queue.
 7. Records reviewed IDs, run outcomes and a contiguous checkpoint.
 
+For personal memory, `scope` is the stable identity of the memory owner, normally derived from the authenticated person. Use that same scope for authorized records from ChatGPT, Claude, Copilot, browsers and other sources. Do not create a new scope for each application, provider, device, project or conversation. Put source attribution in `origin`; it is not a memory boundary.
+
+Memories may carry a `memoryType`: `fact`, `preference`, `goal`, `constraint`, `knowledge`, `behavior-pattern` or `ongoing-context`. This helps hosts inspect and retrieve personal memories without treating a single observation as a permanent personality trait. Existing records without a type remain supported.
+
 Dreaming does not decide that a memory is trusted. Updates, merges, supersedes and archives require explicit review. Prior memory snapshots are retained before mutations.
 
 ## Storage
@@ -76,7 +82,7 @@ SQLite uses Node's built-in `node:sqlite`; no native addon or third-party SQLite
 
 ## Host responsibilities and boundaries
 
-The host authenticates users and supplies a trusted subject identity. The package applies configured scope grants and review permissions through its authorization policy. Candidate promotion remains quality-gated; changing a confirmed memory requires an authorized review decision. Do not expose persistence methods directly as untrusted model tools.
+The host authenticates users and supplies a trusted subject identity. For personal memory, map that identity to one stable scope across integrations; never trust an origin field to identify the owner. The package applies configured scope grants and review permissions through its authorization policy. Candidate promotion remains quality-gated; changing a confirmed memory requires an authorized review decision. Do not expose persistence methods directly as untrusted model tools.
 
 The built-in memory ranking uses a persisted SQLite vector index with cosine similarity, source-reference overlap, stale/expiry status and importance. The default local embedding provider uses optional Transformers.js with a multilingual MiniLM model; install @huggingface/transformers to enable local semantic embeddings. Without that optional package, Dreaming falls back to source-reference and recency ranking. Supply a custom EmbeddingProvider or MemoryRetriever to override the default. Embeddings are cached by content hash and isolated by scope and provider ID.
 
