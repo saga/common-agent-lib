@@ -59,8 +59,32 @@ export function detectUserMemoryDirective(text: string): ParsedDreamingUserDirec
     return {
       kind: item.kind,
       instruction,
-      memoryType: item.memoryType,
+      memoryType: inferMemoryType(item.kind, instruction, item.memoryType),
     };
   }
   return undefined;
+}
+
+function inferMemoryType(
+  kind: DreamingUserDirectiveKind,
+  instruction: string,
+  fallback: DreamingMemoryType,
+): DreamingMemoryType {
+  if (kind === 'avoid') return 'constraint';
+  if (/(?:喜欢|偏好|倾向|更愿意|不喜欢|讨厌|prefer|preference|like|dislike|favor)/iu.test(instruction)) {
+    return 'preference';
+  }
+  if (/(?:目标|计划|打算|希望实现|想要达成|goal|plan to|aim to|want to achieve)/iu.test(instruction)) {
+    return 'goal';
+  }
+  if (/(?:必须|务必|只能|需要遵守|不可|must|only|requirement|constraint)/iu.test(instruction)) {
+    return 'constraint';
+  }
+  if (/(?:目前|当前|正在|现阶段|暂时|currently|at the moment|in progress)/iu.test(instruction)) {
+    return 'ongoing-context';
+  }
+  if (/(?:熟悉|了解|掌握|擅长|经验|know|knowledge|experienced|proficient)/iu.test(instruction)) {
+    return 'knowledge';
+  }
+  return fallback;
 }
