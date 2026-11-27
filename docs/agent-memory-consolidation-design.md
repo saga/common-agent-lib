@@ -2,18 +2,22 @@
 
 ## Decision
 
-Keep the memory data model and context assembly independent from background consolidation. `@saga/agent-dreaming` owns the Dreaming lifecycle and includes a local SQLite implementation. It uses the Microsoft Copilot SDK as its built-in default runtime adapter without depending on a separate Agent runtime package.
+`@saga/agent-dreaming` is the self-contained owner of the complete Agent Memory lifecycle. Experience, Evidence, Memory, Knowledge, retrieval, context assembly, feedback, scheduling, persistence and authorization primitives are implemented inside this package. It does not import or require another internal `@saga/*` package. Copilot is the built-in optional model adapter; other model providers use the package-owned runtime contract.
 
-The design follows [Anthropic's components of agent memory](https://www.anthropic.com/research/components-of-agent-memory): raw experiences remain inspectable, durable memory is derived from them, knowledge is maintained over time, and only host-selected context is injected into future tasks.
+The design follows [Anthropic's components of agent memory](https://www.anthropic.com/research/components-of-agent-memory): raw experiences remain inspectable, durable memory is derived from them, knowledge is maintained over time, and only a bounded, task-relevant context is injected into future tasks. See the package [Decision](../packages/agent-dreaming/DECISION.md) and [architecture analysis](../packages/agent-dreaming/ARCHITECTURE-ANALYSIS.md).
 
-## Responsibilities
+## Internal responsibilities
 
-- `@saga/agent-tracing`: bounded, redacted execution events and source references.
-- `@saga/agent-memory`: durable memory contracts, lifecycle, relationships, pagination and working-memory selection.
-- `@saga/agent-knowledge`: durable knowledge entries and relationships.
-- `@saga/agent-dreaming`: replay, cross-session consolidation, review queue, checkpoints, run ledger, leases, feedback, memory-version history and scheduling.
-- `@saga/agent-context`: bounded context assembly from host-selected, authorized candidates.
-- Host application: authentication, authorization, domain validation, candidate promotion, retention and any application-specific retrieval ranking.
+All capabilities below are internal modules of `@saga/agent-dreaming`, not separate package dependencies:
+
+- Experience and Evidence: immutable source material, provenance, append-only history, evidence resolution and historical search.
+- Memory: durable memory records, authority, lifecycle, relationships and version history.
+- Knowledge: topic pages, knowledge relationships, maintenance proposals, indexes and version history.
+- Retrieval: SQLite full-text search, optional semantic/vector search, ranking and bounded relationship expansion.
+- Context: always-on Memory Manifest, task-aware selection, de-duplication, budget enforcement and prompt-ready rendering.
+- Dreaming and Feedback: bounded replay, proposal validation, automatic consolidation and task-outcome feedback.
+- Persistence and Operations: SQLite, migrations, transactions, scheduler, worker, leases, checkpoints and run ledger.
+- Host application: authentication, trusted owner identity, authorization of source records and application-specific source adapters.
 
 ## Execution
 
@@ -36,7 +40,7 @@ flowchart TD
 
 A run is bounded by batch size, maximum batches, memory count, relationship count, evidence count and prompt characters. The built-in SQLite repository ranks memories linked by source-reference overlap with the current experience batch, then expired, stale and other important memories. Hosts can replace the repository to add semantic/vector retrieval or domain-specific ranking.
 
-The runtime explicitly reports `reviewedMemoryIds`; the engine persists those timestamps separately from experience review. Only a contiguous processed prefix advances the checkpoint. A per-scope lease prevents concurrent workers from applying the same work; the engine renews the lease during long model calls.
+The runtime explicitly reports `reviewedMemoryIds`; the engine persists those timestamps separately from experience review. Only a contiguous processed prefix advances the checkpoint. A per-scope lease prevents concurrent workers from applying the same work; the engine renews the lease during long model calls. When enabled by the configured value thresholds, the same package then maintains Knowledge pages and rebuilds the affected Memory Manifest / retrieval indexes.
 
 ## Runtime contract
 
