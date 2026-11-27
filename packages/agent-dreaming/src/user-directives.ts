@@ -12,7 +12,7 @@ const directivePatterns: ReadonlyArray<{
   {
     kind: 'remember',
     memoryType: 'fact',
-    pattern: /^(?:(?:请|麻烦)(?:你)?(?:帮我)?|你)?记住(?:一下)?(?:这件事)?[：:,，、\s]+(.+)$/u,
+    pattern: /^(?:(?:请|麻烦)(?:你)?(?:帮我)?|你)?记住(?:一下)?(?:这件事)?[：:,，、\s]*(.+)$/u,
   },
   {
     kind: 'avoid',
