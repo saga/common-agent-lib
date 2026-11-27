@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { DreamingEvidence, DreamingExperience, DreamingMemory } from '../types.js';
+import type { DreamingEvidence, DreamingExperience, DreamingMemory, DreamingMemoryType, DreamingOrigin } from '../types.js';
 
 export interface SqliteDreamingOptions {
   filename: string;
@@ -21,6 +21,7 @@ export function mapExperience(row: SqliteRow): DreamingExperience {
     createdAt: String(row.created_at),
     sourceRefs: decode<string[]>(row.refs),
     metadata: decode<Record<string, unknown>>(row.metadata),
+    ...(row.origin ? { origin: decode<DreamingOrigin>(row.origin) } : {}),
   };
 }
 
@@ -29,6 +30,7 @@ export function mapMemory(row: SqliteRow): DreamingMemory {
     id: String(row.id),
     scope: String(row.scope),
     content: String(row.content),
+    ...(row.memory_type ? { memoryType: String(row.memory_type) as DreamingMemoryType } : {}),
     status: row.status,
     importance: Number(row.importance),
     sourceRefs: decode<string[]>(row.refs),
@@ -45,6 +47,7 @@ export function mapEvidence(row: SqliteRow): DreamingEvidence {
     content: String(row.content),
     kind: String(row.kind),
     ...(row.created_at ? { createdAt: String(row.created_at) } : {}),
+    ...(row.origin ? { origin: decode<DreamingOrigin>(row.origin) } : {}),
     metadata: decode<Record<string, unknown>>(row.metadata),
   };
 }
@@ -68,16 +71,16 @@ export class SqliteDatabase {
     this.db = new DatabaseSync(filename, { timeout: busyTimeoutMs });
     this.db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;');
     this.db.exec(
-      'CREATE TABLE IF NOT EXISTS experiences(id TEXT PRIMARY KEY,scope TEXT NOT NULL,sequence INTEGER NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL,refs TEXT NOT NULL,metadata TEXT NOT NULL,reviewed_at TEXT,UNIQUE(scope,sequence));' +
+      'CREATE TABLE IF NOT EXISTS experiences(id TEXT PRIMARY KEY,scope TEXT NOT NULL,sequence INTEGER NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL,refs TEXT NOT NULL,metadata TEXT NOT NULL,reviewed_at TEXT,origin TEXT,UNIQUE(scope,sequence));' +
       'CREATE INDEX IF NOT EXISTS experiences_scope_seq ON experiences(scope,sequence);' +
-      'CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,importance REAL NOT NULL,refs TEXT NOT NULL,last_validated_at TEXT,valid_until TEXT,confidence REAL,metadata TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);' +
+      'CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,importance REAL NOT NULL,refs TEXT NOT NULL,last_validated_at TEXT,valid_until TEXT,confidence REAL,metadata TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,memory_type TEXT);' +
       'CREATE INDEX IF NOT EXISTS memories_scope_status ON memories(scope,status,importance DESC);' +
       'CREATE TABLE IF NOT EXISTS memory_versions(version_id INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,memory_id TEXT NOT NULL,version INTEGER NOT NULL,reason TEXT NOT NULL,captured_at TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(scope,memory_id,version));' +
       'CREATE INDEX IF NOT EXISTS memory_versions_lookup ON memory_versions(scope,memory_id,version DESC);' +
       'CREATE TABLE IF NOT EXISTS relationships(id TEXT PRIMARY KEY,scope TEXT NOT NULL,from_id TEXT NOT NULL,to_id TEXT NOT NULL,kind TEXT NOT NULL,refs TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS relationships_scope_from ON relationships(scope,from_id);' +
       'CREATE INDEX IF NOT EXISTS relationships_scope_to ON relationships(scope,to_id);' +
-      'CREATE TABLE IF NOT EXISTS evidence(ref TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT,metadata TEXT NOT NULL);' +
+      'CREATE TABLE IF NOT EXISTS evidence(ref TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT,metadata TEXT NOT NULL,origin TEXT);' +
       'CREATE TABLE IF NOT EXISTS feedback(id TEXT PRIMARY KEY,scope TEXT NOT NULL,memory_id TEXT NOT NULL,occurred_at TEXT NOT NULL,payload TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS feedback_memory_time ON feedback(scope,memory_id,occurred_at);' +
       'CREATE TABLE IF NOT EXISTS checkpoints(scope TEXT PRIMARY KEY,after_sequence INTEGER NOT NULL,last_run_at TEXT,last_run_id TEXT);' +
@@ -89,11 +92,22 @@ export class SqliteDatabase {
       'CREATE TABLE IF NOT EXISTS leases(scope TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL);'
     );
 
+    // Additive migration: preserve old records while adding source provenance and memory classification.
+    const ensureColumn = (table: string, column: string, definition: string) => {
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[];
+      if (!columns.some((item) => item.name === column)) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      }
+    };
+    ensureColumn('experiences', 'origin', 'TEXT');
+    ensureColumn('evidence', 'origin', 'TEXT');
+    ensureColumn('memories', 'memory_type', 'TEXT');
+
     const appliedColumns = this.db.prepare('PRAGMA table_info(applied_proposals)').all() as SqliteRow[];
     if (!appliedColumns.some((column) => column.name === 'payload')) {
       this.db.exec("ALTER TABLE applied_proposals ADD COLUMN payload TEXT NOT NULL DEFAULT ''");
     }
-    this.db.exec('PRAGMA user_version=2');
+    this.db.exec('PRAGMA user_version=3');
     if (filename !== ':memory:') {
       try { chmodSync(filename, 0o600); } catch { /* Directory permissions still protect the database. */ }
     }
@@ -119,11 +133,11 @@ export class SqliteDatabase {
   insertMemory(memory: DreamingMemory, status: DreamingMemory['status']): void {
     const now = new Date().toISOString();
     this.db.prepare(
-      'INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at,memory_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
     ).run(
       memory.id, memory.scope, memory.content, status, memory.importance,
       encode(memory.sourceRefs), memory.lastValidatedAt ?? null, memory.validUntil ?? null,
-      memory.confidence ?? null, encode(memory.metadata ?? {}), now, now,
+      memory.confidence ?? null, encode(memory.metadata ?? {}), now, now, memory.memoryType ?? null,
     );
   }
 
