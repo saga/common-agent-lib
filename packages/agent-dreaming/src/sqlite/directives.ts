@@ -41,8 +41,8 @@ export class SqliteUserDirectiveStore {
       throw new TypeError('User directive origin.system must be a non-empty string.');
     }
 
-    const instruction = input.instruction.trim().normalize('NFKC');
-    const normalized = instruction.toLocaleLowerCase().replace(/\s+/gu, ' ');
+    const instruction = input.instruction.trim();
+    const normalized = instruction.normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, ' ');
     const memoryId = `user-directive-${hash(`${input.scope}\0${input.kind}\0${normalized}`)}`;
     const directiveId = hash(`${input.scope}\0${input.id}`);
     const sourceRef = `user-directive:${directiveId}`;
