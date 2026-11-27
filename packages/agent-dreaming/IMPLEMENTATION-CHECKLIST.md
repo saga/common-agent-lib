@@ -22,6 +22,7 @@
 - [x] Add SQLite tables, additive migration, FTS5 index and pre-update version snapshots for Knowledge pages and links.
 - [ ] Implement model-proposed create, revise, merge, link, supersede and deprecate operations with scope / provenance validation and idempotency. (Base page save / revise and link persistence are implemented.)
 - [x] Add scope-isolated Knowledge full-text search (FTS5 + CJK fallback); bounded link expansion remains pending.
+- [ ] Persist and incrementally rebuild a bounded Memory Manifest from explicit instructions, important Memory and active Knowledge indexes; record its version/hash and stale state.
 - [ ] Add a bounded Knowledge Maintenance stage after Memory consolidation. Create pages only when multiple experiences or a durable research objective justify them.
 - [ ] Re-check pages affected by contradictory, expired or superseding evidence.
 - [x] Test page revision history, duplicate-save idempotency, CJK retrieval, cross-scope isolation, evidence provenance and relation integrity.
