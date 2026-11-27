@@ -2,7 +2,7 @@ import type {
   DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingFeedbackEvent, DreamingMemory,
   DreamingMemoryQuality, DreamingModelResult, DreamingOptions, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun,
-  DreamingRunInput, DreamingRuntime, DreamingUserMessageInput, DreamingMemory,
+  DreamingRunInput, DreamingRuntime, DreamingUserMessageInput,
 } from './types.js';
 import { SYSTEM_PROMPT, buildPrompt } from './prompts.js';
 import { parseResult } from './validation.js';
