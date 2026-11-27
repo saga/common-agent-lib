@@ -33,15 +33,18 @@ export class SqliteMemoryStore {
       if (old && old.scope !== memory.scope) {
         throw new Error('Memory ID belongs to another scope: ' + memory.id);
       }
+      if (old?.authority === 'user-explicit' && memory.authority !== 'user-explicit') {
+        throw new Error('User-explicit memory cannot be overwritten by derived memory: ' + memory.id);
+      }
       if (old) this.snapshotBeforeChange(old, 'upsert');
       const now = new Date().toISOString();
       this.context.db.prepare(
-        'INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at,memory_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ' +
-        'ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,importance=excluded.importance,refs=excluded.refs,last_validated_at=excluded.last_validated_at,valid_until=excluded.valid_until,confidence=excluded.confidence,metadata=excluded.metadata,updated_at=excluded.updated_at,memory_type=excluded.memory_type'
+        'INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at,memory_type,authority) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ' +
+        'ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,importance=excluded.importance,refs=excluded.refs,last_validated_at=excluded.last_validated_at,valid_until=excluded.valid_until,confidence=excluded.confidence,metadata=excluded.metadata,updated_at=excluded.updated_at,memory_type=excluded.memory_type,authority=excluded.authority'
       ).run(
         memory.id, memory.scope, memory.content, memory.status, memory.importance,
         encode(memory.sourceRefs), memory.lastValidatedAt ?? null, memory.validUntil ?? null,
-        memory.confidence ?? null, encode(memory.metadata ?? {}), now, now, memory.memoryType ?? null,
+        memory.confidence ?? null, encode(memory.metadata ?? {}), now, now, memory.memoryType ?? null, memory.authority ?? 'derived',
       );
     });
   }
