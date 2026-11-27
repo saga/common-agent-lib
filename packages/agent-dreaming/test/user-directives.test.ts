@@ -22,7 +22,7 @@ test('detects direct remember and avoid instructions in Chinese and English', ()
     instruction: '在没有检查源代码时声称已经完成',
     memoryType: 'constraint',
   });
-  assert.equal(detectUserMemoryDirective("Remember that I prefer concise answers"), undefined);
+  assert.equal(detectUserMemoryDirective("Remember that I prefer concise answers")?.kind, 'remember');
   assert.equal(detectUserMemoryDirective("Please remember that I prefer concise answers")?.kind, 'remember');
   assert.equal(detectUserMemoryDirective("Don't use unverified assumptions again")?.kind, 'avoid');
 });
@@ -63,6 +63,11 @@ test('explicit user instruction is written immediately without calling the model
     assert.equal(first.memory.importance, 1);
     assert.equal(first.memory.id, retry.memory.id);
     assert.equal(first.memory.sourceRefs.length, 1);
+    const recall = await store.loadMemories({
+      scope: 'person:42', experienceIds: [], reviewBefore: '2020-01-01T00:00:00.000Z',
+      expiredBefore: '2026-11-27T00:00:00.000Z', limit: 1,
+    });
+    assert.equal(recall[0]?.authority, 'user-explicit');
     assert.equal(modelCalls, 0);
     assert.equal((await store.listReviewQueue({ scope: 'person:42' })).length, 0);
   } finally {
