@@ -6,6 +6,7 @@ import type {
 import type { SqliteDatabase } from './database.js';
 import { SqliteSearchStore } from './search.js';
 import { SqliteEvidenceStore } from './evidence.js';
+import { SqliteKnowledgeStore } from './knowledge.js';
 
 type Candidate = {
   item: DreamingContextItem;
@@ -35,6 +36,7 @@ function sectionFor(type: DreamingContextItem['sourceType']): string {
     case 'memory': return 'Relevant long-term memories';
     case 'experience': return 'Related experiences';
     case 'evidence': return 'Original source evidence';
+    case 'knowledge': return 'Reusable Knowledge pages';
   }
 }
 
@@ -56,6 +58,7 @@ function render(items: readonly Candidate[]): string {
       sourceRefs: item.sourceRefs.slice(0, 8),
       ...(item.sourceRefs.length > 8 ? { additionalSourceRefCount: item.sourceRefs.length - 8 } : {}),
       ...(item.revision ? { revision: item.revision } : {}),
+      ...(item.knowledgeVersion ? { knowledgeVersion: item.knowledgeVersion } : {}),
     });
     sections.set(candidate.section, records);
   }
@@ -94,10 +97,12 @@ function contextItemFromHit(hit: DreamingSearchHit, text: string): Candidate {
 export class SqliteContextStore {
   private readonly search: SqliteSearchStore;
   private readonly evidence: SqliteEvidenceStore;
+  private readonly knowledge: SqliteKnowledgeStore;
 
   constructor(private readonly context: SqliteDatabase) {
     this.search = new SqliteSearchStore(context);
     this.evidence = new SqliteEvidenceStore(context);
+    this.knowledge = new SqliteKnowledgeStore(context);
   }
 
   async build(input: DreamingContextRequest): Promise<DreamingContextResult> {
@@ -171,6 +176,14 @@ export class SqliteContextStore {
 
     const memoryHits = hits.filter((hit) => hit.sourceType === 'memory');
     const experienceHits = hits.filter((hit) => hit.sourceType === 'experience');
+    const knowledgeHits = await this.knowledge.search({
+      scope: input.scope,
+      query,
+      limit: Math.min(searchLimit, 20),
+      expandLinks: true,
+      maxDepth: 1,
+      maxPages: Math.min(30, Math.max(10, searchLimit)),
+    });
     const evidenceHits = hits.filter((hit) => hit.sourceType === 'evidence').slice(0, maxEvidence);
 
     for (const hit of memoryHits) {
@@ -183,6 +196,29 @@ export class SqliteContextStore {
       });
       seenIds.add(hit.id);
     }
+    for (const hit of knowledgeHits) {
+      if (seenIds.has(hit.id)) continue;
+      const pageText = [hit.title, hit.summary, hit.content].filter(Boolean).join('\n\n');
+      const item: DreamingContextItem = {
+        id: hit.id,
+        sourceType: 'knowledge',
+        text: shorten(pageText, maxItemChars),
+        score: hit.score,
+        required: false,
+        sourceRefs: hit.sourceRefs,
+        revision: `v${hit.version}`,
+        knowledgeVersion: hit.version,
+      };
+      candidates.push({
+        item,
+        section: sectionFor('knowledge'),
+        order: 150,
+        priority: 350 + hit.score * 100 - (hit.relationDepth ?? 0) * 20,
+        dedupe: normalizeContent(pageText),
+      });
+      seenIds.add(hit.id);
+    }
+
     for (const hit of experienceHits) {
       const candidate = contextItemFromHit(hit, shorten(hit.content, maxItemChars));
       candidates.push({
@@ -197,6 +233,7 @@ export class SqliteContextStore {
       ...alwaysOn.flatMap((hit) => [...hit.sourceRefs]),
       ...memoryHits.flatMap((hit) => [...hit.sourceRefs]),
       ...experienceHits.flatMap((hit) => [...hit.sourceRefs]),
+      ...knowledgeHits.flatMap((hit) => [...hit.sourceRefs]),
     ])].filter((ref) => !directEvidenceRefs.has(ref))
       .slice(0, Math.max(0, maxEvidence - evidenceHits.length));
     const resolvedEvidence = input.includeEvidence === false || maxEvidence === 0

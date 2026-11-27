@@ -1,6 +1,6 @@
 import type {
   DreamingCheckpoint, DreamingContextRequest, DreamingContextResult, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience,
-  DreamingContextFeedbackInput, DreamingFeedbackEvent, DreamingKnowledgeLink, DreamingKnowledgePage, DreamingKnowledgePageInput, DreamingKnowledgePageVersion, DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest, DreamingMemory, DreamingMemoryHistoryStore, DreamingPage,
+  DreamingContextFeedbackInput, DreamingFeedbackEvent, DreamingKnowledgeLink, DreamingKnowledgePage, DreamingKnowledgePageInput, DreamingKnowledgePageVersion, DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest, DreamingMemory, DreamingMemoryManifest, DreamingMemoryHistoryStore, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingRunStore,
   DreamingReviewQueue, DreamingReviewQueueItem, DreamingSearchHit, DreamingSearchRequest, DreamingUserDirectiveInput,
 } from './types.js';
@@ -18,6 +18,7 @@ import { SqliteUserDirectiveStore } from './sqlite/directives.js';
 import { SqliteSearchStore } from './sqlite/search.js';
 import { SqliteContextStore } from './sqlite/context.js';
 import { SqliteKnowledgeStore } from './sqlite/knowledge.js';
+import { SqliteMemoryManifestStore } from './sqlite/manifest.js';
 
 export type { SqliteDreamingOptions, ProposalReviewReason };
 export type SqliteDreamingStoreOptions = SqliteDreamingOptions & { embeddingProvider?: EmbeddingProvider | false };
@@ -45,6 +46,7 @@ export class SqliteDreamingStore implements
   private readonly searchStore: SqliteSearchStore;
   private readonly contextStore: SqliteContextStore;
   private readonly knowledgeStore: SqliteKnowledgeStore;
+  private readonly manifestStore: SqliteMemoryManifestStore;
 
   constructor(options: SqliteDreamingStoreOptions) {
     this.database = new SqliteDatabase(options);
@@ -60,6 +62,7 @@ export class SqliteDreamingStore implements
     this.searchStore = new SqliteSearchStore(this.database);
     this.contextStore = new SqliteContextStore(this.database);
     this.knowledgeStore = new SqliteKnowledgeStore(this.database);
+    this.manifestStore = new SqliteMemoryManifestStore(this.database);
   }
 
   appendExperience(input: AppendExperienceInput): Promise<DreamingExperience> {
@@ -166,8 +169,20 @@ export class SqliteDreamingStore implements
     return this.searchStore.search(input);
   }
 
-  buildContext(input: DreamingContextRequest): Promise<DreamingContextResult> {
-    return this.contextStore.build(input);
+  async buildContext(input: DreamingContextRequest): Promise<DreamingContextResult> {
+    const [context, persistentManifest] = await Promise.all([
+      this.contextStore.build(input),
+      this.manifestStore.get(input.scope),
+    ]);
+    return { ...context, persistentManifest };
+  }
+
+  getMemoryManifest(scope: string): Promise<DreamingMemoryManifest> {
+    return this.manifestStore.get(scope);
+  }
+
+  rebuildMemoryManifest(scope: string): Promise<DreamingMemoryManifest> {
+    return this.manifestStore.rebuild(scope);
   }
 
   applyUserDirective(input: DreamingUserDirectiveInput): Promise<DreamingMemory> {

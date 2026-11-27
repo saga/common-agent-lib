@@ -123,6 +123,14 @@ test('Knowledge search supports English and CJK, respects scope and active statu
     assert.equal((await x.store.searchKnowledge({ scope: 'bob', query: '支付恢复' })).length, 0);
     assert.equal((await x.store.searchKnowledge({ scope: 'alice', query: 'recovery' })).some((hit) => hit.id === 'knowledge:draft'), false);
     assert.equal((await x.store.searchKnowledge({ scope: 'alice', query: 'recovery', includeInactive: true })).some((hit) => hit.id === 'knowledge:draft'), true);
+    const context = await x.store.buildContext({
+      scope: 'alice',
+      task: 'How should payment retries behave?',
+      budget: { maxUnits: 8_000 },
+    });
+    assert.ok(context.items.some((item) => item.id === 'knowledge:payments' && item.sourceType === 'knowledge'));
+    assert.equal(context.persistentManifest?.scope, 'alice');
+    assert.ok(context.persistentManifest?.itemIds.includes('knowledge:payments'));
   } finally {
     await x.close();
   }

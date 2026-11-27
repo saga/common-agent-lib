@@ -108,6 +108,7 @@ export class SqliteDatabase {
       'CREATE TABLE IF NOT EXISTS knowledge_links(id TEXT PRIMARY KEY,scope TEXT NOT NULL,from_id TEXT NOT NULL,to_id TEXT NOT NULL,kind TEXT NOT NULL,refs TEXT NOT NULL,created_at TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS knowledge_links_scope_from ON knowledge_links(scope,from_id);' +
       'CREATE INDEX IF NOT EXISTS knowledge_links_scope_to ON knowledge_links(scope,to_id);' +
+      'CREATE TABLE IF NOT EXISTS memory_manifest_state(scope TEXT PRIMARY KEY,version INTEGER NOT NULL,hash TEXT NOT NULL,content TEXT NOT NULL,item_ids TEXT NOT NULL,stale INTEGER NOT NULL,truncated INTEGER NOT NULL,item_count INTEGER NOT NULL,built_at TEXT NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS feedback(id TEXT PRIMARY KEY,scope TEXT NOT NULL,memory_id TEXT NOT NULL,occurred_at TEXT NOT NULL,payload TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS feedback_memory_time ON feedback(scope,memory_id,occurred_at);' +
       'CREATE TABLE IF NOT EXISTS checkpoints(scope TEXT PRIMARY KEY,after_sequence INTEGER NOT NULL,last_run_at TEXT,last_run_id TEXT);' +
@@ -153,7 +154,13 @@ export class SqliteDatabase {
       "CREATE TRIGGER IF NOT EXISTS evidence_search_delete AFTER DELETE ON evidence BEGIN DELETE FROM evidence_search WHERE rowid=old.rowid; END;" +
       "CREATE TRIGGER IF NOT EXISTS knowledge_search_insert AFTER INSERT ON knowledge_pages BEGIN INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) VALUES(new.rowid,new.id,new.scope,new.title,new.summary,new.content,new.tags); END;" +
       "CREATE TRIGGER IF NOT EXISTS knowledge_search_update AFTER UPDATE OF id,scope,title,summary,content,tags ON knowledge_pages BEGIN DELETE FROM knowledge_search WHERE rowid=old.rowid; INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) VALUES(new.rowid,new.id,new.scope,new.title,new.summary,new.content,new.tags); END;" +
-      "CREATE TRIGGER IF NOT EXISTS knowledge_search_delete AFTER DELETE ON knowledge_pages BEGIN DELETE FROM knowledge_search WHERE rowid=old.rowid; END;"
+      "CREATE TRIGGER IF NOT EXISTS knowledge_search_delete AFTER DELETE ON knowledge_pages BEGIN DELETE FROM knowledge_search WHERE rowid=old.rowid; END;" +
+      "CREATE TRIGGER IF NOT EXISTS manifest_memory_insert AFTER INSERT ON memories BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
+      "CREATE TRIGGER IF NOT EXISTS manifest_memory_update AFTER UPDATE ON memories BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
+      "CREATE TRIGGER IF NOT EXISTS manifest_memory_delete AFTER DELETE ON memories BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
+      "CREATE TRIGGER IF NOT EXISTS manifest_knowledge_insert AFTER INSERT ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
+      "CREATE TRIGGER IF NOT EXISTS manifest_knowledge_update AFTER UPDATE ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
+      "CREATE TRIGGER IF NOT EXISTS manifest_knowledge_delete AFTER DELETE ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;"
     );
     // Backfill indexes for databases created before FTS support was introduced.
     this.db.exec(
@@ -162,7 +169,7 @@ export class SqliteDatabase {
       'INSERT INTO evidence_search(rowid,ref,scope,content) SELECT e.rowid,e.ref,e.scope,e.content FROM evidence e WHERE NOT EXISTS (SELECT 1 FROM evidence_search f WHERE f.rowid=e.rowid);' +
       'INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) SELECT k.rowid,k.id,k.scope,k.title,k.summary,k.content,k.tags FROM knowledge_pages k WHERE NOT EXISTS (SELECT 1 FROM knowledge_search f WHERE f.rowid=k.rowid);'
     );
-    this.db.exec('PRAGMA user_version=6');
+    this.db.exec('PRAGMA user_version=7');
     if (filename !== ':memory:') {
       try { chmodSync(filename, 0o600); } catch { /* Directory permissions still protect the database. */ }
     }

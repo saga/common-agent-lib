@@ -144,6 +144,12 @@ export interface DreamingKnowledgeSearchRequest {
   query: string;
   limit?: number;
   includeInactive?: boolean;
+  /** Expand direct hits through the scope-local Knowledge graph. Disabled by default. */
+  expandLinks?: boolean;
+  /** Maximum graph traversal depth (0-2). */
+  maxDepth?: number;
+  /** Hard cap for direct + expanded pages (1-50). */
+  maxPages?: number;
 }
 
 export interface DreamingKnowledgeSearchHit {
@@ -159,6 +165,21 @@ export interface DreamingKnowledgeSearchHit {
   version: number;
   updatedAt: string;
   metadata?: Readonly<Record<string, unknown>>;
+  /** 0 for a direct hit, otherwise the bounded graph traversal depth. */
+  relationDepth?: number;
+  relatedVia?: string;
+}
+
+export interface DreamingMemoryManifest {
+  scope: string;
+  version: number;
+  hash: string;
+  /** Compact JSON index for explicit Memory, important Memory and active Knowledge. */
+  content: string;
+  itemIds: readonly string[];
+  stale: boolean;
+  truncated: boolean;
+  builtAt: string;
 }
 
 export type DreamingSearchSourceType = 'memory' | 'experience' | 'evidence';
@@ -216,7 +237,7 @@ export interface DreamingContextRequest {
 
 export interface DreamingContextItem {
   id: string;
-  sourceType: 'always-on-memory' | DreamingSearchSourceType;
+  sourceType: 'always-on-memory' | 'knowledge' | DreamingSearchSourceType;
   text: string;
   score: number;
   required: boolean;
@@ -225,6 +246,7 @@ export interface DreamingContextItem {
   authority?: DreamingMemoryAuthority;
   memoryType?: DreamingMemoryType;
   origin?: DreamingOrigin;
+  knowledgeVersion?: number;
 }
 
 export interface DreamingContextOmission {
@@ -258,6 +280,8 @@ export interface DreamingContextResult {
   };
   hash: string;
   createdAt: string;
+  /** Persisted scope-wide index; task-specific manifest remains in manifest. */
+  persistentManifest?: DreamingMemoryManifest;
 }
 
 export interface DreamingQualityAssessment {

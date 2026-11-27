@@ -236,7 +236,63 @@ export class SqliteKnowledgeStore {
         if (!old || old.score < hit.score) results.set(hit.id, hit);
       }
     }
-    return [...results.values()].sort((a,b) => b.score-a.score || b.updatedAt.localeCompare(a.updatedAt)).slice(0,limit);
+    const direct = [...results.values()].sort((a,b) => b.score-a.score || b.updatedAt.localeCompare(a.updatedAt)).slice(0,limit);
+    if (input.expandLinks !== true || !direct.length) return direct;
+
+    const maxDepth = input.maxDepth ?? 1;
+    const maxPages = input.maxPages ?? Math.min(30, Math.max(limit, 10));
+    if (!Number.isSafeInteger(maxDepth) || maxDepth < 0 || maxDepth > 2) {
+      throw new TypeError('maxDepth must be an integer between 0 and 2.');
+    }
+    if (!Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > 50) {
+      throw new TypeError('maxPages must be an integer between 1 and 50.');
+    }
+    if (maxDepth === 0) return direct.slice(0, maxPages);
+    const expanded = new Map(direct.map((hit) => [hit.id, hit]));
+    let frontier = direct.map((hit) => ({ id: hit.id, score: hit.score }));
+    for (let depth = 1; depth <= maxDepth && expanded.size < maxPages && frontier.length; depth += 1) {
+      const ids = [...new Set(frontier.map((item) => item.id))].slice(0, 50);
+      const marks = ids.map(() => '?').join(',');
+      const links = this.context.db.prepare(
+        `SELECT * FROM knowledge_links WHERE scope=? AND
+         (from_id IN (${marks}) OR to_id IN (${marks}))
+         ORDER BY created_at,id LIMIT ?`
+      ).all(input.scope, ...ids, ...ids, 200) as SqliteRow[];
+      const scoreByNeighbor = new Map<string, { score: number; via: string }>();
+      const frontierScores = new Map(frontier.map((item) => [item.id, item.score]));
+      for (const link of links) {
+        const kind = String(link.kind) as DreamingKnowledgeLinkKind;
+        if (input.relationKinds?.length && !input.relationKinds.includes(kind)) continue;
+        const from = String(link.from_id);
+        const to = String(link.to_id);
+        const parent = frontierScores.has(from) ? from : frontierScores.has(to) ? to : undefined;
+        if (!parent) continue;
+        const neighbor = parent === from ? to : from;
+        if (expanded.has(neighbor)) continue;
+        const score = (frontierScores.get(parent) ?? 0) * (kind === 'supports' ? 0.8 : 0.65);
+        const previous = scoreByNeighbor.get(neighbor);
+        if (!previous || previous.score < score) scoreByNeighbor.set(neighbor, { score, via: String(link.id) });
+      }
+      if (!scoreByNeighbor.size) break;
+      const neighborIds = [...scoreByNeighbor.keys()].slice(0, maxPages - expanded.size);
+      const placeholders = neighborIds.map(() => '?').join(',');
+      const rows = this.context.db.prepare(
+        `SELECT * FROM knowledge_pages WHERE scope=? AND status='active' AND id IN (${placeholders})`
+      ).all(input.scope, ...neighborIds) as SqliteRow[];
+      const next: Array<{ id: string; score: number }> = [];
+      for (const row of rows) {
+        const id = String(row.id);
+        const related = scoreByNeighbor.get(id);
+        if (!related) continue;
+        const hit = this.mapHit(row, related.score);
+        expanded.set(id, { ...hit, relationDepth: depth, relatedVia: related.via });
+        next.push({ id, score: related.score });
+      }
+      frontier = next;
+    }
+    return [...expanded.values()]
+      .sort((a, b) => (a.relationDepth ?? 0) - (b.relationDepth ?? 0) || b.score - a.score)
+      .slice(0, maxPages);
   }
 
   private mapHit(row: SqliteRow, score: number): DreamingKnowledgeSearchHit {
