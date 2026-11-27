@@ -71,7 +71,8 @@ export class SqliteMemoryStore {
     const rows = this.context.db.prepare(
       `SELECT * FROM memories
        WHERE scope=? AND status IN ('candidate','confirmed')
-       ORDER BY CASE
+       ORDER BY CASE WHEN authority='user-explicit' THEN 0 ELSE 1 END,
+       CASE
          WHEN valid_until IS NOT NULL AND valid_until<=? THEN 0
          WHEN last_validated_at IS NULL OR last_validated_at<=? THEN 1
          ELSE 2
@@ -112,13 +113,15 @@ export class SqliteMemoryStore {
     const now = input.expiredBefore ?? new Date().toISOString();
     const reviewBefore = input.reviewBefore ?? '1970-01-01T00:00:00.000Z';
     const ranked = memories.map((memory) => {
+      const explicitRank = memory.authority === 'user-explicit' ? 0 : 1;
       const dueRank = memory.validUntil && memory.validUntil <= now ? 0
         : !memory.lastValidatedAt || memory.lastValidatedAt <= reviewBefore ? 1 : 2;
       const sourceMatch = memory.sourceRefs.some((ref) => refSet.has(ref));
-      return { memory, dueRank, vectorScore: vectorScores.get(memory.id) ?? -1, sourceMatch };
+      return { memory, explicitRank, dueRank, vectorScore: vectorScores.get(memory.id) ?? -1, sourceMatch };
     });
     ranked.sort((a, b) =>
-      a.dueRank - b.dueRank
+      a.explicitRank - b.explicitRank
+      || a.dueRank - b.dueRank
       || b.vectorScore - a.vectorScore
       || Number(b.sourceMatch) - Number(a.sourceMatch)
       || b.memory.importance - a.memory.importance,
