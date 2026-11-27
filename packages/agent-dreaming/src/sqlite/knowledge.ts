@@ -69,10 +69,10 @@ export class SqliteKnowledgeStore {
     }
 
     return this.context.transaction(() => {
-      this.validateEvidence(input.scope, input.sourceRefs);
       const old = this.context.db.prepare('SELECT * FROM knowledge_pages WHERE id=?')
         .get(input.id) as SqliteRow | undefined;
       if (old && old.scope !== input.scope) throw new Error('Knowledge page ID belongs to another scope: ' + input.id);
+      this.validateEvidence(input.scope, input.sourceRefs);
       const tags = [...new Set(input.tags ?? [])];
       const metadata = input.metadata ?? {};
       const same = old
@@ -151,13 +151,13 @@ export class SqliteKnowledgeStore {
     if (input.fromId === input.toId) throw new Error('Knowledge self-links are not allowed.');
     if (!LINK_KINDS.includes(input.kind)) throw new TypeError('Unsupported Knowledge link kind.');
     return this.context.transaction(() => {
-      this.validateEvidence(input.scope, input.sourceRefs);
       const endpoints = this.context.db.prepare(
         'SELECT id FROM knowledge_pages WHERE scope=? AND id IN (?,?)'
       ).all(input.scope, input.fromId, input.toId) as SqliteRow[];
       if (new Set(endpoints.map((row) => String(row.id))).size !== 2) {
         throw new Error('Knowledge link endpoints must both exist in the same scope.');
       }
+      this.validateEvidence(input.scope, input.sourceRefs);
       const old = this.context.db.prepare('SELECT * FROM knowledge_links WHERE id=?')
         .get(input.id) as SqliteRow | undefined;
       if (old) {
@@ -201,7 +201,7 @@ export class SqliteKnowledgeStore {
     const limit = assertLimit(input.limit ?? 10);
     const terms = textTerms(input.query);
     const cjk = cjkTerms(input.query);
-    const statuses = input.includeInactive === true ? "('active','draft','deprecated')" : "('active')";
+    const statuses = input.includeInactive === true ? "('active','draft','deprecated','superseded')" : "('active')";
     const results = new Map<string, DreamingKnowledgeSearchHit>();
 
     if (terms.length) {
