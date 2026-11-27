@@ -2,7 +2,7 @@ import type {
   DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience,
   DreamingFeedbackEvent, DreamingMemory, DreamingMemoryHistoryStore, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingRunStore,
-  DreamingReviewQueue, DreamingReviewQueueItem, DreamingUserDirectiveInput, DreamingMemory,
+  DreamingReviewQueue, DreamingReviewQueueItem, DreamingUserDirectiveInput,
 } from './types.js';
 import { SqliteDatabase, type SqliteDreamingOptions } from './sqlite/database.js';
 import { SqliteExperienceStore } from './sqlite/experiences.js';
