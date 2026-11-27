@@ -227,7 +227,7 @@ test('observer callback failures do not fail a completed run', async () => {
 });
 
 
-test('existing-memory mutations are staged for review, never auto-applied', async () => {
+test('existing-memory mutations are applied automatically with no review queue', async () => {
   const output = {
     proposals: [{
       id: 'p-update', scope: 'user-1', operation: 'update', targetRecordIds: ['m-existing'],
@@ -246,12 +246,12 @@ test('existing-memory mutations are staged for review, never auto-applied', asyn
     importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
   }]);
   const run = await f.engine.runNow('user-1');
-  assert.deepEqual(f.commits, []);
-  assert.deepEqual(f.staged.map((item) => [item.proposal.id, item.reason]), [['p-update', 'mutation']]);
-  assert.deepEqual(run?.pendingProposalIds, ['p-update']);
+  assert.deepEqual(f.commits, ['p-update']);
+  assert.deepEqual(f.staged, []);
+  assert.deepEqual(run?.pendingProposalIds, []);
 });
 
-test('low quality additions are staged instead of auto-applied', async () => {
+test('low quality additions are stored automatically as candidates', async () => {
   const output = {
     proposals: [{
       id: 'p-low', scope: 'user-1', operation: 'add', targetRecordIds: [],
@@ -267,12 +267,12 @@ test('low quality additions are staged instead of auto-applied', async () => {
   };
   const f = fixture('trace:t1:event:e1', {}, output);
   const run = await f.engine.runNow('user-1');
-  assert.deepEqual(f.commits, []);
-  assert.deepEqual(f.staged.map((item) => [item.proposal.id, item.reason]), [['p-low', 'quality-gate']]);
-  assert.deepEqual(run?.pendingProposalIds, ['p-low']);
+  assert.deepEqual(f.commits, ['p-low']);
+  assert.deepEqual(f.staged, []);
+  assert.deepEqual(run?.pendingProposalIds, []);
 });
 
-test('high contradiction risk is routed to review', async () => {
+test('high contradiction risk is retained automatically as a candidate', async () => {
   const output = {
     proposals: [{
       id: 'p-conflict', scope: 'user-1', operation: 'add', targetRecordIds: [],
@@ -288,12 +288,12 @@ test('high contradiction risk is routed to review', async () => {
   };
   const f = fixture('trace:t1:event:e1', {}, output);
   const run = await f.engine.runNow('user-1');
-  assert.deepEqual(f.commits, []);
-  assert.deepEqual(f.staged.map((item) => [item.proposal.id, item.reason]), [['p-conflict', 'conflict-risk']]);
-  assert.deepEqual(run?.pendingProposalIds, ['p-conflict']);
+  assert.deepEqual(f.commits, ['p-conflict']);
+  assert.deepEqual(f.staged, []);
+  assert.deepEqual(run?.pendingProposalIds, []);
 });
 
-test('missing quality assessment cannot pass the automatic candidate gate', async () => {
+test('missing quality assessment remains automatic without a review dependency', async () => {
   const output = {
     proposals: [{
       id: 'p-unrated', scope: 'user-1', operation: 'add', targetRecordIds: [],
@@ -307,13 +307,14 @@ test('missing quality assessment cannot pass the automatic candidate gate', asyn
     processedRecordIds: ['e1'],
   };
   const f = fixture('trace:t1:event:e1', {}, output);
-  await f.engine.runNow('user-1');
-  assert.deepEqual(f.commits, []);
-  assert.deepEqual(f.staged.map((item) => item.reason), ['missing-assessment']);
+  const run = await f.engine.runNow('user-1');
+  assert.deepEqual(f.commits, ['p-unrated']);
+  assert.deepEqual(f.staged, []);
+  assert.deepEqual(run?.pendingProposalIds, []);
 });
 
 
-test('additions without provenance are staged for review', async () => {
+test('additions without provenance are rejected instead of staged for review', async () => {
   const output = {
     proposals: [{
       id: 'p-no-source', scope: 'user-1', operation: 'add', targetRecordIds: [],
@@ -328,9 +329,10 @@ test('additions without provenance are staged for review', async () => {
     processedRecordIds: ['e1'],
   };
   const f = fixture('trace:t1:event:e1', {}, output);
-  await f.engine.runNow('user-1');
+  const run = await f.engine.runNow('user-1');
   assert.deepEqual(f.commits, []);
-  assert.deepEqual(f.staged.map((item) => item.reason), ['missing-provenance']);
+  assert.deepEqual(f.staged, []);
+  assert.deepEqual(run?.pendingProposalIds, []);
 });
 
 test('invalid automatic candidate thresholds fail at construction', () => {
@@ -407,9 +409,10 @@ test('explicitly contradictory memory references force review even with high qua
     id: 'm-existing', scope: 'user-1', content: 'An older preference.',
     status: 'confirmed', importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
   }]);
-  await f.engine.runNow('user-1');
-  assert.deepEqual(f.commits, []);
-  assert.deepEqual(f.staged.map((item) => item.reason), ['conflict-risk']);
+  const run = await f.engine.runNow('user-1');
+  assert.deepEqual(f.commits, ['p-conflict']);
+  assert.deepEqual(f.staged, []);
+  assert.deepEqual(run?.pendingProposalIds, []);
 });
 
 
