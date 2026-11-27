@@ -10,7 +10,7 @@ test('detects direct remember and avoid instructions in Chinese and English', ()
   assert.deepEqual(detectUserMemoryDirective('记住我更喜欢简洁、直接的技术解释'), {
     kind: 'remember',
     instruction: '我更喜欢简洁、直接的技术解释',
-    memoryType: 'fact',
+    memoryType: 'preference',
   });
   assert.deepEqual(detectUserMemoryDirective('不要再犯把推测当成已验证事实的错误'), {
     kind: 'avoid',
