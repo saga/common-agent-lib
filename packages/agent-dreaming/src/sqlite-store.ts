@@ -1,6 +1,6 @@
 import type {
   DreamingCheckpoint, DreamingContextRequest, DreamingContextResult, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience,
-  DreamingFeedbackEvent, DreamingMemory, DreamingMemoryHistoryStore, DreamingPage,
+  DreamingContextFeedbackInput, DreamingFeedbackEvent, DreamingMemory, DreamingMemoryHistoryStore, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingRunStore,
   DreamingReviewQueue, DreamingReviewQueueItem, DreamingSearchHit, DreamingSearchRequest, DreamingUserDirectiveInput,
 } from './types.js';
@@ -145,6 +145,36 @@ export class SqliteDreamingStore implements
 
   recordFeedback(event: DreamingFeedbackEvent): Promise<void> {
     return this.feedback.recordFeedback(event);
+  }
+
+  async recordContextFeedback(input: DreamingContextFeedbackInput): Promise<void> {
+    if (!input.context.scope.trim() || !input.context.id.trim() || !input.context.hash.trim()) {
+      throw new TypeError('A completed Context Builder result is required.');
+    }
+    if (input.context.id !== `context:${input.context.hash.slice(0, 24)}`) {
+      throw new Error('Context ID does not match its content hash.');
+    }
+    if (!input.taskId.trim()) throw new TypeError('taskId is required.');
+    const item = input.context.items.find((candidate) =>
+      candidate.id === input.memoryId
+      && (candidate.sourceType === 'memory' || candidate.sourceType === 'always-on-memory'));
+    if (!item) {
+      throw new Error('Feedback can only be recorded for a memory included in the supplied context.');
+    }
+    if (!item.revision) throw new Error('The included memory has no revision identifier.');
+
+    await this.recordFeedback({
+      id: input.id,
+      scope: input.context.scope,
+      memoryId: item.id,
+      kind: 'retrieval',
+      outcome: input.outcome,
+      occurredAt: input.occurredAt ?? new Date().toISOString(),
+      taskId: input.taskId,
+      contextId: input.context.id,
+      contextHash: input.context.hash,
+      memoryRevision: item.revision,
+    });
   }
   loadFeedback(input: {
     scope: string; memoryIds: readonly string[]; since: string; limit: number;

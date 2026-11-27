@@ -20,17 +20,24 @@ const context = await store.buildContext({
   budget: { maxUnits: 12_000, unit: 'tokens', reservedUnits: 2_000 },
 });
 
-// Inject context.text into the next Agent request. Keep context.hash and
-// context.items to attribute later task-outcome feedback to exact sources.
+// Inject context.text into the next Agent request. Record feedback only after
+// the task outcome is known, using the exact context object that was injected.
+await store.recordContextFeedback({
+  id: 'feedback:task-123:memory-1',
+  context,
+  memoryId: context.items.find((item) => item.sourceType === 'memory')!.id,
+  taskId: 'task:123',
+  outcome: 'useful',
+});
 ```
 
 Candidate, expired, superseded and archived memories are excluded from normal context. Explicit user memories are treated as required context: when they exceed the available budget they remain present and the result reports overflow. Token measurement uses the supplied `measure` callback when exact model-token accounting is required; the built-in fallback is approximate and is marked in `context.budget.estimated`.
 
-The context result includes a bounded always-on memory index, the rendered text, included items and source references, omitted items with reasons, a context hash and budget diagnostics. This is the first usable context path; persisted manifest snapshots and context-use feedback remain on the checklist.
+The context result includes a bounded always-on memory index, rendered text, included items and source references, omitted items with reasons, a context hash and budget diagnostics. `recordContextFeedback()` links a known task outcome to the exact context hash and memory revision; it rejects feedback for a memory that was not included in that context. A durable, separately persisted Memory Manifest remains future work.
 
 ## Implementation status
 
-The current release implements the Dreaming engine, Experience / Evidence / Memory persistence, automatic evidence-validated consolidation, version history, feedback, local retrieval, SQLite scheduling and run recovery. Knowledge-page maintenance and the end-to-end Memory Manifest / task-aware Context Builder are accepted package-owned decisions, documented in [ARCHITECTURE-ANALYSIS.md](./ARCHITECTURE-ANALYSIS.md), but are not yet implemented. They will be added here rather than delegated to another package.
+The current release implements the Dreaming engine, Experience / Evidence / Memory persistence, automatic evidence-validated consolidation, version history, feedback, local retrieval, task-aware Context Builder, context-use feedback, SQLite scheduling and run recovery. Knowledge-page maintenance and a separately persisted Memory Manifest remain accepted package-owned work items documented in [ARCHITECTURE-ANALYSIS.md](./ARCHITECTURE-ANALYSIS.md). They will be added here rather than delegated to another package.
 
 ## Default runtime: Copilot SDK
 

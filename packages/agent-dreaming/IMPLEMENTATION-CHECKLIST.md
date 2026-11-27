@@ -13,8 +13,8 @@
 - [x] Enforce context item and character/token budgets; preserve explicit user instructions and report overflow.
 - [x] Return included/omitted IDs, omission reasons, source references, revisions and a stable context hash.
 - [x] Add tests for CJK retrieval, scope isolation, explicit memory priority, lifecycle filtering and budget overflow.
-- [ ] Add host-facing examples showing how to append the returned context to an Agent request.
-- [ ] Record ContextBuild / ContextUse feedback so later Dreaming can evaluate the exact memory revisions used by a task.
+- [x] Add host-facing examples showing how to append the returned context to an Agent request.
+- [x] Record task outcome feedback against context ID, context hash and the exact included memory revision.
 
 ## P1 — Knowledge maintenance (next major capability)
 
@@ -30,7 +30,7 @@
 
 - [ ] Allow a host-provided source adapter to search historical transcripts / traces when local Experience and Evidence search is insufficient.
 - [ ] Keep retrieval orchestration, ranking, scope checks and evidence validation inside this package; adapters only fetch authorized source records.
-- [ ] Add context-use feedback linked to context ID, task ID, memory/page ID and exact revision.
+- [x] Add memory context-use feedback linked to context ID, task ID, memory ID and exact revision. (Knowledge-page feedback follows with P1.)
 - [ ] Use repeated usefulness / contradiction signals to prioritize re-review; never treat retrieval alone as positive feedback.
 - [ ] Add bounded discovery triggers and a minimum new-signal threshold to avoid wasteful Dreaming runs.
 

@@ -128,3 +128,46 @@ test('context builder excludes duplicate content and reports omitted items', asy
     await x.close();
   }
 });
+
+
+test('context feedback records the exact included memory revision and rejects unrelated memories', async () => {
+  const x = setup();
+  try {
+    await x.store.upsertMemory({
+      id: 'memory:feedback', scope: 'alice',
+      content: 'Architecture decisions should preserve durable checkpoints.',
+      status: 'confirmed', importance: 0.9, sourceRefs: ['source:feedback'],
+      memoryType: 'preference',
+    });
+    const context = await x.store.buildContext({
+      scope: 'alice', task: 'architecture durable checkpoints',
+      budget: { maxUnits: 4_000 },
+    });
+    const item = context.items.find((candidate) => candidate.id === 'memory:feedback');
+    assert.ok(item?.revision);
+    await x.store.recordContextFeedback({
+      id: 'feedback:task-1:memory-feedback',
+      context,
+      memoryId: 'memory:feedback',
+      taskId: 'task:1',
+      outcome: 'useful',
+      occurredAt: '2026-11-28T00:00:00.000Z',
+    });
+    const events = await x.store.loadFeedback({
+      scope: 'alice', memoryIds: ['memory:feedback'], since: '2026-11-01T00:00:00.000Z', limit: 10,
+    });
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.contextId, context.id);
+    assert.equal(events[0]?.contextHash, context.hash);
+    assert.equal(events[0]?.memoryRevision, item?.revision);
+    await assert.rejects(() => x.store.recordContextFeedback({
+      id: 'feedback:task-1:unrelated',
+      context,
+      memoryId: 'memory:not-in-context',
+      taskId: 'task:1',
+      outcome: 'useful',
+    }), /only be recorded for a memory included/);
+  } finally {
+    await x.close();
+  }
+});

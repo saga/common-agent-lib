@@ -115,6 +115,12 @@ export function validateFeedbackEvent(event: DreamingFeedbackEvent): void {
   }
   if (event.sourceRef !== undefined) requiredString(event.sourceRef, 'feedback.sourceRef');
   if (event.taskId !== undefined) requiredString(event.taskId, 'feedback.taskId');
+  if (event.contextId !== undefined) requiredString(event.contextId, 'feedback.contextId');
+  if (event.contextHash !== undefined) {
+    requiredString(event.contextHash, 'feedback.contextHash');
+    if (!/^[a-f0-9]{64}$/u.test(event.contextHash)) throw new Error('feedback.contextHash must be a SHA-256 hex digest.');
+  }
+  if (event.memoryRevision !== undefined) requiredString(event.memoryRevision, 'feedback.memoryRevision');
 }
 
 function requiredString(value: unknown, field: string): string {

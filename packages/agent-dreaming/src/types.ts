@@ -208,6 +208,21 @@ export interface DreamingFeedbackEvent {
   occurredAt: string;
   sourceRef?: string;
   taskId?: string;
+  /** Exact Context Builder result that supplied this memory to a task. */
+  contextId?: string;
+  contextHash?: string;
+  /** Revision timestamp captured in DreamingContextItem.revision. */
+  memoryRevision?: string;
+}
+
+export interface DreamingContextFeedbackInput {
+  /** Stable idempotency key from the host task / feedback event. */
+  id: string;
+  context: Pick<DreamingContextResult, 'id' | 'scope' | 'hash' | 'items'>;
+  memoryId: string;
+  taskId: string;
+  outcome: 'useful' | 'not-useful' | 'neutral';
+  occurredAt?: string;
 }
 
 export interface DreamingReviewEffectiveness {
