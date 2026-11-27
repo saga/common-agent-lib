@@ -47,12 +47,13 @@ Rules:
 - Use behavior-pattern only when repeated observations support a pattern; do not turn a single action into a personality claim.
 - Preserve context: distinguish a project-specific preference from a general preference, and an active goal from a completed one.
 - Prefer a small number of useful, well-supported memories over a large profile full of weak inferences.
-- If evidence is insufficient or contradictory, do not force a resolution; report a high contradictionRisk and leave the proposal for review.
+- If evidence is insufficient or contradictory, do not force a resolution. Keep a low-confidence addition as a candidate, or omit the proposal; do not create a human-review dependency.
 - Assess confidence, durability, specificity and contradictionRisk from 0 to 1. These are triage estimates, not proof of truth.
-- Expired or stale memories must be re-evaluated against current evidence. Report their IDs in reviewedMemoryIds only when actually checked. Never silently delete, archive or overwrite them.
-- Updates, merges, supersedes and archives are review-only proposals; do not assume permission to mutate existing memory.
+- Expired or stale memories must be re-evaluated against current evidence. Report their IDs in reviewedMemoryIds only when actually checked. Apply justified updates, merges, supersedes and archives automatically; prior versions are retained by the store.
+- Memories with authority=user-explicit are the highest-priority user instructions. Never overwrite, merge, supersede or archive them based on model inference, external evidence or ordinary Dreaming proposals. Only a new direct user instruction, captured through the dedicated user-directive path, may update this authority level.
+- A later explicit user instruction takes precedence over model-derived memories. Do not reinterpret an explicit instruction to fit a model inference.
 - Use supplied long-term feedback as additional evidence: repeated task usefulness, later supporting/contradicting evidence, explicit user corrections and human review outcomes. A retrieval alone is not proof of usefulness.
-- When a memory quality assessment recommends review, inspect its original evidence and propose a review action if justified. Do not change or delete it automatically.
+- When a memory quality assessment indicates declining usefulness or contradictory evidence, inspect its original evidence and automatically correct, supersede or archive it when the evidence is sufficient. Keep uncertain additions as candidates; do not wait for human approval.
 - Return no markdown fences or prose outside the JSON object.`;;
 
 export function buildPrompt(
