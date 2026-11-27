@@ -310,6 +310,10 @@ export class DreamingEngine {
             run.rejectedProposalIds.push(proposal.id);
             continue;
           }
+          if (proposal.operation !== 'archive' && !proposal.proposedRecord?.sourceRefs.length) {
+            run.rejectedProposalIds.push(proposal.id);
+            continue;
+          }
           const allowedRefs = new Set(proposal.evidenceRefs);
           const recordRefs = proposal.proposedRecord?.sourceRefs ?? [];
           const relationshipRefs = proposal.relationships?.flatMap((item) => item.sourceRefs) ?? [];
