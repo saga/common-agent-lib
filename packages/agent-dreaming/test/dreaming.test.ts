@@ -288,7 +288,7 @@ test('high contradiction risk is retained automatically as a candidate', async (
   };
   const f = fixture('trace:t1:event:e1', {}, output);
   const run = await f.engine.runNow('user-1');
-  assert.deepEqual(f.commits, ['p-explicit-conflict']);
+  assert.deepEqual(f.commits, ['p-conflict']);
   assert.deepEqual(f.staged, []);
   assert.deepEqual(run?.pendingProposalIds, []);
 });
