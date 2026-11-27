@@ -2,12 +2,13 @@ import type {
   DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingFeedbackEvent, DreamingMemory,
   DreamingMemoryQuality, DreamingModelResult, DreamingOptions, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun,
-  DreamingRunInput, DreamingRuntime,
+  DreamingRunInput, DreamingRuntime, DreamingUserMessageInput, DreamingMemory,
 } from './types.js';
 import { SYSTEM_PROMPT, buildPrompt } from './prompts.js';
 import { parseResult, classifyProposal } from './validation.js';
 import { evaluateMemoryQuality, validateFeedbackEvent } from './quality.js';
 import { createId, unrefTimer, unique } from './utils.js';
+import { detectUserMemoryDirective } from './user-directives.js';
 
 export class DreamingEngine {
   private readonly owner = createId('dreamer');
@@ -79,6 +80,33 @@ export class DreamingEngine {
   runNow(scope: string, signal?: AbortSignal): Promise<DreamingRun | undefined> {
     this.assertScope(scope);
     return this.safeRun({ scope, trigger: 'manual', signal });
+  }
+
+  /**
+   * Process a direct message from the authenticated memory owner.
+   * Explicit remember/avoid instructions are persisted immediately, without a
+   * model call, quality gate, candidate queue or human review.
+   */
+  async applyUserMessage(input: DreamingUserMessageInput): Promise<{
+    directive: ReturnType<typeof detectUserMemoryDirective> & {};
+    memory: DreamingMemory;
+  } | undefined> {
+    this.assertScope(input.scope);
+    const directive = detectUserMemoryDirective(input.text);
+    if (!directive) return undefined;
+    if (!this.repository.applyUserDirective) {
+      throw new Error('The configured Dreaming repository does not support direct user directives.');
+    }
+    const memory = await this.repository.applyUserDirective({
+      id: input.id,
+      scope: input.scope,
+      kind: directive.kind,
+      instruction: directive.instruction,
+      ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
+      ...(input.origin ? { origin: input.origin } : {}),
+      memoryType: directive.memoryType,
+    });
+    return { directive, memory };
   }
 
   private assertScope(scope: string): void {
