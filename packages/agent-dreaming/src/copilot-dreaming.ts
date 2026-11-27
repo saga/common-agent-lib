@@ -4,6 +4,9 @@ import type {
   DreamingRun,
   DreamingRunInput,
   DreamingOptions,
+  DreamingUserMessageInput,
+  DreamingMemory,
+  ParsedDreamingUserDirective,
 } from './types.js';
 import { DreamingEngine } from './engine.js';
 import { DreamingWorker } from './worker.js';
@@ -21,6 +24,10 @@ export interface CopilotDreamingInstance {
   stop(): Promise<void>;
   runNow(scope: string, signal?: AbortSignal): Promise<DreamingRun | undefined>;
   notifyRecordAppended(scope: string): Promise<DreamingRun | undefined>;
+  applyUserMessage(input: DreamingUserMessageInput): Promise<{
+    directive: ParsedDreamingUserDirective;
+    memory: DreamingMemory;
+  } | undefined>;
   shutdown(reason?: unknown): Promise<void>;
 }
 
@@ -43,6 +50,7 @@ export function createCopilotDreaming(
     async stop() { engine.stop(); },
     runNow: (scope, signal) => engine.runNow(scope, signal),
     notifyRecordAppended: (scope) => engine.notifyRecordAppended(scope),
+    applyUserMessage: (input) => engine.applyUserMessage(input),
     async shutdown(reason) {
       await engine.shutdown(reason);
       await runtime.close();
