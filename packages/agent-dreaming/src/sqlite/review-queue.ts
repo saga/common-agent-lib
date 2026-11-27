@@ -23,13 +23,8 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
   }): Promise<{ applied: boolean; reason?: string }> {
     this.context.ensureOpen();
     const proposal = input.proposal;
-    if (proposal.operation !== 'add' || !proposal.proposedRecord) {
-      return { applied: false, reason: 'only-add-can-be-auto-committed' };
-    }
     const invalid = this.validateProposal(proposal, input.evidence);
     if (invalid) return { applied: false, reason: invalid };
-    const proposedRecord = proposal.proposedRecord;
-    if (!proposedRecord) return { applied: false, reason: 'missing-proposed-record' };
 
     return this.context.transaction(() => {
       const old = this.context.db.prepare(
@@ -43,16 +38,32 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
         return { applied: true };
       }
 
-      const existing = this.context.db.prepare('SELECT scope FROM memories WHERE id=?')
-        .get(proposedRecord.id) as SqliteRow | undefined;
-      if (existing) {
-        return {
-          applied: false,
-          reason: existing.scope === proposal.scope ? 'memory-id-exists' : 'memory-id-belongs-to-another-scope',
-        };
+      const targets = proposal.targetRecordIds.map((id) =>
+        this.context.db.prepare('SELECT * FROM memories WHERE id=? AND scope=?')
+          .get(id, proposal.scope) as SqliteRow | undefined
+      );
+      if (targets.some((target) => !target)) {
+        return { applied: false, reason: 'target-not-found-in-scope' };
       }
-      this.context.insertMemory(proposedRecord, 'candidate');
-      this.insertRelationships(proposal);
+      if (targets.some((target) => target?.authority === 'user-explicit')) {
+        return { applied: false, reason: 'user-explicit-memory-protected' };
+      }
+
+      if (proposal.operation !== 'archive' && proposal.proposedRecord
+        && ['add', 'merge', 'supersede'].includes(proposal.operation)) {
+        const existing = this.context.db.prepare('SELECT scope FROM memories WHERE id=?')
+          .get(proposal.proposedRecord.id) as SqliteRow | undefined;
+        if (existing) {
+          return {
+            applied: false,
+            reason: existing.scope === proposal.scope
+              ? 'memory-id-exists'
+              : 'memory-id-belongs-to-another-scope',
+          };
+        }
+      }
+
+      this.applyProposal(proposal, false);
       this.context.db.prepare(
         'INSERT INTO applied_proposals(proposal_id,scope,applied_at,payload) VALUES(?,?,?,?)'
       ).run(proposal.id, proposal.scope, new Date().toISOString(), encode(proposal));
@@ -135,7 +146,7 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
       if (input.decision === 'approve') {
         const invalid = this.validateProposal(proposal, evidence);
         if (invalid) throw new Error('Cannot approve proposal: ' + invalid);
-        this.applyReviewed(proposal);
+        this.applyProposal(proposal, true);
       }
       const status = input.decision === 'approve' ? 'approved' : 'rejected';
       this.context.db.prepare(
@@ -218,12 +229,15 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
     }
   }
 
-  private applyReviewed(proposal: DreamingProposal): void {
+  private applyProposal(proposal: DreamingProposal, humanApproved: boolean): void {
     const targets = proposal.targetRecordIds.map((id) =>
       this.context.db.prepare('SELECT * FROM memories WHERE id=? AND scope=?')
         .get(id, proposal.scope) as SqliteRow | undefined
     );
     if (targets.some((target) => !target)) throw new Error('Review target missing or outside scope');
+    if (targets.some((target) => target?.authority === 'user-explicit')) {
+      throw new Error('User-explicit memory cannot be changed by a derived proposal.');
+    }
 
     const now = new Date().toISOString();
     if (proposal.operation === 'archive') {
@@ -241,7 +255,10 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
       const existing = this.context.db.prepare('SELECT scope FROM memories WHERE id=?')
         .get(proposal.proposedRecord.id) as SqliteRow | undefined;
       if (existing) throw new Error('Memory ID already exists: ' + proposal.proposedRecord.id);
-      this.context.insertMemory(proposal.proposedRecord, 'confirmed');
+      this.context.insertMemory(
+        { ...proposal.proposedRecord, authority: 'derived' },
+        humanApproved ? 'confirmed' : 'candidate',
+      );
       this.insertRelationships(proposal);
       return;
     }
@@ -272,7 +289,10 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
       const existing = this.context.db.prepare('SELECT scope FROM memories WHERE id=?')
         .get(proposal.proposedRecord.id) as SqliteRow | undefined;
       if (existing) throw new Error('Memory ID already exists: ' + proposal.proposedRecord.id);
-      this.context.insertMemory(proposal.proposedRecord, 'confirmed');
+      this.context.insertMemory(
+        { ...proposal.proposedRecord, authority: 'derived' },
+        humanApproved ? 'confirmed' : 'candidate',
+      );
       for (let index = 0; index < proposal.targetRecordIds.length; index += 1) {
         const target = targets[index]!;
         this.memories.recordVersionBeforeMutation(target, proposal.operation);
