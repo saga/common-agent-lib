@@ -74,7 +74,7 @@ export class SqliteDatabase {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS experiences(id TEXT PRIMARY KEY,scope TEXT NOT NULL,sequence INTEGER NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL,refs TEXT NOT NULL,metadata TEXT NOT NULL,reviewed_at TEXT,origin TEXT,UNIQUE(scope,sequence));' +
       'CREATE INDEX IF NOT EXISTS experiences_scope_seq ON experiences(scope,sequence);' +
-      'CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,importance REAL NOT NULL,refs TEXT NOT NULL,last_validated_at TEXT,valid_until TEXT,confidence REAL,metadata TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,memory_type TEXT,authority TEXT NOT NULL DEFAULT 'derived');' +
+      'CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,importance REAL NOT NULL,refs TEXT NOT NULL,last_validated_at TEXT,valid_until TEXT,confidence REAL,metadata TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,memory_type TEXT,authority TEXT NOT NULL DEFAULT \'derived\');' +
       'CREATE INDEX IF NOT EXISTS memories_scope_status ON memories(scope,status,importance DESC);' +
       'CREATE TABLE IF NOT EXISTS memory_versions(version_id INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,memory_id TEXT NOT NULL,version INTEGER NOT NULL,reason TEXT NOT NULL,captured_at TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(scope,memory_id,version));' +
       'CREATE INDEX IF NOT EXISTS memory_versions_lookup ON memory_versions(scope,memory_id,version DESC);' +
