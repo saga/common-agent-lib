@@ -1,6 +1,6 @@
 import type {
   DreamingEvidence, DreamingExperience, DreamingMemory,
-  DreamingMemoryQuality, DreamingRelationship,
+  DreamingMemoryQuality, DreamingRelationship, DreamingKnowledgePage, DreamingKnowledgeLink,
 } from './types.js';
 
 export const SYSTEM_PROMPT = `You maintain one person's long-term memory by reviewing experiences, existing memories and source evidence.
@@ -32,6 +32,21 @@ Return JSON with this shape:
     "relationships": [],
     "quality": { "confidence": 0.0, "durability": 0.0, "specificity": 0.0, "contradictionRisk": 0.0 }
   }],
+  "knowledgeProposals": [{
+    "id": "stable knowledge proposal idempotency key",
+    "scope": "provided scope",
+    "operation": "create | revise | merge | link | supersede | deprecate",
+    "targetPageIds": ["existing Knowledge page ids"],
+    "proposedPage": {
+      "id": "stable page id", "scope": "provided scope", "title": "topic",
+      "summary": "reusable summary", "content": "evidence-based page content",
+      "status": "active", "tags": [], "sourceRefs": ["exact evidence refs"]
+    },
+    "link": { "fromId": "page id", "toId": "page id", "kind": "related-to | supports | contradicts | derived-from | supersedes" },
+    "rationale": "why this durable update is justified",
+    "evidenceRefs": ["exact evidence refs"],
+    "confidence": 0.0
+  }],
   "processedRecordIds": ["experience ids reviewed"],
   "reviewedMemoryIds": ["existing memory ids actually reviewed"],
   "notes": []
@@ -55,6 +70,13 @@ Rules:
 - A later explicit user instruction takes precedence over model-derived memories. Do not reinterpret an explicit instruction to fit a model inference.
 - Use supplied long-term feedback as additional evidence: repeated task usefulness, later supporting/contradicting evidence, explicit user corrections and human review outcomes. A retrieval alone is not proof of usefulness.
 - When a memory quality assessment indicates declining usefulness or contradictory evidence, inspect its original evidence and automatically correct, supersede or archive it when the evidence is sufficient. Keep uncertain additions as candidates; do not wait for human approval.
+- Knowledge maintenance is separate from personal Memory: do not put project facts into personal preferences or vice versa.
+- Create or revise a Knowledge page only when multiple independent experiences/evidence support a reusable topic, or the scope contains an explicit durable research objective. A one-off event or isolated task does not justify a page.
+- Use only evidenceRefs supplied in this batch. Every proposed page's sourceRefs must be a subset of its evidenceRefs. Never invent a source reference.
+- Use create for a new durable topic, revise for a materially better supported existing page, merge for duplicate/overlapping pages, link for a meaningful relationship, supersede when newer evidence replaces an older page, and deprecate when a page is no longer valid or useful.
+- Prefer concise pages with clear titles, summaries, tags and enough explanation to be reusable. Do not create near-duplicate pages.
+- Confidence must reflect evidence quality and durability. Low-confidence content may be saved as a draft, but must not overwrite, supersede or deprecate an active page.
+- All target IDs and proposed pages must remain inside the provided scope. Keep Knowledge changes evidence-backed and versionable.
 - Return no markdown fences or prose outside the JSON object.`;;
 
 export function buildPrompt(
@@ -64,6 +86,8 @@ export function buildPrompt(
   relationships: readonly DreamingRelationship[],
   evidence: readonly DreamingEvidence[],
   memoryQuality: readonly DreamingMemoryQuality[] = [],
+  knowledgePages: readonly DreamingKnowledgePage[] = [],
+  knowledgeLinks: readonly DreamingKnowledgeLink[] = [],
 ): string {
   return JSON.stringify({
     scope,
@@ -73,5 +97,7 @@ export function buildPrompt(
     relationships,
     sourceEvidence: evidence,
     memoryQuality,
+    activeKnowledgePages: knowledgePages,
+    knowledgeRelationships: knowledgeLinks,
   }, null, 2);
 }

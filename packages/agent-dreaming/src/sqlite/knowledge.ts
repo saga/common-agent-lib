@@ -2,6 +2,7 @@ import type {
   DreamingKnowledgeLink, DreamingKnowledgeLinkKind, DreamingKnowledgePage,
   DreamingKnowledgePageInput, DreamingKnowledgePageVersion,
   DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest,
+  DreamingKnowledgeProposal, DreamingKnowledgeProposalResult, DreamingEvidence,
 } from '../types.js';
 import type { SqliteDatabase } from './database.js';
 import { decode, encode, mapKnowledgePage, type SqliteRow } from './database.js';
@@ -52,8 +53,7 @@ export class SqliteKnowledgeStore {
     if (missing.length) throw new Error('Knowledge provenance is missing or outside scope: ' + missing.join(', '));
   }
 
-  async savePage(input: DreamingKnowledgePageInput): Promise<DreamingKnowledgePage> {
-    this.context.ensureOpen();
+  private validatePageInput(input: DreamingKnowledgePageInput): void {
     if (!input.id.trim() || !input.scope.trim() || !input.title.trim() || !input.summary.trim() || !input.content.trim()) {
       throw new TypeError('Knowledge page id, scope, title, summary and content are required.');
     }
@@ -67,49 +67,56 @@ export class SqliteKnowledgeStore {
     if (input.tags?.some((tag) => !tag.trim() || tag.length > 100) || (input.tags?.length ?? 0) > 50) {
       throw new TypeError('Knowledge tags must be non-empty and at most 100 characters; maximum 50 tags.');
     }
+  }
 
-    return this.context.transaction(() => {
-      const old = this.context.db.prepare('SELECT * FROM knowledge_pages WHERE id=?')
-        .get(input.id) as SqliteRow | undefined;
-      if (old && old.scope !== input.scope) throw new Error('Knowledge page ID belongs to another scope: ' + input.id);
-      this.validateEvidence(input.scope, input.sourceRefs);
-      const tags = [...new Set(input.tags ?? [])];
-      const metadata = input.metadata ?? {};
-      const same = old
-        && old.title === input.title.trim()
-        && old.summary === input.summary.trim()
-        && old.content === input.content.trim()
-        && old.status === status
-        && String(old.tags) === encode(tags)
-        && String(old.refs) === encode(input.sourceRefs)
-        && String(old.metadata) === encode(metadata);
-      if (same) return mapKnowledgePage(old);
+  async savePage(input: DreamingKnowledgePageInput): Promise<DreamingKnowledgePage> {
+    this.context.ensureOpen();
+    this.validatePageInput(input);
+    return this.context.transaction(() => this.savePageInTransaction(input));
+  }
 
-      const now = new Date().toISOString();
-      let version = 1;
-      let createdAt = now;
-      if (old) {
-        const previous = mapKnowledgePage(old);
-        version = previous.version + 1;
-        createdAt = previous.createdAt;
-        this.context.db.prepare(
-          'INSERT INTO knowledge_page_versions(scope,page_id,version,reason,captured_at,payload) VALUES(?,?,?,?,?,?)'
-        ).run(input.scope, input.id, previous.version, input.reason?.trim() || 'revise', now, encode(previous));
-        this.context.db.prepare(
-          'UPDATE knowledge_pages SET title=?,summary=?,content=?,status=?,tags=?,refs=?,version=?,updated_at=?,metadata=? WHERE id=? AND scope=?'
-        ).run(input.title.trim(), input.summary.trim(), input.content.trim(), status,
-          encode(tags), encode(input.sourceRefs), version, now, encode(metadata), input.id, input.scope);
-      } else {
-        this.context.db.prepare(
-          'INSERT INTO knowledge_pages(id,scope,title,summary,content,status,tags,refs,version,created_at,updated_at,metadata) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
-        ).run(input.id, input.scope, input.title.trim(), input.summary.trim(), input.content.trim(),
-          status, encode(tags), encode(input.sourceRefs), version, createdAt, now, encode(metadata));
-      }
-      return mapKnowledgePage(
-        this.context.db.prepare('SELECT * FROM knowledge_pages WHERE id=? AND scope=?')
-          .get(input.id, input.scope) as SqliteRow,
-      );
-    });
+  private savePageInTransaction(input: DreamingKnowledgePageInput): DreamingKnowledgePage {
+    const old = this.context.db.prepare('SELECT * FROM knowledge_pages WHERE id=?')
+      .get(input.id) as SqliteRow | undefined;
+    if (old && old.scope !== input.scope) throw new Error('Knowledge page ID belongs to another scope: ' + input.id);
+    this.validateEvidence(input.scope, input.sourceRefs);
+    const tags = [...new Set(input.tags ?? [])];
+    const metadata = input.metadata ?? {};
+    const status = input.status ?? 'active';
+    const same = old
+      && old.title === input.title.trim()
+      && old.summary === input.summary.trim()
+      && old.content === input.content.trim()
+      && old.status === status
+      && String(old.tags) === encode(tags)
+      && String(old.refs) === encode(input.sourceRefs)
+      && String(old.metadata) === encode(metadata);
+    if (same) return mapKnowledgePage(old);
+
+    const now = new Date().toISOString();
+    let version = 1;
+    let createdAt = now;
+    if (old) {
+      const previous = mapKnowledgePage(old);
+      version = previous.version + 1;
+      createdAt = previous.createdAt;
+      this.context.db.prepare(
+        'INSERT INTO knowledge_page_versions(scope,page_id,version,reason,captured_at,payload) VALUES(?,?,?,?,?,?)'
+      ).run(input.scope, input.id, previous.version, input.reason?.trim() || 'revise', now, encode(previous));
+      this.context.db.prepare(
+        'UPDATE knowledge_pages SET title=?,summary=?,content=?,status=?,tags=?,refs=?,version=?,updated_at=?,metadata=? WHERE id=? AND scope=?'
+      ).run(input.title.trim(), input.summary.trim(), input.content.trim(), status,
+        encode(tags), encode(input.sourceRefs), version, now, encode(metadata), input.id, input.scope);
+    } else {
+      this.context.db.prepare(
+        'INSERT INTO knowledge_pages(id,scope,title,summary,content,status,tags,refs,version,created_at,updated_at,metadata) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
+      ).run(input.id, input.scope, input.title.trim(), input.summary.trim(), input.content.trim(),
+        status, encode(tags), encode(input.sourceRefs), version, createdAt, now, encode(metadata));
+    }
+    return mapKnowledgePage(
+      this.context.db.prepare('SELECT * FROM knowledge_pages WHERE id=? AND scope=?')
+        .get(input.id, input.scope) as SqliteRow,
+    );
   }
 
   async getPage(input: { scope: string; pageId: string }): Promise<DreamingKnowledgePage | undefined> {
@@ -150,28 +157,222 @@ export class SqliteKnowledgeStore {
     }
     if (input.fromId === input.toId) throw new Error('Knowledge self-links are not allowed.');
     if (!LINK_KINDS.includes(input.kind)) throw new TypeError('Unsupported Knowledge link kind.');
+    return this.context.transaction(() => this.appendLinkInTransaction(input));
+  }
+
+  private appendLinkInTransaction(input: Omit<DreamingKnowledgeLink, 'createdAt'>): DreamingKnowledgeLink {
+    const endpoints = this.context.db.prepare(
+      'SELECT id FROM knowledge_pages WHERE scope=? AND id IN (?,?)'
+    ).all(input.scope, input.fromId, input.toId) as SqliteRow[];
+    if (new Set(endpoints.map((row) => String(row.id))).size !== 2) {
+      throw new Error('Knowledge link endpoints must both exist in the same scope.');
+    }
+    this.validateEvidence(input.scope, input.sourceRefs);
+    const old = this.context.db.prepare('SELECT * FROM knowledge_links WHERE id=?')
+      .get(input.id) as SqliteRow | undefined;
+    if (old) {
+      const same = old.scope === input.scope && old.from_id === input.fromId
+        && old.to_id === input.toId && old.kind === input.kind
+        && String(old.refs) === encode(input.sourceRefs);
+      if (!same) throw new Error('Conflicting Knowledge link ID: ' + input.id);
+      return { ...input, createdAt: String(old.created_at) };
+    }
+    const createdAt = new Date().toISOString();
+    this.context.db.prepare(
+      'INSERT INTO knowledge_links(id,scope,from_id,to_id,kind,refs,created_at) VALUES(?,?,?,?,?,?,?)'
+    ).run(input.id, input.scope, input.fromId, input.toId, input.kind, encode(input.sourceRefs), createdAt);
+    return { ...input, createdAt };
+  }
+
+  async commitProposal(input: {
+    proposal: DreamingKnowledgeProposal;
+    evidence: readonly DreamingEvidence[];
+    runId: string;
+  }): Promise<DreamingKnowledgeProposalResult> {
+    this.context.ensureOpen();
+    const proposal = input.proposal;
+    if (!proposal.id.trim() || !proposal.scope.trim() || !input.runId.trim()) {
+      throw new TypeError('Knowledge proposal id, scope and runId are required.');
+    }
+    if (!Number.isFinite(proposal.confidence) || proposal.confidence < 0 || proposal.confidence > 1) {
+      throw new TypeError('Knowledge proposal confidence must be between 0 and 1.');
+    }
+    if (!proposal.rationale.trim() || !proposal.evidenceRefs.length
+      || new Set(proposal.evidenceRefs).size !== proposal.evidenceRefs.length
+      || proposal.evidenceRefs.some((ref) => !ref.trim())) {
+      throw new TypeError('Knowledge proposal requires a rationale and unique, non-empty evidenceRefs.');
+    }
+    const suppliedRefs = new Set(input.evidence.map((item) => item.ref));
+    if (proposal.evidenceRefs.some((ref) => !suppliedRefs.has(ref))) {
+      throw new Error('Knowledge proposal evidence payload is incomplete.');
+    }
+    if (proposal.proposedPage) {
+      if (proposal.proposedPage.scope !== proposal.scope
+        || !proposal.proposedPage.sourceRefs.length
+        || proposal.proposedPage.sourceRefs.some((ref) => !proposal.evidenceRefs.includes(ref))) {
+        throw new Error('Proposed Knowledge page scope or provenance is invalid.');
+      }
+      this.validatePageInput(proposal.proposedPage);
+    }
+    if (proposal.targetPageIds.some((id) => !id.trim())
+      || new Set(proposal.targetPageIds).size !== proposal.targetPageIds.length) {
+      throw new TypeError('Knowledge targetPageIds must be unique and non-empty.');
+    }
+
     return this.context.transaction(() => {
-      const endpoints = this.context.db.prepare(
-        'SELECT id FROM knowledge_pages WHERE scope=? AND id IN (?,?)'
-      ).all(input.scope, input.fromId, input.toId) as SqliteRow[];
-      if (new Set(endpoints.map((row) => String(row.id))).size !== 2) {
-        throw new Error('Knowledge link endpoints must both exist in the same scope.');
+      this.validateEvidence(proposal.scope, proposal.evidenceRefs);
+      const payload = encode(proposal);
+      const existingProposal = this.context.db.prepare(
+        'SELECT scope,payload FROM applied_knowledge_proposals WHERE proposal_id=?'
+      ).get(proposal.id) as SqliteRow | undefined;
+      if (existingProposal) {
+        if (existingProposal.scope !== proposal.scope || existingProposal.payload !== payload) {
+          throw new Error('Conflicting Knowledge proposal ID: ' + proposal.id);
+        }
+        return { applied: true, reason: 'already-applied' };
       }
-      this.validateEvidence(input.scope, input.sourceRefs);
-      const old = this.context.db.prepare('SELECT * FROM knowledge_links WHERE id=?')
-        .get(input.id) as SqliteRow | undefined;
-      if (old) {
-        const same = old.scope === input.scope && old.from_id === input.fromId
-          && old.to_id === input.toId && old.kind === input.kind
-          && String(old.refs) === encode(input.sourceRefs);
-        if (!same) throw new Error('Conflicting Knowledge link ID: ' + input.id);
-        return { ...input, createdAt: String(old.created_at) };
+
+      const targets = proposal.targetPageIds.map((pageId) => {
+        const row = this.context.db.prepare(
+          'SELECT * FROM knowledge_pages WHERE id=? AND scope=?'
+        ).get(pageId, proposal.scope) as SqliteRow | undefined;
+        if (!row) throw new Error('Knowledge proposal target is missing or outside scope: ' + pageId);
+        return mapKnowledgePage(row);
+      });
+      const targetIds = new Set(proposal.targetPageIds);
+      const highConfidence = proposal.confidence >= 0.82;
+      const evidenceRefs = [...proposal.evidenceRefs];
+
+      const annotated = (
+        page: DreamingKnowledgePageInput,
+        status: DreamingKnowledgePageInput['status'],
+        id?: string,
+      ): DreamingKnowledgePageInput => ({
+        ...page,
+        ...(id ? { id } : {}),
+        status,
+        sourceRefs: [...new Set([...page.sourceRefs, ...evidenceRefs])],
+        metadata: {
+          ...(page.metadata ?? {}),
+          maintenanceProposalId: proposal.id,
+          maintenanceRationale: proposal.rationale,
+        },
+        reason: proposal.rationale,
+      });
+      const changeStatus = (page: DreamingKnowledgePage, status: 'superseded' | 'deprecated') =>
+        this.savePageInTransaction({
+          id: page.id, scope: page.scope, title: page.title, summary: page.summary,
+          content: page.content, status, tags: page.tags,
+          sourceRefs: [...new Set([...page.sourceRefs, ...evidenceRefs])],
+          metadata: { ...(page.metadata ?? {}), maintenanceProposalId: proposal.id, maintenanceRationale: proposal.rationale },
+          reason: proposal.rationale,
+        });
+      const addDerivedLinks = (fromId: string, targetIds: readonly string[]) => {
+        for (const [index, toId] of targetIds.entries()) {
+          this.appendLinkInTransaction({
+            id: `knowledge-link:${proposal.id}:derived:${index}`,
+            scope: proposal.scope, fromId, toId, kind: 'derived-from', sourceRefs: evidenceRefs,
+          });
+        }
+      };
+      const insertProposalLedger = () => this.context.db.prepare(
+        'INSERT INTO applied_knowledge_proposals(proposal_id,scope,run_id,applied_at,payload) VALUES(?,?,?,?,?)'
+      ).run(proposal.id, proposal.scope, input.runId, new Date().toISOString(), payload);
+
+      // Low-confidence proposals can add a draft, but cannot mutate the active graph.
+      if (!highConfidence) {
+        if (!proposal.proposedPage || !['create', 'revise', 'merge', 'supersede'].includes(proposal.operation)) {
+          return { applied: false, reason: 'confidence-too-low' };
+        }
+        const draftId = proposal.operation === 'create'
+          ? proposal.proposedPage.id : `knowledge-draft:${proposal.id}`;
+        if (proposal.operation === 'create' && this.context.db.prepare(
+          'SELECT 1 AS found FROM knowledge_pages WHERE id=?'
+        ).get(draftId)) {
+          throw new Error('Knowledge create page ID already exists: ' + draftId);
+        }
+        const draft = this.savePageInTransaction(annotated(proposal.proposedPage, 'draft', draftId));
+        if (targets.length) addDerivedLinks(draft.id, targets.map((target) => target.id));
+        insertProposalLedger();
+        return { applied: true, reason: 'saved-as-draft' };
       }
-      const createdAt = new Date().toISOString();
-      this.context.db.prepare(
-        'INSERT INTO knowledge_links(id,scope,from_id,to_id,kind,refs,created_at) VALUES(?,?,?,?,?,?,?)'
-      ).run(input.id, input.scope, input.fromId, input.toId, input.kind, encode(input.sourceRefs), createdAt);
-      return { ...input, createdAt };
+
+      switch (proposal.operation) {
+        case 'create': {
+          if (!proposal.proposedPage || targets.length) throw new Error('Knowledge create proposal is malformed.');
+          if (this.context.db.prepare('SELECT 1 AS found FROM knowledge_pages WHERE id=?')
+            .get(proposal.proposedPage.id)) throw new Error('Knowledge create page ID already exists.');
+          this.savePageInTransaction(annotated(proposal.proposedPage, 'active'));
+          break;
+        }
+        case 'revise': {
+          if (targets.length !== 1 || !proposal.proposedPage
+            || proposal.proposedPage.id !== targets[0]?.id || targets[0]?.status !== 'active') {
+            throw new Error('Knowledge revise requires one active target and the same proposed page ID.');
+          }
+          this.savePageInTransaction(annotated(proposal.proposedPage, 'active'));
+          break;
+        }
+        case 'merge': {
+          if (targets.length < 2 || !proposal.proposedPage
+            || targetIds.has(proposal.proposedPage.id) || targets.some((page) => page.status !== 'active')) {
+            throw new Error('Knowledge merge requires at least two active targets and a distinct output page.');
+          }
+          if (this.context.db.prepare('SELECT 1 AS found FROM knowledge_pages WHERE id=?')
+            .get(proposal.proposedPage.id)) throw new Error('Knowledge merge output page ID already exists.');
+          const merged = this.savePageInTransaction(annotated(proposal.proposedPage, 'active'));
+          for (const [index, target] of targets.entries()) {
+            changeStatus(target, 'superseded');
+            this.appendLinkInTransaction({
+              id: `knowledge-link:${proposal.id}:supersedes:${index}`,
+              scope: proposal.scope, fromId: merged.id, toId: target.id,
+              kind: 'supersedes', sourceRefs: evidenceRefs,
+            });
+          }
+          break;
+        }
+        case 'link': {
+          if (targets.length !== 2 || !proposal.link
+            || !targetIds.has(proposal.link.fromId) || !targetIds.has(proposal.link.toId)
+            || proposal.link.fromId === proposal.link.toId) {
+            throw new Error('Knowledge link proposal requires two valid targets and endpoints.');
+          }
+          this.appendLinkInTransaction({
+            id: `knowledge-link:${proposal.id}`, scope: proposal.scope,
+            fromId: proposal.link.fromId, toId: proposal.link.toId,
+            kind: proposal.link.kind, sourceRefs: evidenceRefs,
+          });
+          break;
+        }
+        case 'supersede': {
+          if (!proposal.proposedPage || !targets.length
+            || targetIds.has(proposal.proposedPage.id) || targets.some((page) => page.status !== 'active')) {
+            throw new Error('Knowledge supersede requires a replacement page and active targets.');
+          }
+          if (this.context.db.prepare('SELECT 1 AS found FROM knowledge_pages WHERE id=?')
+            .get(proposal.proposedPage.id)) throw new Error('Knowledge replacement page ID already exists.');
+          const replacement = this.savePageInTransaction(annotated(proposal.proposedPage, 'active'));
+          for (const [index, target] of targets.entries()) {
+            changeStatus(target, 'superseded');
+            this.appendLinkInTransaction({
+              id: `knowledge-link:${proposal.id}:supersedes:${index}`,
+              scope: proposal.scope, fromId: replacement.id, toId: target.id,
+              kind: 'supersedes', sourceRefs: evidenceRefs,
+            });
+          }
+          break;
+        }
+        case 'deprecate': {
+          if (!targets.length || targets.some((page) => page.status !== 'active')) {
+            throw new Error('Knowledge deprecate requires active target pages.');
+          }
+          for (const target of targets) changeStatus(target, 'deprecated');
+          break;
+        }
+      }
+
+      insertProposalLedger();
+      return { applied: true };
     });
   }
 

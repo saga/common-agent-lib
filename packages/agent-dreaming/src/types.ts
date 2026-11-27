@@ -120,6 +120,23 @@ export interface DreamingKnowledgePageInput {
   reason?: string;
 }
 
+export interface DreamingKnowledgeProposal {
+  id: string;
+  scope: string;
+  operation: 'create' | 'revise' | 'merge' | 'link' | 'supersede' | 'deprecate';
+  targetPageIds: string[];
+  proposedPage?: DreamingKnowledgePageInput;
+  link?: { fromId: string; toId: string; kind: DreamingKnowledgeLinkKind };
+  rationale: string;
+  evidenceRefs: string[];
+  confidence: number;
+}
+
+export interface DreamingKnowledgeProposalResult {
+  applied: boolean;
+  reason?: string;
+}
+
 export interface DreamingKnowledgeLink {
   id: string;
   scope: string;
@@ -150,6 +167,7 @@ export interface DreamingKnowledgeSearchRequest {
   maxDepth?: number;
   /** Hard cap for direct + expanded pages (1-50). */
   maxPages?: number;
+  relationKinds?: readonly DreamingKnowledgeLinkKind[];
 }
 
 export interface DreamingKnowledgeSearchHit {
@@ -366,6 +384,7 @@ export interface DreamingModelResult {
   proposals: DreamingProposal[];
   processedRecordIds: string[];
   reviewedMemoryIds: string[];
+  knowledgeProposals?: DreamingKnowledgeProposal[];
   notes?: string[];
 }
 
@@ -449,6 +468,9 @@ export interface DreamingRepository {
   createRun(run: DreamingRun): Promise<void>;
   updateRun(run: DreamingRun): Promise<void>;
   commitProposal(input: { proposal: DreamingProposal; evidence: readonly DreamingEvidence[]; runId: string }): Promise<{ applied: boolean; reason?: string }>;
+  listKnowledgePages?(input: { scope: string; status?: DreamingKnowledgeStatus; limit?: number }): Promise<DreamingKnowledgePage[]>;
+  listKnowledgeLinks?(input: { scope: string; pageIds?: readonly string[]; limit?: number }): Promise<DreamingKnowledgeLink[]>;
+  commitKnowledgeProposal?(input: { proposal: DreamingKnowledgeProposal; evidence: readonly DreamingEvidence[]; runId: string }): Promise<DreamingKnowledgeProposalResult>;
   applyUserDirective?(input: DreamingUserDirectiveInput): Promise<DreamingMemory>;
   stageProposal(input: { proposal: DreamingProposal; evidence: readonly DreamingEvidence[]; runId: string; reason: 'mutation' | 'quality-gate' | 'conflict-risk' | 'missing-assessment' | 'missing-provenance' }): Promise<{ staged: boolean; reason?: string }>;
   recordFeedback(event: DreamingFeedbackEvent): Promise<void>;
@@ -487,6 +509,8 @@ export interface DreamingOptions {
   maxRelationships?: number;
   maxEvidenceItems?: number;
   maxPromptChars?: number;
+  /** Number of active Knowledge pages supplied to one Dreaming batch (1-100). */
+  maxKnowledgePages?: number;
   leaseMs?: number;
   reviewIntervalMs?: number;
   memoryReviewIntervalMs?: number;

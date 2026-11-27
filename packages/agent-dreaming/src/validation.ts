@@ -1,6 +1,7 @@
 import type {
   DreamingModelResult, DreamingProposal, DreamingQualityAssessment,
-  DreamingOptions, DreamingRelationship, DreamingMemoryType,
+  DreamingOptions, DreamingRelationship, DreamingMemoryType, DreamingKnowledgeProposal,
+  DreamingKnowledgePageInput, DreamingKnowledgeLinkKind,
 } from './types.js';
 
 export function parseResult(value: unknown, scope: string): DreamingModelResult {
@@ -10,8 +11,11 @@ export function parseResult(value: unknown, scope: string): DreamingModelResult 
   const proposals = value.proposals.map((item) => parseProposal(item, scope));
   const processedRecordIds = stringArray(value.processedRecordIds, 'processedRecordIds');
   const reviewedMemoryIds = stringArray(value.reviewedMemoryIds ?? [], 'reviewedMemoryIds');
+  const knowledgeProposals = value.knowledgeProposals === undefined
+    ? []
+    : parseKnowledgeProposals(value.knowledgeProposals, scope);
   const notes = value.notes === undefined ? [] : stringArray(value.notes, 'notes');
-  return { proposals, processedRecordIds, reviewedMemoryIds, notes };
+  return { proposals, processedRecordIds, reviewedMemoryIds, knowledgeProposals, notes };
 }
 
 function parseProposal(value: unknown, scope: string): DreamingProposal {
@@ -63,6 +67,104 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
     throw new Error('Proposed record scope does not match the active scope.');
   }
   return proposal;
+}
+
+function parseKnowledgeProposals(value: unknown, scope: string): DreamingKnowledgeProposal[] {
+  if (!Array.isArray(value) || value.length > 30) {
+    throw new Error('knowledgeProposals must be an array containing at most 30 proposals.');
+  }
+  return value.map((item): DreamingKnowledgeProposal => {
+    if (!isObject(item)) throw new Error('Invalid Knowledge proposal.');
+    const allowed = ['create', 'revise', 'merge', 'link', 'supersede', 'deprecate'] as const;
+    if (typeof item.operation !== 'string' || !allowed.includes(item.operation as typeof allowed[number])) {
+      throw new Error('Invalid Knowledge proposal operation.');
+    }
+    const operation = item.operation as DreamingKnowledgeProposal['operation'];
+    const targetPageIds = stringArray(item.targetPageIds ?? [], 'targetPageIds');
+    const evidenceRefs = stringArray(item.evidenceRefs, 'knowledgeProposal.evidenceRefs');
+    if (!evidenceRefs.length || evidenceRefs.some((ref) => !ref.trim())) {
+      throw new Error('Knowledge proposals require non-empty evidenceRefs.');
+    }
+    if (typeof item.confidence !== 'number' || !Number.isFinite(item.confidence)
+      || item.confidence < 0 || item.confidence > 1) {
+      throw new Error('Knowledge proposal confidence must be between 0 and 1.');
+    }
+    const proposal: DreamingKnowledgeProposal = {
+      id: requiredString(item.id, 'knowledgeProposal.id'),
+      scope: requiredString(item.scope, 'knowledgeProposal.scope'),
+      operation,
+      targetPageIds,
+      rationale: requiredString(item.rationale, 'knowledgeProposal.rationale'),
+      evidenceRefs,
+      confidence: item.confidence,
+    };
+    if (proposal.scope !== scope) throw new Error('Knowledge proposal scope does not match the active scope.');
+    if (item.proposedPage !== undefined) {
+      if (!isObject(item.proposedPage)) throw new Error('proposedPage must be an object.');
+      const page = item.proposedPage;
+      const tags = page.tags === undefined ? [] : stringArray(page.tags, 'proposedPage.tags');
+      const sourceRefs = stringArray(page.sourceRefs, 'proposedPage.sourceRefs');
+      const status = page.status ?? 'active';
+      if (!['active', 'draft', 'deprecated', 'superseded'].includes(String(status))) {
+        throw new Error('Invalid proposed Knowledge page status.');
+      }
+      if (page.metadata !== undefined && !isObject(page.metadata)) throw new Error('proposedPage.metadata must be an object.');
+      const parsedPage: DreamingKnowledgePageInput = {
+        id: requiredString(page.id, 'proposedPage.id'),
+        scope: requiredString(page.scope, 'proposedPage.scope'),
+        title: boundedString(page.title, 'proposedPage.title', 500),
+        summary: boundedString(page.summary, 'proposedPage.summary', 4_000),
+        content: boundedString(page.content, 'proposedPage.content', 100_000),
+        status: status as DreamingKnowledgePageInput['status'],
+        tags,
+        sourceRefs,
+        ...(page.metadata ? { metadata: page.metadata as Record<string, unknown> } : {}),
+        reason: proposal.rationale,
+      };
+      if (parsedPage.scope !== scope) throw new Error('Proposed Knowledge page scope does not match the active scope.');
+      if (!sourceRefs.length || sourceRefs.some((ref) => !evidenceRefs.includes(ref))) {
+        throw new Error('Proposed Knowledge page provenance must be included in evidenceRefs.');
+      }
+      proposal.proposedPage = parsedPage;
+    }
+    if (item.link !== undefined) {
+      if (!isObject(item.link)) throw new Error('Knowledge link must be an object.');
+      const kind = item.link.kind;
+      if (typeof kind !== 'string'
+        || !(['related-to', 'supports', 'contradicts', 'derived-from', 'supersedes'] as string[]).includes(kind)) {
+        throw new Error('Invalid Knowledge link kind.');
+      }
+      proposal.link = {
+        fromId: requiredString(item.link.fromId, 'link.fromId'),
+        toId: requiredString(item.link.toId, 'link.toId'),
+        kind: kind as DreamingKnowledgeLinkKind,
+      };
+    }
+    if (operation === 'create' && (targetPageIds.length || !proposal.proposedPage)) {
+      throw new Error('Knowledge create requires a page and no targets.');
+    }
+    if (operation === 'revise' && (targetPageIds.length !== 1 || !proposal.proposedPage
+      || proposal.proposedPage.id !== targetPageIds[0])) {
+      throw new Error('Knowledge revise requires one target and a proposed page with the same ID.');
+    }
+    if (operation === 'merge' && (targetPageIds.length < 2 || !proposal.proposedPage
+      || targetPageIds.includes(proposal.proposedPage.id))) {
+      throw new Error('Knowledge merge requires at least two targets and a distinct output page.');
+    }
+    if (operation === 'link' && (targetPageIds.length !== 2 || !proposal.link
+      || !targetPageIds.includes(proposal.link.fromId) || !targetPageIds.includes(proposal.link.toId)
+      || proposal.link.fromId === proposal.link.toId)) {
+      throw new Error('Knowledge link requires two targets and matching link endpoints.');
+    }
+    if (operation === 'supersede' && (!targetPageIds.length || !proposal.proposedPage
+      || targetPageIds.includes(proposal.proposedPage.id))) {
+      throw new Error('Knowledge supersede requires active targets and a distinct replacement page.');
+    }
+    if (operation === 'deprecate' && !targetPageIds.length) {
+      throw new Error('Knowledge deprecate requires at least one target.');
+    }
+    return proposal;
+  });
 }
 
 function parseMemoryType(value: unknown): DreamingMemoryType {

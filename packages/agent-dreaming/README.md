@@ -172,6 +172,27 @@ Explicit memories have the highest priority. They are recalled ahead of derived 
 
 Only call this method for a message authored by the authenticated memory owner. Do not pass imported documents, quoted text, tool output, assistant messages or messages from other participants as user instructions. The host remains responsible for authentication and mapping the person to the correct scope.
 
+## Knowledge maintenance and persistent manifest
+
+Knowledge is maintained separately from personal Memory. It is intended for durable topics, project facts, operating procedures and research conclusions that should be reusable across tasks, not one-off events. Each page keeps evidence references and a version history.
+
+The Dreaming runtime can propose six operations: create, revise, merge, link, supersede and deprecate. The package validates the scope, targets and evidence references, then applies each operation in one SQLite transaction. Repeated proposal IDs are idempotent. Confidence of 0.82 or higher is required for changes to active pages; weaker create/revise/merge/supersede proposals are retained as drafts. Weak proposals never overwrite, supersede or deprecate active pages. This is an automatic maintenance path, not a manual approval queue.
+
+Active Knowledge pages and their active-to-active links are included in the bounded Dreaming prompt. Context Builder searches active Knowledge alongside Memory and Evidence, expands related pages by one hop and records the exact page version in each context item. Hosts can also call `searchKnowledge({ scope, query, expandLinks: true, maxDepth: 1, maxPages: 20 })`; graph expansion is scope-filtered, supports at most two hops and 50 pages.
+
+The persistent Memory Manifest is a compact per-scope index of explicit instructions, important confirmed memories and active Knowledge pages. SQLite triggers mark it stale whenever source rows change. `getMemoryManifest(scope)` rebuilds only a stale index; its version advances only when the content hash changes. The default hard bounds are 200 entries and 16,000 characters. The task-specific manifest returned by Context Builder remains distinct from this persistent index.
+
+```ts
+const manifest = await store.getMemoryManifest('user:123');
+const hits = await store.searchKnowledge({
+  scope: 'user:123',
+  query: 'payment recovery and retries',
+  expandLinks: true,
+  maxDepth: 1,
+  maxPages: 20,
+});
+```
+
 ## Storage
 
 `SqliteDreamingStore` implements:

@@ -20,13 +20,15 @@
 
 - [x] Add KnowledgePage, KnowledgeLink and KnowledgePageVersion types owned by this package. (KnowledgeProposal is deferred until the page lifecycle is proven.)
 - [x] Add SQLite tables, additive migration, FTS5 index and pre-update version snapshots for Knowledge pages and links.
-- [ ] Implement model-proposed create, revise, merge, link, supersede and deprecate operations with scope / provenance validation and idempotency. (Base page save / revise and link persistence are implemented.)
+- [x] Implement model-proposed create, revise, merge, link, supersede and deprecate operations with structured-output validation, scope / provenance checks, transactional idempotency and immutable prior-page snapshots.
 - [x] Add scope-isolated Knowledge full-text search (FTS5 + CJK fallback) and bounded, scope-filtered link expansion (depth 0-2; 50-page hard cap).
 - [x] Persist a bounded Memory Manifest for explicit instructions, important Memory and active Knowledge; source-table triggers mark it stale, reads rebuild only when dirty, and unchanged content keeps its version/hash.
 - [ ] Connect model-proposed Knowledge create, revise, merge, link, supersede and deprecate operations to the Dreaming run.
-- [ ] Add a bounded Knowledge Maintenance stage after Memory consolidation. Create pages only when multiple experiences or a durable research objective justify them.
+- [x] Add a bounded Knowledge Maintenance stage to each eligible Dreaming batch. Supply at most 100 active pages / 200 active links and cap each model response at 30 Knowledge proposals.
+- [x] Create pages only when the model identifies durable value; low-confidence creates/revisions/merges/supersedes become drafts and cannot mutate active pages.
 - [ ] Re-check pages affected by contradictory, expired or superseding evidence.
 - [x] Test page revision history, duplicate-save idempotency, CJK retrieval, cross-scope isolation, evidence provenance and relation integrity.
+- [x] Test all six Knowledge lifecycle operations, proposal idempotency, low-confidence mutation safety and Dreaming Engine integration.
 
 ## P2 — Improve evidence discovery and feedback
 

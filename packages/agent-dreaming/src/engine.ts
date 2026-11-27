@@ -2,6 +2,7 @@ import type {
   DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingFeedbackEvent, DreamingMemory,
   DreamingMemoryQuality, DreamingModelResult, DreamingOptions, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun,
+  DreamingKnowledgePage, DreamingKnowledgeLink,
   DreamingRunInput, DreamingRuntime, DreamingUserMessageInput,
 } from './types.js';
 import { SYSTEM_PROMPT, buildPrompt } from './prompts.js';
@@ -30,6 +31,10 @@ export class DreamingEngine {
     }
     if (!runtime.id) throw new Error('Dreaming runtime must have a stable id.');
     this.scopes = new Set(options.scopes);
+    if (options.maxKnowledgePages !== undefined
+      && (!Number.isSafeInteger(options.maxKnowledgePages) || options.maxKnowledgePages < 1 || options.maxKnowledgePages > 100)) {
+      throw new Error('maxKnowledgePages must be an integer between 1 and 100.');
+    }
     for (const [name, value] of Object.entries(options.autoCandidateThresholds ?? {})) {
       if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
         throw new Error(`autoCandidateThresholds.${name} must be between 0 and 1.`);
@@ -262,8 +267,30 @@ export class DreamingEngine {
         const evidence = [...resolvedEvidence];
         const evidenceRefs = new Set(evidence.map((item) => item.ref));
 
+        const knowledgeLimit = Math.min(100, Math.max(1, this.options.maxKnowledgePages ?? 30));
+        const knowledgePages = this.repository.listKnowledgePages
+          ? await this.repository.listKnowledgePages({ scope, status: 'active', limit: knowledgeLimit })
+          : [];
+        if (knowledgePages.some((page) => page.scope !== scope || page.status !== 'active')) {
+          throw new Error('Repository returned invalid or cross-scope active Knowledge pages.');
+        }
+        const knowledgePageIds = new Set(knowledgePages.map((page) => page.id));
+        const rawKnowledgeLinks = this.repository.listKnowledgeLinks
+          ? await this.repository.listKnowledgeLinks({ scope, pageIds: [...knowledgePageIds], limit: 200 })
+          : [];
+        if (rawKnowledgeLinks.some((link) => link.scope !== scope)) {
+          throw new Error('Repository returned cross-scope Knowledge links.');
+        }
+        // Relations to deprecated or superseded pages remain stored but are not supplied as active context.
+        const knowledgeLinks = rawKnowledgeLinks.filter((link) =>
+          knowledgePageIds.has(link.fromId) && knowledgePageIds.has(link.toId));
+        const promptKnowledgePages = knowledgePages.map((page) => ({
+          ...page,
+          content: page.content.slice(0, 3_500),
+        }));
         const prompt = buildPrompt(
           scope, experiences, memories, relationships, evidence, [...qualityByMemory.values()],
+          promptKnowledgePages, knowledgeLinks,
         );
         const maxPromptChars = this.options.maxPromptChars ?? 120_000;
         if (!Number.isSafeInteger(maxPromptChars) || maxPromptChars < 1_000) {
@@ -334,6 +361,41 @@ export class DreamingEngine {
           });
           if (outcome.applied) run.appliedProposalIds.push(proposal.id);
           else run.rejectedProposalIds.push(proposal.id);
+        }
+
+        if (result.knowledgeProposals?.length) {
+          for (const proposal of result.knowledgeProposals) {
+            const runProposalId = `knowledge:${proposal.id}`;
+            if (!this.repository.commitKnowledgeProposal
+              || proposal.scope !== scope
+              || proposal.evidenceRefs.length === 0
+              || proposal.evidenceRefs.some((ref) => !evidenceRefs.has(ref))
+              || proposal.targetPageIds.some((id) => !knowledgePageIds.has(id))
+              || (proposal.proposedPage && proposal.proposedPage.sourceRefs.some((ref) =>
+                !proposal.evidenceRefs.includes(ref) || !evidenceRefs.has(ref)))) {
+              run.rejectedProposalIds.push(runProposalId);
+              continue;
+            }
+            const proposalEvidence = evidence.filter((item) => proposal.evidenceRefs.includes(item.ref));
+            const outcome = await this.repository.commitKnowledgeProposal({
+              proposal, evidence: proposalEvidence, runId: run.id,
+            });
+            if (outcome.applied) {
+              run.appliedProposalIds.push(runProposalId);
+              if (proposal.confidence >= 0.82) {
+                if (proposal.operation === 'create' || proposal.operation === 'merge'
+                  || proposal.operation === 'supersede') {
+                  if (proposal.proposedPage) knowledgePageIds.add(proposal.proposedPage.id);
+                }
+                if (proposal.operation === 'merge' || proposal.operation === 'supersede'
+                  || proposal.operation === 'deprecate') {
+                  for (const targetId of proposal.targetPageIds) knowledgePageIds.delete(targetId);
+                }
+              }
+            } else {
+              run.rejectedProposalIds.push(runProposalId);
+            }
+          }
         }
 
         run.processedRecordIds.push(...result.processedRecordIds);

@@ -1,6 +1,6 @@
 import type {
   DreamingCheckpoint, DreamingContextRequest, DreamingContextResult, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience,
-  DreamingContextFeedbackInput, DreamingFeedbackEvent, DreamingKnowledgeLink, DreamingKnowledgePage, DreamingKnowledgePageInput, DreamingKnowledgePageVersion, DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest, DreamingMemory, DreamingMemoryManifest, DreamingMemoryHistoryStore, DreamingPage,
+  DreamingContextFeedbackInput, DreamingFeedbackEvent, DreamingKnowledgeLink, DreamingKnowledgePage, DreamingKnowledgePageInput, DreamingKnowledgePageVersion, DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest, DreamingKnowledgeProposal, DreamingKnowledgeProposalResult, DreamingMemory, DreamingMemoryManifest, DreamingMemoryHistoryStore, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingRunStore,
   DreamingReviewQueue, DreamingReviewQueueItem, DreamingSearchHit, DreamingSearchRequest, DreamingUserDirectiveInput,
 } from './types.js';
@@ -163,6 +163,14 @@ export class SqliteDreamingStore implements
 
   searchKnowledge(input: DreamingKnowledgeSearchRequest): Promise<DreamingKnowledgeSearchHit[]> {
     return this.knowledgeStore.search(input);
+  }
+
+  commitKnowledgeProposal(input: {
+    proposal: DreamingKnowledgeProposal;
+    evidence: readonly DreamingEvidence[];
+    runId: string;
+  }): Promise<DreamingKnowledgeProposalResult> {
+    return this.knowledgeStore.commitProposal(input);
   }
 
   search(input: DreamingSearchRequest): Promise<DreamingSearchHit[]> {

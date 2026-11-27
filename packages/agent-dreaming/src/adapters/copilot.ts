@@ -49,6 +49,50 @@ export const DREAMING_RESPONSE_SCHEMA = {
   additionalProperties: false,
   required: ['proposals', 'processedRecordIds', 'reviewedMemoryIds'],
   properties: {
+    knowledgeProposals: {
+      type: 'array',
+      maxItems: 30,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'scope', 'operation', 'targetPageIds', 'rationale', 'evidenceRefs', 'confidence'],
+        properties: {
+          id: { type: 'string', minLength: 1 },
+          scope: { type: 'string', minLength: 1 },
+          operation: { type: 'string', enum: ['create', 'revise', 'merge', 'link', 'supersede', 'deprecate'] },
+          targetPageIds: { type: 'array', items: { type: 'string' } },
+          proposedPage: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['id', 'scope', 'title', 'summary', 'content', 'sourceRefs'],
+            properties: {
+              id: { type: 'string', minLength: 1 },
+              scope: { type: 'string', minLength: 1 },
+              title: { type: 'string', minLength: 1, maxLength: 500 },
+              summary: { type: 'string', minLength: 1, maxLength: 4000 },
+              content: { type: 'string', minLength: 1, maxLength: 100000 },
+              status: { type: 'string', enum: ['active', 'draft', 'deprecated', 'superseded'] },
+              tags: { type: 'array', items: { type: 'string' } },
+              sourceRefs: { type: 'array', items: { type: 'string' } },
+              metadata: { type: 'object' },
+            },
+          },
+          link: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['fromId', 'toId', 'kind'],
+            properties: {
+              fromId: { type: 'string', minLength: 1 },
+              toId: { type: 'string', minLength: 1 },
+              kind: { type: 'string', enum: ['related-to', 'supports', 'contradicts', 'derived-from', 'supersedes'] },
+            },
+          },
+          rationale: { type: 'string', minLength: 1 },
+          evidenceRefs: { type: 'array', minItems: 1, items: { type: 'string' } },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+        },
+      },
+    },
     proposals: {
       type: 'array',
       maxItems: 100,

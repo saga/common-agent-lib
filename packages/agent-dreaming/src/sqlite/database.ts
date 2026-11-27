@@ -109,6 +109,7 @@ export class SqliteDatabase {
       'CREATE INDEX IF NOT EXISTS knowledge_links_scope_from ON knowledge_links(scope,from_id);' +
       'CREATE INDEX IF NOT EXISTS knowledge_links_scope_to ON knowledge_links(scope,to_id);' +
       'CREATE TABLE IF NOT EXISTS memory_manifest_state(scope TEXT PRIMARY KEY,version INTEGER NOT NULL,hash TEXT NOT NULL,content TEXT NOT NULL,item_ids TEXT NOT NULL,stale INTEGER NOT NULL,truncated INTEGER NOT NULL,item_count INTEGER NOT NULL,built_at TEXT NOT NULL);' +
+      'CREATE TABLE IF NOT EXISTS applied_knowledge_proposals(proposal_id TEXT PRIMARY KEY,scope TEXT NOT NULL,run_id TEXT NOT NULL,applied_at TEXT NOT NULL,payload TEXT NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS feedback(id TEXT PRIMARY KEY,scope TEXT NOT NULL,memory_id TEXT NOT NULL,occurred_at TEXT NOT NULL,payload TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS feedback_memory_time ON feedback(scope,memory_id,occurred_at);' +
       'CREATE TABLE IF NOT EXISTS checkpoints(scope TEXT PRIMARY KEY,after_sequence INTEGER NOT NULL,last_run_at TEXT,last_run_id TEXT);' +
@@ -169,7 +170,7 @@ export class SqliteDatabase {
       'INSERT INTO evidence_search(rowid,ref,scope,content) SELECT e.rowid,e.ref,e.scope,e.content FROM evidence e WHERE NOT EXISTS (SELECT 1 FROM evidence_search f WHERE f.rowid=e.rowid);' +
       'INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) SELECT k.rowid,k.id,k.scope,k.title,k.summary,k.content,k.tags FROM knowledge_pages k WHERE NOT EXISTS (SELECT 1 FROM knowledge_search f WHERE f.rowid=k.rowid);'
     );
-    this.db.exec('PRAGMA user_version=7');
+    this.db.exec('PRAGMA user_version=8');
     if (filename !== ':memory:') {
       try { chmodSync(filename, 0o600); } catch { /* Directory permissions still protect the database. */ }
     }
