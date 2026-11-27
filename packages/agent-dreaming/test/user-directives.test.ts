@@ -151,3 +151,40 @@ test('derived Dreaming proposals cannot overwrite or supersede user-explicit mem
     await store.close();
   }
 });
+
+
+test('newer explicit user instructions take precedence over older conflicting instructions', async () => {
+  const store = new SqliteDreamingStore({ filename: ':memory:', embeddingProvider: false });
+  const engine = new DreamingEngine(
+    { id: 'unused', async generate() { throw new Error('Should not be called.'); } },
+    store, store, { scopes: ['person:42'] },
+  );
+  try {
+    await engine.applyUserMessage({
+      id: 'message-older',
+      scope: 'person:42',
+      text: '记住我更喜欢回答简洁明了',
+      occurredAt: '2026-11-25T09:00:00.000Z',
+    });
+    await engine.applyUserMessage({
+      id: 'message-newer',
+      scope: 'person:42',
+      text: '记住我希望回答详细并解释充分',
+      occurredAt: '2026-11-26T09:00:00.000Z',
+    });
+
+    const highestPriority = await store.loadMemories({
+      scope: 'person:42',
+      experienceIds: [],
+      limit: 1,
+      reviewBefore: '2020-01-01T00:00:00.000Z',
+      expiredBefore: '2026-11-27T00:00:00.000Z',
+    });
+    assert.equal(highestPriority[0]?.content, '我希望回答详细并解释充分');
+    assert.equal(highestPriority[0]?.authority, 'user-explicit');
+    assert.equal((await store.listMemories('person:42')).filter((memory) => memory.authority === 'user-explicit').length, 2);
+  } finally {
+    await engine.shutdown();
+    await store.close();
+  }
+});
