@@ -1,6 +1,6 @@
 import type {
   DreamingModelResult, DreamingProposal, DreamingQualityAssessment,
-  DreamingOptions, DreamingRelationship,
+  DreamingOptions, DreamingRelationship, DreamingMemoryType,
 } from './types.js';
 
 export function parseResult(value: unknown, scope: string): DreamingModelResult {
@@ -34,10 +34,12 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
   if (value.proposedRecord !== undefined) {
     if (!isObject(value.proposedRecord)) throw new Error('proposedRecord must be an object.');
     const record = value.proposedRecord;
+    const memoryType = record.memoryType === undefined ? undefined : parseMemoryType(record.memoryType);
     proposal.proposedRecord = {
       id: requiredString(record.id, 'proposedRecord.id'),
       scope: requiredString(record.scope, 'proposedRecord.scope'),
       content: boundedString(record.content, 'proposedRecord.content', 4_000),
+      ...(memoryType ? { memoryType } : {}),
       status: record.status === 'confirmed' || record.status === 'superseded' ? record.status : 'candidate',
       importance: typeof record.importance === 'number' ? Math.max(0, Math.min(1, record.importance)) : 0.5,
       sourceRefs: stringArray(record.sourceRefs ?? [], 'proposedRecord.sourceRefs'),
@@ -61,6 +63,16 @@ function parseProposal(value: unknown, scope: string): DreamingProposal {
     throw new Error('Proposed record scope does not match the active scope.');
   }
   return proposal;
+}
+
+function parseMemoryType(value: unknown): DreamingMemoryType {
+  const allowed: readonly DreamingMemoryType[] = [
+    'fact', 'preference', 'goal', 'constraint', 'knowledge', 'behavior-pattern', 'ongoing-context',
+  ];
+  if (typeof value !== 'string' || !allowed.includes(value as DreamingMemoryType)) {
+    throw new Error('proposedRecord.memoryType must be a supported memory type.');
+  }
+  return value as DreamingMemoryType;
 }
 
 function parseQuality(value: unknown): DreamingQualityAssessment {
