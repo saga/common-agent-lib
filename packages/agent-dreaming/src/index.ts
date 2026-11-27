@@ -18,3 +18,4 @@ export type { DreamingActor, DreamingAction, DreamingAuthorizationPolicy, Dreami
 export { DreamingWorker } from './worker.js';
 export type { DreamingWorkerOptions } from './worker.js';
 export { AuthorizedDreamingReviewQueue } from './authorized-review-queue.js';
+export { detectUserMemoryDirective } from './user-directives.js';
