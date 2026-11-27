@@ -288,7 +288,7 @@ test('high contradiction risk is retained automatically as a candidate', async (
   };
   const f = fixture('trace:t1:event:e1', {}, output);
   const run = await f.engine.runNow('user-1');
-  assert.deepEqual(f.commits, ['p-conflict']);
+  assert.deepEqual(f.commits, ['p-explicit-conflict']);
   assert.deepEqual(f.staged, []);
   assert.deepEqual(run?.pendingProposalIds, []);
 });
@@ -390,7 +390,7 @@ test('stale memories can be reviewed even when there are no new experience rows'
 });
 
 
-test('explicitly contradictory memory references force review even with high quality scores', async () => {
+test('explicitly contradictory derived memory proposals are applied automatically', async () => {
   const output = {
     proposals: [{
       id: 'p-explicit-conflict', scope: 'user-1', operation: 'add', targetRecordIds: [],
