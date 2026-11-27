@@ -5,6 +5,36 @@ export type DreamingMemoryType =
   | 'fact' | 'preference' | 'goal' | 'constraint'
   | 'knowledge' | 'behavior-pattern' | 'ongoing-context';
 
+/** Explicit user instructions outrank all model-derived memories. */
+export type DreamingMemoryAuthority = 'derived' | 'user-explicit';
+
+export type DreamingUserDirectiveKind = 'remember' | 'avoid';
+
+export interface DreamingUserDirectiveInput {
+  /** Stable source message ID, used for idempotency. */
+  id: string;
+  scope: string;
+  kind: DreamingUserDirectiveKind;
+  instruction: string;
+  occurredAt?: string;
+  origin?: DreamingOrigin;
+  memoryType?: DreamingMemoryType;
+}
+
+export interface DreamingUserMessageInput {
+  id: string;
+  scope: string;
+  text: string;
+  occurredAt?: string;
+  origin?: DreamingOrigin;
+}
+
+export interface ParsedDreamingUserDirective {
+  kind: DreamingUserDirectiveKind;
+  instruction: string;
+  memoryType: DreamingMemoryType;
+}
+
 /** Provenance for an experience or evidence item; never an isolation boundary. */
 export interface DreamingOrigin {
   /** Provider or source system, for example chatgpt, claude, copilot or browser. */
@@ -37,6 +67,8 @@ export interface DreamingMemory {
   content: string;
   /** Optional classification for durable personal knowledge; older records remain valid. */
   memoryType?: DreamingMemoryType;
+  /** Derived records are maintained automatically; explicit user instructions are protected. */
+  authority?: DreamingMemoryAuthority;
   status: 'candidate' | 'confirmed' | 'superseded' | 'archived';
   importance: number;
   sourceRefs: readonly string[];
@@ -249,12 +281,15 @@ export interface DreamingRepository {
    * Must resolve scope/evidence/targets, enforce host policy and atomically apply
    * the proposal. proposal.id must be an idempotency key.
    */
+  /** Apply any valid proposal atomically. Model-derived proposals never require human approval. */
   commitProposal(input: {
     proposal: DreamingProposal;
     evidence: readonly DreamingEvidence[];
     runId: string;
   }): Promise<{ applied: boolean; reason?: string }>;
-  /** Persist non-automatic proposals in a durable review queue; idempotent by proposal.id. */
+  /** Optional direct-write path for a message authenticated as coming from the memory owner. */
+  applyUserDirective?(input: DreamingUserDirectiveInput): Promise<DreamingMemory>;
+  /** @deprecated Legacy queue API. DreamingEngine no longer stages proposals for human review. */
   stageProposal(input: {
     proposal: DreamingProposal;
     evidence: readonly DreamingEvidence[];
@@ -323,6 +358,7 @@ export interface DreamingOptions {
   reviewIntervalMs?: number;
   /** Re-review memories that have not been validated recently. Defaults to 30 days. */
   memoryReviewIntervalMs?: number;
+  /** @deprecated Kept for API compatibility; default Dreaming no longer uses human-review gates. */
   autoCandidateThresholds?: Partial<DreamingQualityAssessment>;
   /** Called after each persisted run; suitable for logs/metrics. */
   onRun?: (run: Readonly<DreamingRun>) => void | Promise<void>;
