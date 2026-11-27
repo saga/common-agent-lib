@@ -250,13 +250,14 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
       const target = targets[0]!;
       this.memories.recordVersionBeforeMutation(target, 'update');
       this.context.db.prepare(
-        'UPDATE memories SET content=?,refs=?,importance=?,valid_until=?,confidence=?,metadata=?,last_validated_at=?,updated_at=? WHERE id=? AND scope=?'
+        'UPDATE memories SET content=?,refs=?,importance=?,valid_until=?,confidence=?,memory_type=?,metadata=?,last_validated_at=?,updated_at=? WHERE id=? AND scope=?'
       ).run(
         proposal.proposedRecord.content,
         encode(proposal.proposedRecord.sourceRefs),
         proposal.proposedRecord.importance,
         proposal.proposedRecord.validUntil ?? target.valid_until,
         proposal.proposedRecord.confidence ?? target.confidence,
+        proposal.proposedRecord.memoryType ?? target.memory_type,
         encode(proposal.proposedRecord.metadata ?? decode<Record<string, unknown>>(target.metadata)),
         now,
         now,
