@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { DreamingEvidence, DreamingExperience, DreamingMemory, DreamingMemoryType, DreamingOrigin } from '../types.js';
+import type { DreamingEvidence, DreamingExperience, DreamingMemory, DreamingMemoryAuthority, DreamingMemoryType, DreamingOrigin } from '../types.js';
 
 export interface SqliteDreamingOptions {
   filename: string;
@@ -31,6 +31,7 @@ export function mapMemory(row: SqliteRow): DreamingMemory {
     scope: String(row.scope),
     content: String(row.content),
     ...(row.memory_type ? { memoryType: String(row.memory_type) as DreamingMemoryType } : {}),
+    ...(row.authority ? { authority: String(row.authority) as DreamingMemoryAuthority } : { authority: 'derived' as const }),
     status: row.status,
     importance: Number(row.importance),
     sourceRefs: decode<string[]>(row.refs),
@@ -73,7 +74,7 @@ export class SqliteDatabase {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS experiences(id TEXT PRIMARY KEY,scope TEXT NOT NULL,sequence INTEGER NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL,refs TEXT NOT NULL,metadata TEXT NOT NULL,reviewed_at TEXT,origin TEXT,UNIQUE(scope,sequence));' +
       'CREATE INDEX IF NOT EXISTS experiences_scope_seq ON experiences(scope,sequence);' +
-      'CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,importance REAL NOT NULL,refs TEXT NOT NULL,last_validated_at TEXT,valid_until TEXT,confidence REAL,metadata TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,memory_type TEXT);' +
+      'CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,importance REAL NOT NULL,refs TEXT NOT NULL,last_validated_at TEXT,valid_until TEXT,confidence REAL,metadata TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,memory_type TEXT,authority TEXT NOT NULL DEFAULT 'derived');' +
       'CREATE INDEX IF NOT EXISTS memories_scope_status ON memories(scope,status,importance DESC);' +
       'CREATE TABLE IF NOT EXISTS memory_versions(version_id INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,memory_id TEXT NOT NULL,version INTEGER NOT NULL,reason TEXT NOT NULL,captured_at TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(scope,memory_id,version));' +
       'CREATE INDEX IF NOT EXISTS memory_versions_lookup ON memory_versions(scope,memory_id,version DESC);' +
@@ -89,7 +90,9 @@ export class SqliteDatabase {
       'CREATE TABLE IF NOT EXISTS proposals(proposal_id TEXT PRIMARY KEY,scope TEXT NOT NULL,run_id TEXT NOT NULL,reason TEXT NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL,evidence TEXT NOT NULL,created_at TEXT NOT NULL,reviewed_at TEXT,reviewed_by TEXT);' +
       'CREATE INDEX IF NOT EXISTS proposals_scope_status ON proposals(scope,status,created_at);' +
       'CREATE TABLE IF NOT EXISTS applied_proposals(proposal_id TEXT PRIMARY KEY,scope TEXT NOT NULL,applied_at TEXT NOT NULL,payload TEXT NOT NULL DEFAULT \'\');' +
-      'CREATE TABLE IF NOT EXISTS leases(scope TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL);'
+      'CREATE TABLE IF NOT EXISTS leases(scope TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL);' +
+      'CREATE TABLE IF NOT EXISTS user_directives(id TEXT PRIMARY KEY,scope TEXT NOT NULL,memory_id TEXT NOT NULL,source_ref TEXT NOT NULL,occurred_at TEXT NOT NULL,payload TEXT NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS user_directives_scope_time ON user_directives(scope,occurred_at DESC);'
     );
 
     // Additive migration: preserve old records while adding source provenance and memory classification.
@@ -102,12 +105,13 @@ export class SqliteDatabase {
     ensureColumn('experiences', 'origin', 'TEXT');
     ensureColumn('evidence', 'origin', 'TEXT');
     ensureColumn('memories', 'memory_type', 'TEXT');
+    ensureColumn('memories', 'authority', "TEXT NOT NULL DEFAULT 'derived'");
 
     const appliedColumns = this.db.prepare('PRAGMA table_info(applied_proposals)').all() as SqliteRow[];
     if (!appliedColumns.some((column) => column.name === 'payload')) {
       this.db.exec("ALTER TABLE applied_proposals ADD COLUMN payload TEXT NOT NULL DEFAULT ''");
     }
-    this.db.exec('PRAGMA user_version=3');
+    this.db.exec('PRAGMA user_version=4');
     if (filename !== ':memory:') {
       try { chmodSync(filename, 0o600); } catch { /* Directory permissions still protect the database. */ }
     }
@@ -133,11 +137,11 @@ export class SqliteDatabase {
   insertMemory(memory: DreamingMemory, status: DreamingMemory['status']): void {
     const now = new Date().toISOString();
     this.db.prepare(
-      'INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at,memory_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO memories(id,scope,content,status,importance,refs,last_validated_at,valid_until,confidence,metadata,created_at,updated_at,memory_type,authority) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     ).run(
       memory.id, memory.scope, memory.content, status, memory.importance,
       encode(memory.sourceRefs), memory.lastValidatedAt ?? null, memory.validUntil ?? null,
-      memory.confidence ?? null, encode(memory.metadata ?? {}), now, now, memory.memoryType ?? null,
+      memory.confidence ?? null, encode(memory.metadata ?? {}), now, now, memory.memoryType ?? null, memory.authority ?? 'derived',
     );
   }
 
