@@ -410,7 +410,7 @@ test('explicitly contradictory derived memory proposals are applied automaticall
     status: 'confirmed', importance: 0.8, sourceRefs: ['trace:t1:event:e1'],
   }]);
   const run = await f.engine.runNow('user-1');
-  assert.deepEqual(f.commits, ['p-conflict']);
+  assert.deepEqual(f.commits, ['p-explicit-conflict']);
   assert.deepEqual(f.staged, []);
   assert.deepEqual(run?.pendingProposalIds, []);
 });
