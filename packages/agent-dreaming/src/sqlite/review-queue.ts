@@ -48,6 +48,15 @@ export class SqliteReviewQueueStore implements DreamingReviewQueue {
       if (targets.some((target) => target?.authority === 'user-explicit')) {
         return { applied: false, reason: 'user-explicit-memory-protected' };
       }
+      const protectedConflict = (proposal.conflictsWith ?? []).some((id) => {
+        const memory = this.context.db.prepare(
+          'SELECT authority FROM memories WHERE id=? AND scope=?',
+        ).get(id, proposal.scope) as SqliteRow | undefined;
+        return memory?.authority === 'user-explicit';
+      });
+      if (protectedConflict) {
+        return { applied: false, reason: 'user-explicit-memory-protected' };
+      }
 
       if (proposal.operation !== 'archive' && proposal.proposedRecord
         && ['add', 'merge', 'supersede'].includes(proposal.operation)) {
