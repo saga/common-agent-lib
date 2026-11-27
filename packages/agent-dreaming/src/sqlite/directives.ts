@@ -44,7 +44,8 @@ export class SqliteUserDirectiveStore {
     const instruction = input.instruction.trim().normalize('NFKC');
     const normalized = instruction.toLocaleLowerCase().replace(/\s+/gu, ' ');
     const memoryId = `user-directive-${hash(`${input.scope}\0${input.kind}\0${normalized}`)}`;
-    const sourceRef = `user-directive:${hash(`${input.scope}\0${input.id}`)}`;
+    const directiveId = hash(`${input.scope}\0${input.id}`);
+    const sourceRef = `user-directive:${directiveId}`;
     const content = input.kind === 'avoid'
       ? `Avoid repeating this behavior: ${instruction}`
       : instruction;
@@ -63,7 +64,7 @@ export class SqliteUserDirectiveStore {
     return this.context.transaction(() => {
       const previousDirective = this.context.db.prepare(
         'SELECT scope,memory_id,payload FROM user_directives WHERE id=?',
-      ).get(input.id) as SqliteRow | undefined;
+      ).get(directiveId) as SqliteRow | undefined;
       if (previousDirective) {
         if (previousDirective.scope !== input.scope || String(previousDirective.payload) !== payload) {
           throw new Error('Conflicting user directive ID: ' + input.id);
@@ -141,7 +142,7 @@ export class SqliteUserDirectiveStore {
 
       this.context.db.prepare(
         'INSERT INTO user_directives(id,scope,memory_id,source_ref,occurred_at,payload) VALUES(?,?,?,?,?,?)',
-      ).run(input.id, input.scope, memoryId, sourceRef, occurredAt, payload);
+      ).run(directiveId, input.scope, memoryId, sourceRef, occurredAt, payload);
 
       const row = this.context.db.prepare(
         'SELECT * FROM memories WHERE id=? AND scope=?',
