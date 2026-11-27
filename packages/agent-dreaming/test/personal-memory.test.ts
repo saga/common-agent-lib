@@ -27,7 +27,7 @@ test('one personal scope consolidates records from different source applications
     await store.appendExperience({
       id: 'other-person:1',
       scope: 'person:99',
-      content: 'A different person's experience.',
+      content: 'A different persons experience.',
       createdAt: '2026-11-26T10:00:00.000Z',
       sourceRefs: ['evidence:other:1'],
     });
