@@ -16,7 +16,7 @@ function assertLimit(limit: number, max = 200): number {
 function buildFtsQuery(query: string): string | undefined {
   const terms = query.normalize('NFKC').match(/[A-Za-z0-9_]+/gu) ?? [];
   const unique = [...new Set(terms.map((term) => term.toLocaleLowerCase()))].slice(0, 12);
-  return unique.length ? unique.map((term) => `"${term.replaceAll('"', '""')}"`).join(' AND ') : undefined;
+  return unique.length ? unique.map((term) => `"${term.replaceAll('"', '""')}"`).join(' OR ') : undefined;
 }
 
 function cjkTerms(query: string): string[] {
@@ -89,23 +89,39 @@ export class SqliteSearchStore {
     ).slice(0, limit);
   }
 
-  async listAlwaysOnMemories(input: { scope: string; limit?: number }): Promise<DreamingSearchHit[]> {
+  async listAlwaysOnMemories(input: { scope: string; limit?: number }): Promise<{ items: DreamingSearchHit[]; truncated: boolean }> {
     this.context.ensureOpen();
     if (!input.scope.trim()) throw new TypeError('scope is required');
     const limit = assertLimit(input.limit ?? 12, 100);
     const now = new Date().toISOString();
-    const rows = this.context.db.prepare(
+
+    // Explicit user instructions are not subject to the ordinary index item limit.
+    // A hard safety ceiling prevents a corrupt or pathological scope from producing
+    // an unbounded query; truncation is surfaced to the caller.
+    const explicitRows = this.context.db.prepare(
       `SELECT * FROM memories
-       WHERE scope=? AND status='confirmed' AND (valid_until IS NULL OR valid_until>?)
-         AND (
-           authority='user-explicit'
-           OR (memory_type IN ('preference','constraint','goal') AND importance>=0.75)
-         )
-       ORDER BY CASE WHEN authority='user-explicit' THEN 0 ELSE 1 END,
-         importance DESC, updated_at DESC
-       LIMIT ?`
+       WHERE scope=? AND authority='user-explicit' AND status='confirmed'
+         AND (valid_until IS NULL OR valid_until>?)
+       ORDER BY updated_at DESC LIMIT 501`
+    ).all(input.scope, now) as SqliteRow[];
+    const truncated = explicitRows.length > 500;
+    const explicit = explicitRows.slice(0, 500);
+
+    const importantRows = this.context.db.prepare(
+      `SELECT * FROM memories
+       WHERE scope=? AND authority<>'user-explicit' AND status='confirmed'
+         AND (valid_until IS NULL OR valid_until>?)
+         AND memory_type IN ('preference','constraint','goal') AND importance>=0.75
+       ORDER BY importance DESC, updated_at DESC LIMIT ?`
     ).all(input.scope, now, limit) as SqliteRow[];
-    return rows.map((row) => mapMemoryHit(row, row.authority === 'user-explicit' ? 1 : Number(row.importance)));
+
+    return {
+      items: [
+        ...explicit.map((row) => mapMemoryHit(row, 1)),
+        ...importantRows.map((row) => mapMemoryHit(row, Number(row.importance))),
+      ],
+      truncated,
+    };
   }
 
   private searchExperiences(scope: string, query: string, limit: number): DreamingSearchHit[] {

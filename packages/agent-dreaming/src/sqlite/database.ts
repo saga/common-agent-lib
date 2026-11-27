@@ -118,14 +118,14 @@ export class SqliteDatabase {
       "CREATE VIRTUAL TABLE IF NOT EXISTS experience_search USING fts5(id UNINDEXED, scope UNINDEXED, content, tokenize='unicode61');" +
       "CREATE VIRTUAL TABLE IF NOT EXISTS evidence_search USING fts5(ref UNINDEXED, scope UNINDEXED, content, tokenize='unicode61');" +
       "CREATE TRIGGER IF NOT EXISTS memories_search_insert AFTER INSERT ON memories BEGIN INSERT INTO memory_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
-      "CREATE TRIGGER IF NOT EXISTS memories_search_update AFTER UPDATE OF id,scope,content ON memories BEGIN INSERT INTO memory_search(memory_search,rowid,id,scope,content) VALUES('delete',old.rowid,old.id,old.scope,old.content); INSERT INTO memory_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
-      "CREATE TRIGGER IF NOT EXISTS memories_search_delete AFTER DELETE ON memories BEGIN INSERT INTO memory_search(memory_search,rowid,id,scope,content) VALUES('delete',old.rowid,old.id,old.scope,old.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS memories_search_update AFTER UPDATE OF id,scope,content ON memories BEGIN DELETE FROM memory_search WHERE rowid=old.rowid; INSERT INTO memory_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS memories_search_delete AFTER DELETE ON memories BEGIN DELETE FROM memory_search WHERE rowid=old.rowid; END;" +
       "CREATE TRIGGER IF NOT EXISTS experiences_search_insert AFTER INSERT ON experiences BEGIN INSERT INTO experience_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
-      "CREATE TRIGGER IF NOT EXISTS experiences_search_update AFTER UPDATE OF id,scope,content ON experiences BEGIN INSERT INTO experience_search(experience_search,rowid,id,scope,content) VALUES('delete',old.rowid,old.id,old.scope,old.content); INSERT INTO experience_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
-      "CREATE TRIGGER IF NOT EXISTS experiences_search_delete AFTER DELETE ON experiences BEGIN INSERT INTO experience_search(experience_search,rowid,id,scope,content) VALUES('delete',old.rowid,old.id,old.scope,old.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS experiences_search_update AFTER UPDATE OF id,scope,content ON experiences BEGIN DELETE FROM experience_search WHERE rowid=old.rowid; INSERT INTO experience_search(rowid,id,scope,content) VALUES(new.rowid,new.id,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS experiences_search_delete AFTER DELETE ON experiences BEGIN DELETE FROM experience_search WHERE rowid=old.rowid; END;" +
       "CREATE TRIGGER IF NOT EXISTS evidence_search_insert AFTER INSERT ON evidence BEGIN INSERT INTO evidence_search(rowid,ref,scope,content) VALUES(new.rowid,new.ref,new.scope,new.content); END;" +
-      "CREATE TRIGGER IF NOT EXISTS evidence_search_update AFTER UPDATE OF ref,scope,content ON evidence BEGIN INSERT INTO evidence_search(evidence_search,rowid,ref,scope,content) VALUES('delete',old.rowid,old.ref,old.scope,old.content); INSERT INTO evidence_search(rowid,ref,scope,content) VALUES(new.rowid,new.ref,new.scope,new.content); END;" +
-      "CREATE TRIGGER IF NOT EXISTS evidence_search_delete AFTER DELETE ON evidence BEGIN INSERT INTO evidence_search(evidence_search,rowid,ref,scope,content) VALUES('delete',old.rowid,old.ref,old.scope,old.content); END;"
+      "CREATE TRIGGER IF NOT EXISTS evidence_search_update AFTER UPDATE OF ref,scope,content ON evidence BEGIN DELETE FROM evidence_search WHERE rowid=old.rowid; INSERT INTO evidence_search(rowid,ref,scope,content) VALUES(new.rowid,new.ref,new.scope,new.content); END;" +
+      "CREATE TRIGGER IF NOT EXISTS evidence_search_delete AFTER DELETE ON evidence BEGIN DELETE FROM evidence_search WHERE rowid=old.rowid; END;"
     );
     // Backfill indexes for databases created before FTS support was introduced.
     this.db.exec(

@@ -6,7 +6,7 @@
 
 ## P0 — Complete the first usable memory-to-context loop
 
-- [x] Add package-owned SQLite full-text search for Memory, Experience and Evidence.
+- [x] Add package-owned SQLite full-text search for Memory, Experience and Evidence (FTS5 triggers use ordinary rowid deletion so updates remain compatible with SQLite's FTS5 implementation).
 - [x] Support CJK substring matching in addition to FTS5 token search.
 - [x] Enforce scope and lifecycle filters in every search path; exclude candidate, expired, superseded and archived memories from normal context.
 - [x] Add package-owned task-aware Context Builder with always-on explicit memory, task-relevant memory, experience and source evidence.
