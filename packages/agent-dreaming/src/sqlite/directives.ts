@@ -23,6 +23,16 @@ export class SqliteUserDirectiveStore {
     if (input.id.length > 500 || input.instruction.length > 2_000) {
       throw new TypeError('User directive exceeds the supported length.');
     }
+    if (input.kind !== 'remember' && input.kind !== 'avoid') {
+      throw new TypeError('Unsupported user directive kind.');
+    }
+    if (/(?:password|passphrase|api[\\s_-]?key|access[\\s_-]?token|secret|验证码|密码|口令|私钥|助记词|cvv|信用卡号)/iu.test(input.instruction)) {
+      throw new TypeError('Credentials and authentication secrets cannot be stored as memory.');
+    }
+    const memoryTypes = ['fact', 'preference', 'goal', 'constraint', 'knowledge', 'behavior-pattern', 'ongoing-context'];
+    if (input.memoryType && !memoryTypes.includes(input.memoryType)) {
+      throw new TypeError('Unsupported user directive memory type.');
+    }
     const occurredAt = input.occurredAt ?? new Date().toISOString();
     if (!Number.isFinite(Date.parse(occurredAt))) {
       throw new TypeError('User directive occurredAt must be a valid timestamp.');
@@ -40,9 +50,12 @@ export class SqliteUserDirectiveStore {
       : instruction;
     const memoryType = input.memoryType ?? (input.kind === 'avoid' ? 'constraint' : 'fact');
     const payload = encode({
-      ...input,
+      id: input.id,
+      scope: input.scope,
+      kind: input.kind,
       instruction,
-      occurredAt,
+      occurredAt: input.occurredAt ?? null,
+      origin: input.origin ?? null,
       memoryType,
       sourceRef,
     });
