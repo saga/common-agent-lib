@@ -71,7 +71,8 @@ function inferMemoryType(
   fallback: DreamingMemoryType,
 ): DreamingMemoryType {
   if (kind === 'avoid') return 'constraint';
-  if (/(?:喜欢|偏好|倾向|更愿意|不喜欢|讨厌|prefer|preference|like|dislike|favor)/iu.test(instruction)) {
+  if (/(?:喜欢|偏好|倾向|更愿意|不喜欢|讨厌|prefer|preference|like|dislike|favor)/iu.test(instruction)
+    || /(?:希望|想要).{0,40}(?:直接|简洁|详细|准确|清晰|具体|实用|自然|正式|轻松|concise|detailed|direct)/iu.test(instruction)) {
     return 'preference';
   }
   if (/(?:目标|计划|打算|希望实现|想要达成|goal|plan to|aim to|want to achieve)/iu.test(instruction)) {
