@@ -1,6 +1,6 @@
 # @saga/agent-dreaming
 
-Automatic long-term memory consolidation for Node.js 24.15+. The package owns the Dreaming loop, durable local storage, evidence lookup, automatic memory updates and run history. It does not depend on an Agent runtime package.
+A self-contained Agent Memory system for Node.js 24.15+. This package owns the complete memory lifecycle: experiences, evidence, durable memory, knowledge maintenance, retrieval, context assembly, feedback, scheduling, persistence and run history. It has no dependency on another internal `@saga/*` package.
 
 ## Default runtime: Copilot SDK
 
@@ -55,7 +55,15 @@ The `createSqliteCopilotDreaming()` factory composes the engine, SQLite store, C
 
 The adapter uses `@microsoft/copilot-sdk` directly. It creates a short-lived, isolated session for each generation call and defaults to the SDK's `empty` mode, so Dreaming receives supplied experiences and evidence but has no tool access by default. The SDK client is reused; conversation history is not. Each temporary session is deleted after the response so Copilot session files do not accumulate. Structured output is requested with a JSON Schema and validated again by the Dreaming engine.
 
-The Copilot SDK is an optional peer dependency. The core package can be installed and used with a custom runtime without installing Copilot. The adapter does not depend on `@saga/copilot-agent-runtime`.
+The Copilot SDK is an optional peer dependency. The package can be installed and used with a custom runtime without installing Copilot. Provider-specific SDKs are adapter dependencies only; they do not provide or own any Memory, Knowledge, Evidence, Retrieval or Context capability.
+
+
+## Architecture decisions and design
+
+- [DECISION.md](./DECISION.md): `agent-dreaming` is self-contained. It must not import or require another internal package; all Memory, Knowledge, Evidence Search, Retrieval and Context Assembly capabilities belong here.
+- [ARCHITECTURE-ANALYSIS.md](./ARCHITECTURE-ANALYSIS.md): comparison with Anthropic's Agent Memory research and Claude Code's recovered AutoDream implementation, including the concrete Knowledge Maintenance and Context Injection design.
+
+The package exposes focused internal modules but one complete installable capability. Consumers do not need to compose it with sibling memory, knowledge or context packages. The host still supplies authenticated identity, authorized source records and any application-specific source adapter; the memory lifecycle and its search / consolidation / context logic remain inside this package.
 
 ## Other model runtimes
 
