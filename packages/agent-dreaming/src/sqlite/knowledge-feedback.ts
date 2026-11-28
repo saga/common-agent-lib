@@ -43,8 +43,13 @@ export class SqliteKnowledgeFeedbackStore {
         'SELECT scope,page_id,page_version,payload FROM knowledge_feedback WHERE id=?'
       ).get(event.id) as SqliteRow | undefined;
       if (old) {
+        // occurredAt defaults to "now" at the API boundary. A replay of the same
+        // idempotency key can therefore carry a slightly different timestamp;
+        // preserve the first stored timestamp while comparing every semantic field.
+        const previous = decode<DreamingKnowledgeFeedbackEvent>(old.payload);
+        const comparable = { ...previous, occurredAt: event.occurredAt };
         if (old.scope !== event.scope || old.page_id !== event.pageId
-          || Number(old.page_version) !== event.pageVersion || old.payload !== payload) {
+          || Number(old.page_version) !== event.pageVersion || encode(comparable) !== payload) {
           throw new Error('Conflicting Knowledge feedback ID: ' + event.id);
         }
         return;
