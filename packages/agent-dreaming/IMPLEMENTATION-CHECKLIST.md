@@ -37,10 +37,11 @@
 ## P2 — Improve evidence discovery and feedback
 
 - [ ] Allow a host-provided source adapter to search historical transcripts / traces when local Experience and Evidence search is insufficient.
-- [ ] Keep retrieval orchestration, ranking, scope checks and evidence validation inside this package; adapters only fetch authorized source records.
+- [x] Keep retrieval orchestration, ranking, scope checks and evidence validation inside this package; the host remains responsible for authenticating external source access.
 - [x] Add memory and Knowledge context-use feedback linked to context ID, context hash, task ID, entity ID and exact revision.
 - [x] Use repeated current-version negative usefulness / contradiction signals to prioritize Knowledge re-review; never treat retrieval alone as positive feedback.
-- [ ] Add bounded discovery triggers and a minimum new-signal threshold to avoid wasteful Dreaming runs.
+- [x] Coalesce `record-appended` triggers until at least two unprocessed Experience records exist by default; allow a bounded 1-100 override.
+- [x] Bound each run to at most 100 Experiences per batch and 10 batches; startup, interval and manual runs bypass the event-trigger threshold.
 
 ## P3 — Hardening and evaluation
 

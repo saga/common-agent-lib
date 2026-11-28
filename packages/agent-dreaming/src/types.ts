@@ -485,6 +485,8 @@ export interface DreamingRunStore {
 
 export interface DreamingRepository {
   loadExperiences(input: { scope: string; afterSequence: number; reviewBefore?: string; limit: number }): Promise<DreamingPage<DreamingExperience>>;
+  /** Cheap count used only to coalesce record-appended triggers before model invocation. */
+  countUnprocessedExperiences?(scope: string): Promise<number>;
   loadMemories(input: { scope: string; experienceIds: readonly string[]; reviewBefore?: string; expiredBefore?: string; limit: number }): Promise<readonly DreamingMemory[]>;
   loadRelationships(input: { scope: string; memoryIds: readonly string[]; limit: number }): Promise<readonly DreamingRelationship[]>;
   loadCheckpoint(scope: string): Promise<DreamingCheckpoint>;
@@ -541,6 +543,8 @@ export interface DreamingOptions {
   maxPromptChars?: number;
   /** Number of active Knowledge pages supplied to one Dreaming batch (1-100). */
   maxKnowledgePages?: number;
+  /** Minimum new Experience records before record-appended invokes the model (default 2). */
+  minNewExperiencesToTrigger?: number;
   /** Re-review active Knowledge pages after this interval; defaults to 90 days. */
   knowledgeReviewIntervalMs?: number;
   leaseMs?: number;

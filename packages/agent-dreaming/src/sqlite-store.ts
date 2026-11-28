@@ -76,6 +76,15 @@ export class SqliteDreamingStore implements
   }): Promise<DreamingPage<DreamingExperience>> {
     return this.experiences.loadExperiences(input);
   }
+
+  async countUnprocessedExperiences(scope: string): Promise<number> {
+    if (!scope.trim()) throw new TypeError('scope is required.');
+    const checkpoint = await this.experiences.loadCheckpoint(scope);
+    const row = this.database.db.prepare(
+      'SELECT COUNT(*) AS count FROM experiences WHERE scope=? AND sequence>?'
+    ).get(scope, checkpoint.afterSequence) as { count: number | bigint };
+    return Number(row.count);
+  }
   markExperiencesReviewed(input: {
     scope: string; ids: readonly string[]; reviewedAt: string;
   }): Promise<void> {

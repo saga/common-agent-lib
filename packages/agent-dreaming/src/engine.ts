@@ -34,6 +34,19 @@ export class DreamingEngine {
       && (!Number.isSafeInteger(options.maxKnowledgePages) || options.maxKnowledgePages < 1 || options.maxKnowledgePages > 100)) {
       throw new Error('maxKnowledgePages must be an integer between 1 and 100.');
     }
+    if (options.batchSize !== undefined
+      && (!Number.isSafeInteger(options.batchSize) || options.batchSize < 1 || options.batchSize > 100)) {
+      throw new Error('batchSize must be an integer between 1 and 100.');
+    }
+    if (options.maxBatchesPerRun !== undefined
+      && (!Number.isSafeInteger(options.maxBatchesPerRun) || options.maxBatchesPerRun < 1 || options.maxBatchesPerRun > 10)) {
+      throw new Error('maxBatchesPerRun must be an integer between 1 and 10.');
+    }
+    if (options.minNewExperiencesToTrigger !== undefined
+      && (!Number.isSafeInteger(options.minNewExperiencesToTrigger)
+        || options.minNewExperiencesToTrigger < 1 || options.minNewExperiencesToTrigger > 100)) {
+      throw new Error('minNewExperiencesToTrigger must be an integer between 1 and 100.');
+    }
     for (const [name, value] of Object.entries(options.autoCandidateThresholds ?? {})) {
       if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
         throw new Error(`autoCandidateThresholds.${name} must be between 0 and 1.`);
@@ -68,9 +81,21 @@ export class DreamingEngine {
   }
 
   /** Call after appending a meaningful record; runs are coalesced per scope. */
-  notifyRecordAppended(scope: string): Promise<DreamingRun | undefined> {
+  async notifyRecordAppended(scope: string): Promise<DreamingRun | undefined> {
     this.assertScope(scope);
-    if (this.stopped) return Promise.resolve(undefined);
+    if (this.stopped) return undefined;
+    const active = this.active.get(scope);
+    if (active) return active;
+
+    const threshold = this.options.minNewExperiencesToTrigger ?? 2;
+    if (threshold > 1 && this.repository.countUnprocessedExperiences) {
+      const count = await this.repository.countUnprocessedExperiences(scope);
+      if (!Number.isSafeInteger(count) || count < 0) {
+        throw new Error('Repository returned an invalid unprocessed Experience count.');
+      }
+      if (count < threshold) return undefined;
+    }
+    // Adapters without a count method retain the previous eager-trigger behavior.
     return this.safeRun({ scope, trigger: 'record-appended' });
   }
 
@@ -189,8 +214,8 @@ export class DreamingEngine {
     };
     await this.repository.createRun(run);
 
-      const batchSize = Math.max(1, this.options.batchSize ?? 40);
-      const maxBatches = Math.max(1, this.options.maxBatchesPerRun ?? 3);
+      const batchSize = this.options.batchSize ?? 40;
+      const maxBatches = this.options.maxBatchesPerRun ?? 3;
       const reviewBefore = new Date(Date.now() - (this.options.reviewIntervalMs ?? 30 * 24 * 60 * 60_000)).toISOString();
       const knowledgeReviewBefore = new Date(Date.now() - (this.options.knowledgeReviewIntervalMs ?? 90 * 24 * 60 * 60_000)).toISOString();
       let afterSequence = checkpoint.afterSequence;
