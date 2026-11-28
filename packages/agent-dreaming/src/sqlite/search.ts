@@ -165,8 +165,9 @@ export class SqliteSearchStore {
          FROM evidence_search
          JOIN evidence e ON e.ref=evidence_search.ref AND e.scope=evidence_search.scope
          WHERE evidence_search.scope=? AND evidence_search MATCH ?
+           AND (e.expires_at IS NULL OR e.expires_at>?)
          ORDER BY bm25(evidence_search), e.created_at DESC LIMIT ?`
-      ).all(scope, fts, limit) as SqliteRow[];
+      ).all(scope, fts, new Date().toISOString(), limit) as SqliteRow[];
       for (const row of rows) results.set(String(row.ref), mapEvidenceHit(row, 1 + Math.min(1, Math.abs(Number(row.search_rank)) * 10_000)));
     }
     const terms = cjkTerms(query);
@@ -175,9 +176,9 @@ export class SqliteSearchStore {
       const scoreExpr = terms.map(() => 'CASE WHEN instr(content, ?) > 0 THEN 1 ELSE 0 END').join(' + ');
       const rows = this.context.db.prepare(
         `SELECT *, (${scoreExpr}) AS matched_terms FROM evidence
-         WHERE scope=? AND (${predicates})
+         WHERE scope=? AND (expires_at IS NULL OR expires_at>?) AND (${predicates})
          ORDER BY matched_terms DESC, created_at DESC LIMIT ?`
-      ).all(...terms, scope, ...terms, limit) as SqliteRow[];
+      ).all(...terms, scope, new Date().toISOString(), ...terms, limit) as SqliteRow[];
       for (const row of rows) {
         const score = Number(row.matched_terms) / terms.length;
         const hit = mapEvidenceHit(row, score);

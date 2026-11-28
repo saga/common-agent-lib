@@ -55,8 +55,11 @@ export class SqliteMemoryManifestStore {
         "SELECT id,content,importance,authority,refs FROM memories WHERE scope=? AND authority!='user-explicit' AND status='confirmed' AND importance>=0.65 AND (valid_until IS NULL OR valid_until>?) ORDER BY importance DESC,updated_at DESC LIMIT 100"
       ).all(scope, now) as SqliteRow[];
       const pages = this.context.db.prepare(
-        "SELECT id,title,summary,content,tags,refs,version FROM knowledge_pages WHERE scope=? AND status='active' ORDER BY updated_at DESC LIMIT 100"
-      ).all(scope) as SqliteRow[];
+        "SELECT id,title,summary,content,tags,refs,version FROM knowledge_pages WHERE scope=? AND status='active' " +
+        "AND NOT EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) source " +
+        "JOIN evidence e ON e.ref=source.value AND e.scope=knowledge_pages.scope " +
+        "WHERE e.expires_at IS NOT NULL AND e.expires_at<=?) ORDER BY updated_at DESC LIMIT 100"
+      ).all(scope, now) as SqliteRow[];
 
       const candidates: ManifestEntry[] = [
         ...explicit.map((row): ManifestEntry => ({

@@ -259,6 +259,7 @@ export class SqliteDreamingStore implements
   }
 
   async buildContext(input: DreamingContextRequest): Promise<DreamingContextResult> {
+    await this.knowledgeStore.synchronizeExpiredEvidence(input.scope);
     const [context, persistentManifest] = await Promise.all([
       this.contextStore.build(input),
       this.manifestStore.get(input.scope),
@@ -266,11 +267,13 @@ export class SqliteDreamingStore implements
     return { ...context, persistentManifest };
   }
 
-  getMemoryManifest(scope: string): Promise<DreamingMemoryManifest> {
+  async getMemoryManifest(scope: string): Promise<DreamingMemoryManifest> {
+    await this.knowledgeStore.synchronizeExpiredEvidence(scope);
     return this.manifestStore.get(scope);
   }
 
-  rebuildMemoryManifest(scope: string): Promise<DreamingMemoryManifest> {
+  async rebuildMemoryManifest(scope: string): Promise<DreamingMemoryManifest> {
+    await this.knowledgeStore.synchronizeExpiredEvidence(scope);
     return this.manifestStore.rebuild(scope);
   }
 

@@ -82,6 +82,8 @@ export interface DreamingEvidence {
   content: string;
   kind: string;
   createdAt?: string;
+  /** Immutable source expiry. Expired Evidence remains inspectable by Dreaming, but is excluded from ordinary retrieval. */
+  expiresAt?: string;
   origin?: DreamingOrigin;
   metadata?: Readonly<Record<string, unknown>>;
 }

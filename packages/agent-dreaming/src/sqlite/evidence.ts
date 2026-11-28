@@ -7,6 +7,14 @@ export class SqliteEvidenceStore implements DreamingEvidenceResolver {
 
   async putEvidence(scope: string, evidence: DreamingEvidence): Promise<void> {
     this.context.ensureOpen();
+    if (!scope.trim() || !evidence.ref.trim() || !evidence.kind.trim()) {
+      throw new TypeError('Evidence scope, ref and kind are required.');
+    }
+    if (evidence.expiresAt !== undefined && !Number.isFinite(Date.parse(evidence.expiresAt))) {
+      throw new TypeError('Evidence expiresAt must be a valid timestamp.');
+    }
+    // Normalize to UTC ISO so SQLite comparisons are chronologically reliable.
+    const expiresAt = evidence.expiresAt === undefined ? null : new Date(evidence.expiresAt).toISOString();
     this.context.transaction(() => {
       const old = this.context.db.prepare('SELECT * FROM evidence WHERE ref=?')
         .get(evidence.ref) as SqliteRow | undefined;
@@ -17,6 +25,7 @@ export class SqliteEvidenceStore implements DreamingEvidenceResolver {
         const same = old.content === evidence.content
           && old.kind === evidence.kind
           && old.created_at === (evidence.createdAt ?? null)
+          && old.expires_at === expiresAt
           && String(old.metadata) === encode(evidence.metadata ?? {})
           && (old.origin == null ? evidence.origin === undefined : String(old.origin) === encode(evidence.origin));
         if (!same) {
@@ -25,9 +34,10 @@ export class SqliteEvidenceStore implements DreamingEvidenceResolver {
         return;
       }
       this.context.db.prepare(
-        'INSERT INTO evidence(ref,scope,content,kind,created_at,metadata,origin) VALUES(?,?,?,?,?,?,?)'
+        'INSERT INTO evidence(ref,scope,content,kind,created_at,metadata,origin,expires_at) VALUES(?,?,?,?,?,?,?,?)'
       ).run(evidence.ref, scope, evidence.content, evidence.kind,
-        evidence.createdAt ?? null, encode(evidence.metadata ?? {}), evidence.origin ? encode(evidence.origin) : null);
+        evidence.createdAt ?? null, encode(evidence.metadata ?? {}), evidence.origin ? encode(evidence.origin) : null,
+        expiresAt);
     });
   }
 

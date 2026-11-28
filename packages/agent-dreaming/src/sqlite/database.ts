@@ -48,6 +48,7 @@ export function mapEvidence(row: SqliteRow): DreamingEvidence {
     content: String(row.content),
     kind: String(row.kind),
     ...(row.created_at ? { createdAt: String(row.created_at) } : {}),
+    ...(row.expires_at ? { expiresAt: String(row.expires_at) } : {}),
     ...(row.origin ? { origin: decode<DreamingOrigin>(row.origin) } : {}),
     metadata: decode<Record<string, unknown>>(row.metadata),
   };
@@ -100,7 +101,7 @@ export class SqliteDatabase {
       'CREATE TABLE IF NOT EXISTS relationships(id TEXT PRIMARY KEY,scope TEXT NOT NULL,from_id TEXT NOT NULL,to_id TEXT NOT NULL,kind TEXT NOT NULL,refs TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS relationships_scope_from ON relationships(scope,from_id);' +
       'CREATE INDEX IF NOT EXISTS relationships_scope_to ON relationships(scope,to_id);' +
-      'CREATE TABLE IF NOT EXISTS evidence(ref TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT,metadata TEXT NOT NULL,origin TEXT);' +
+      'CREATE TABLE IF NOT EXISTS evidence(ref TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT,metadata TEXT NOT NULL,origin TEXT,expires_at TEXT);' +
       'CREATE INDEX IF NOT EXISTS evidence_scope_created ON evidence(scope,created_at DESC);' +
       'CREATE TABLE IF NOT EXISTS knowledge_pages(id TEXT PRIMARY KEY,scope TEXT NOT NULL,title TEXT NOT NULL,summary TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,tags TEXT NOT NULL,refs TEXT NOT NULL,version INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,metadata TEXT NOT NULL,last_reviewed_at TEXT);' +
       'CREATE INDEX IF NOT EXISTS knowledge_pages_scope_status ON knowledge_pages(scope,status,updated_at DESC);' +
@@ -134,6 +135,7 @@ export class SqliteDatabase {
     };
     ensureColumn('experiences', 'origin', 'TEXT');
     ensureColumn('evidence', 'origin', 'TEXT');
+    ensureColumn('evidence', 'expires_at', 'TEXT');
     ensureColumn('memories', 'memory_type', 'TEXT');
     ensureColumn('memories', 'authority', "TEXT NOT NULL DEFAULT 'derived'");
     ensureColumn('knowledge_pages', 'last_reviewed_at', 'TEXT');
@@ -167,7 +169,7 @@ export class SqliteDatabase {
       "DROP TRIGGER IF EXISTS manifest_knowledge_update;" +
       "CREATE TRIGGER manifest_knowledge_update AFTER UPDATE OF id,scope,title,summary,content,status,tags,refs,version,metadata ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
       "CREATE TRIGGER IF NOT EXISTS manifest_knowledge_delete AFTER DELETE ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
-      "CREATE TRIGGER IF NOT EXISTS knowledge_evidence_update AFTER UPDATE OF scope,content,kind,created_at,metadata ON evidence BEGIN UPDATE knowledge_pages SET last_reviewed_at=NULL WHERE scope=old.scope AND EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) WHERE json_each.value=old.ref); UPDATE knowledge_pages SET last_reviewed_at=NULL WHERE scope=new.scope AND EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) WHERE json_each.value=new.ref); END;" +
+      "CREATE TRIGGER IF NOT EXISTS knowledge_evidence_update AFTER UPDATE OF scope,content,kind,created_at,metadata,expires_at ON evidence BEGIN UPDATE knowledge_pages SET last_reviewed_at=NULL WHERE scope=old.scope AND EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) WHERE json_each.value=old.ref); UPDATE knowledge_pages SET last_reviewed_at=NULL WHERE scope=new.scope AND EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) WHERE json_each.value=new.ref); END;" +
       "CREATE TRIGGER IF NOT EXISTS knowledge_evidence_delete AFTER DELETE ON evidence BEGIN UPDATE knowledge_pages SET status='draft',last_reviewed_at=NULL WHERE scope=old.scope AND EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) WHERE json_each.value=old.ref); END;"
     );
     // Backfill indexes for databases created before FTS support was introduced.
@@ -177,7 +179,7 @@ export class SqliteDatabase {
       'INSERT INTO evidence_search(rowid,ref,scope,content) SELECT e.rowid,e.ref,e.scope,e.content FROM evidence e WHERE NOT EXISTS (SELECT 1 FROM evidence_search f WHERE f.rowid=e.rowid);' +
       'INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) SELECT k.rowid,k.id,k.scope,k.title,k.summary,k.content,k.tags FROM knowledge_pages k WHERE NOT EXISTS (SELECT 1 FROM knowledge_search f WHERE f.rowid=k.rowid);'
     );
-    this.db.exec('PRAGMA user_version=9');
+    this.db.exec('PRAGMA user_version=10');
     if (filename !== ':memory:') {
       try { chmodSync(filename, 0o600); } catch { /* Directory permissions still protect the database. */ }
     }

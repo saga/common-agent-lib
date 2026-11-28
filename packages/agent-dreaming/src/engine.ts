@@ -286,8 +286,10 @@ export class DreamingEngine {
             : [];
         const seenKnowledgePageIds = new Set<string>();
         for (const page of knowledgePages) {
-          if (page.scope !== scope || page.status !== 'active' || seenKnowledgePageIds.has(page.id)) {
-            throw new Error('Repository returned invalid, duplicate or cross-scope active Knowledge pages.');
+          const expiryDraft = page.status === 'draft'
+            && page.metadata?.evidenceExpiryRequiresReview === true;
+          if (page.scope !== scope || (page.status !== 'active' && !expiryDraft) || seenKnowledgePageIds.has(page.id)) {
+            throw new Error('Repository returned invalid, duplicate or cross-scope Knowledge maintenance pages.');
           }
           seenKnowledgePageIds.add(page.id);
         }

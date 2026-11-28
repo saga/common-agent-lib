@@ -39,18 +39,67 @@ function cjkTerms(query: string): string[] {
 export class SqliteKnowledgeStore {
   constructor(private readonly context: SqliteDatabase) {}
 
-  private validateEvidence(scope: string, refs: readonly string[]): void {
+  private validateEvidence(scope: string, refs: readonly string[], allowExpired = false): void {
     const uniqueRefs = [...new Set(refs)];
     if (!uniqueRefs.length || uniqueRefs.length !== refs.length || uniqueRefs.some((ref) => !ref.trim())) {
       throw new TypeError('Knowledge pages and links require unique, non-empty evidence references.');
     }
     if (uniqueRefs.length > 900) throw new TypeError('Knowledge provenance is limited to 900 references per operation.');
     const found = this.context.db.prepare(
-      `SELECT ref FROM evidence WHERE scope=? AND ref IN (${uniqueRefs.map(() => '?').join(',')})`
+      `SELECT ref,expires_at FROM evidence WHERE scope=? AND ref IN (${uniqueRefs.map(() => '?').join(',')})`
     ).all(scope, ...uniqueRefs) as SqliteRow[];
     const available = new Set(found.map((row) => String(row.ref)));
     const missing = uniqueRefs.filter((ref) => !available.has(ref));
     if (missing.length) throw new Error('Knowledge provenance is missing or outside scope: ' + missing.join(', '));
+    if (!allowExpired) {
+      const now = Date.now();
+      const expired = found.filter((row) => row.expires_at && Date.parse(String(row.expires_at)) <= now)
+        .map((row) => String(row.ref));
+      if (expired.length) throw new Error('Knowledge provenance has expired Evidence: ' + expired.join(', '));
+    }
+  }
+
+  /** Demote active pages whose immutable source Evidence has expired. */
+  private demoteExpiredEvidencePages(scope: string, pageId?: string, limit = 500): number {
+    const now = new Date().toISOString();
+    const rows = this.context.db.prepare(
+      `SELECT k.* FROM knowledge_pages k
+       WHERE k.scope=? AND k.status='active' AND (? IS NULL OR k.id=?)
+         AND EXISTS (
+           SELECT 1 FROM json_each(k.refs) source
+           JOIN evidence e ON e.ref=source.value AND e.scope=k.scope
+           WHERE e.expires_at IS NOT NULL AND e.expires_at<=?
+         )
+       ORDER BY k.updated_at ASC,k.id LIMIT ?`
+    ).all(scope, pageId ?? null, pageId ?? null, now, limit) as SqliteRow[];
+    for (const row of rows) {
+      const page = mapKnowledgePage(row);
+      const expiredRows = this.context.db.prepare(
+        `SELECT e.ref FROM json_each(?) source
+         JOIN evidence e ON e.ref=source.value AND e.scope=?
+         WHERE e.expires_at IS NOT NULL AND e.expires_at<=?
+         ORDER BY e.ref`
+      ).all(String(row.refs), scope, now) as SqliteRow[];
+      const expiredEvidenceRefs = expiredRows.map((item) => String(item.ref));
+      this.savePageInTransaction({
+        id: page.id, scope: page.scope, title: page.title, summary: page.summary,
+        content: page.content, status: 'draft', tags: page.tags, sourceRefs: page.sourceRefs,
+        metadata: {
+          ...(page.metadata ?? {}),
+          evidenceExpiryRequiresReview: true,
+          expiredEvidenceRefs,
+          evidenceExpiryDetectedAt: now,
+        },
+        reason: 'source-evidence-expired: ' + expiredEvidenceRefs.join(', '),
+      });
+    }
+    return rows.length;
+  }
+
+  async synchronizeExpiredEvidence(scope: string): Promise<number> {
+    this.context.ensureOpen();
+    if (!scope.trim()) throw new TypeError('scope is required.');
+    return this.context.transaction(() => this.demoteExpiredEvidencePages(scope));
   }
 
   private validatePageInput(input: DreamingKnowledgePageInput): void {
@@ -79,10 +128,10 @@ export class SqliteKnowledgeStore {
     const old = this.context.db.prepare('SELECT * FROM knowledge_pages WHERE id=?')
       .get(input.id) as SqliteRow | undefined;
     if (old && old.scope !== input.scope) throw new Error('Knowledge page ID belongs to another scope: ' + input.id);
-    this.validateEvidence(input.scope, input.sourceRefs);
     const tags = [...new Set(input.tags ?? [])];
     const metadata = input.metadata ?? {};
     const status = input.status ?? 'active';
+    this.validateEvidence(input.scope, input.sourceRefs, status !== 'active');
     const same = old
       && old.title === input.title.trim()
       && old.summary === input.summary.trim()
@@ -121,6 +170,8 @@ export class SqliteKnowledgeStore {
 
   async getPage(input: { scope: string; pageId: string }): Promise<DreamingKnowledgePage | undefined> {
     this.context.ensureOpen();
+    if (!input.scope.trim() || !input.pageId.trim()) throw new TypeError('scope and pageId are required.');
+    this.context.transaction(() => this.demoteExpiredEvidencePages(input.scope, input.pageId, 1));
     const row = this.context.db.prepare('SELECT * FROM knowledge_pages WHERE id=? AND scope=?')
       .get(input.pageId, input.scope) as SqliteRow | undefined;
     return row ? mapKnowledgePage(row) : undefined;
@@ -129,6 +180,7 @@ export class SqliteKnowledgeStore {
   async listPages(input: { scope: string; status?: DreamingKnowledgePage['status']; limit?: number }): Promise<DreamingKnowledgePage[]> {
     this.context.ensureOpen();
     const limit = assertLimit(input.limit ?? 100, 1_000);
+    this.context.transaction(() => this.demoteExpiredEvidencePages(input.scope));
     const rows = input.status
       ? this.context.db.prepare('SELECT * FROM knowledge_pages WHERE scope=? AND status=? ORDER BY updated_at DESC LIMIT ?')
         .all(input.scope, input.status, limit) as SqliteRow[]
@@ -140,18 +192,22 @@ export class SqliteKnowledgeStore {
   async listPagesForMaintenance(input: { scope: string; reviewBefore: string; limit: number }): Promise<DreamingKnowledgePage[]> {
     this.context.ensureOpen();
     const limit = assertLimit(input.limit, 100);
+    this.context.transaction(() => this.demoteExpiredEvidencePages(input.scope));
     if (!input.scope.trim() || !Number.isFinite(Date.parse(input.reviewBefore))) {
       throw new TypeError('Knowledge maintenance query requires a scope and valid reviewBefore timestamp.');
     }
     const rows = this.context.db.prepare(
-      "SELECT * FROM knowledge_pages WHERE scope=? AND status='active' " +
-      "ORDER BY CASE WHEN EXISTS (SELECT 1 FROM knowledge_feedback f WHERE f.scope=knowledge_pages.scope " +
+      "SELECT * FROM knowledge_pages WHERE scope=? AND (" +
+      "status='active' OR (status='draft' AND json_extract(metadata,'$.evidenceExpiryRequiresReview')=1 " +
+      "AND (last_reviewed_at IS NULL OR last_reviewed_at<?))) " +
+      "ORDER BY CASE WHEN status='draft' THEN -1 " +
+      "WHEN EXISTS (SELECT 1 FROM knowledge_feedback f WHERE f.scope=knowledge_pages.scope " +
       "AND f.page_id=knowledge_pages.id AND f.page_version=knowledge_pages.version AND f.occurred_at>=? " +
       "AND f.outcome IN ('not-useful','contradicts','incorrect','outdated','rejected') " +
       "GROUP BY f.scope,f.page_id HAVING COUNT(*)>=2) THEN 0 " +
       "WHEN last_reviewed_at IS NULL OR last_reviewed_at<? OR updated_at>last_reviewed_at THEN 1 ELSE 2 END, " +
       "COALESCE(last_reviewed_at,updated_at) ASC,updated_at DESC LIMIT ?"
-    ).all(input.scope, input.reviewBefore, input.reviewBefore, limit) as SqliteRow[];
+    ).all(input.scope, input.reviewBefore, input.reviewBefore, input.reviewBefore, limit) as SqliteRow[];
     return rows.map(mapKnowledgePage);
   }
 
@@ -165,7 +221,7 @@ export class SqliteKnowledgeStore {
     if (ids.length > 100) throw new TypeError('At most 100 Knowledge pages may be marked reviewed at once.');
     this.context.transaction(() => {
       const update = this.context.db.prepare(
-        "UPDATE knowledge_pages SET last_reviewed_at=? WHERE scope=? AND id=? AND status='active'"
+        "UPDATE knowledge_pages SET last_reviewed_at=? WHERE scope=? AND id=? AND (status='active' OR (status='draft' AND json_extract(metadata,'$.evidenceExpiryRequiresReview')=1))"
       );
       for (const id of ids) update.run(input.reviewedAt, input.scope, id);
     });
@@ -254,7 +310,8 @@ export class SqliteKnowledgeStore {
     }
 
     return this.context.transaction(() => {
-      this.validateEvidence(proposal.scope, proposal.evidenceRefs);
+      // Expired Evidence can support revalidation decisions, but not newly active content.
+      this.validateEvidence(proposal.scope, proposal.evidenceRefs, true);
       const payload = encode(proposal);
       const existingProposal = this.context.db.prepare(
         'SELECT scope,payload FROM applied_knowledge_proposals WHERE proposal_id=?'
@@ -276,6 +333,9 @@ export class SqliteKnowledgeStore {
       const targetIds = new Set(proposal.targetPageIds);
       const highConfidence = proposal.confidence >= 0.82;
       const evidenceRefs = [...proposal.evidenceRefs];
+      const canMaintainTarget = (page: DreamingKnowledgePage) =>
+        page.status === 'active'
+        || (page.status === 'draft' && page.metadata?.evidenceExpiryRequiresReview === true);
 
       const annotated = (
         page: DreamingKnowledgePageInput,
@@ -285,7 +345,7 @@ export class SqliteKnowledgeStore {
         ...page,
         ...(id ? { id } : {}),
         status,
-        sourceRefs: [...new Set([...page.sourceRefs, ...evidenceRefs])],
+        sourceRefs: [...new Set(page.sourceRefs)],
         metadata: {
           ...(page.metadata ?? {}),
           maintenanceProposalId: proposal.id,
@@ -341,7 +401,7 @@ export class SqliteKnowledgeStore {
         }
         case 'revise': {
           if (targets.length !== 1 || !proposal.proposedPage
-            || proposal.proposedPage.id !== targets[0]?.id || targets[0]?.status !== 'active') {
+            || proposal.proposedPage.id !== targets[0]?.id || !targets[0] || !canMaintainTarget(targets[0])) {
             throw new Error('Knowledge revise requires one active target and the same proposed page ID.');
           }
           this.savePageInTransaction(annotated(proposal.proposedPage, 'active'));
@@ -349,7 +409,7 @@ export class SqliteKnowledgeStore {
         }
         case 'merge': {
           if (targets.length < 2 || !proposal.proposedPage
-            || targetIds.has(proposal.proposedPage.id) || targets.some((page) => page.status !== 'active')) {
+            || targetIds.has(proposal.proposedPage.id) || targets.some((page) => !canMaintainTarget(page))) {
             throw new Error('Knowledge merge requires at least two active targets and a distinct output page.');
           }
           if (this.context.db.prepare('SELECT 1 AS found FROM knowledge_pages WHERE id=?')
@@ -380,7 +440,7 @@ export class SqliteKnowledgeStore {
         }
         case 'supersede': {
           if (!proposal.proposedPage || !targets.length
-            || targetIds.has(proposal.proposedPage.id) || targets.some((page) => page.status !== 'active')) {
+            || targetIds.has(proposal.proposedPage.id) || targets.some((page) => !canMaintainTarget(page))) {
             throw new Error('Knowledge supersede requires a replacement page and active targets.');
           }
           if (this.context.db.prepare('SELECT 1 AS found FROM knowledge_pages WHERE id=?')
@@ -397,7 +457,7 @@ export class SqliteKnowledgeStore {
           break;
         }
         case 'deprecate': {
-          if (!targets.length || targets.some((page) => page.status !== 'active')) {
+          if (!targets.length || targets.some((page) => !canMaintainTarget(page))) {
             throw new Error('Knowledge deprecate requires active target pages.');
           }
           for (const target of targets) changeStatus(target, 'deprecated');
@@ -432,6 +492,7 @@ export class SqliteKnowledgeStore {
   async search(input: DreamingKnowledgeSearchRequest): Promise<DreamingKnowledgeSearchHit[]> {
     this.context.ensureOpen();
     if (!input.scope.trim() || !input.query.trim()) throw new TypeError('Knowledge search requires scope and query.');
+    this.context.transaction(() => this.demoteExpiredEvidencePages(input.scope));
     if (input.query.length > 4_000) throw new TypeError('Knowledge query must not exceed 4000 characters.');
     const limit = assertLimit(input.limit ?? 10);
     const terms = textTerms(input.query);
@@ -447,8 +508,13 @@ export class SqliteKnowledgeStore {
            ON k.id=knowledge_search.id AND k.scope=knowledge_search.scope
          WHERE knowledge_search.scope=? AND knowledge_search MATCH ?
            AND k.status IN ${statuses}
+           AND NOT EXISTS (
+             SELECT 1 FROM json_each(k.refs) source
+             JOIN evidence e ON e.ref=source.value AND e.scope=k.scope
+             WHERE e.expires_at IS NOT NULL AND e.expires_at<=?
+           )
          ORDER BY bm25(knowledge_search),k.updated_at DESC LIMIT ?`
-      ).all(input.scope, fts, limit) as SqliteRow[];
+      ).all(input.scope, fts, new Date().toISOString(), limit) as SqliteRow[];
       for (const row of rows) {
         const rank = Number(row.search_rank);
         results.set(String(row.id), this.mapHit(row, 1 + Math.min(1, Math.abs(rank) * 10_000)));
@@ -461,10 +527,16 @@ export class SqliteKnowledgeStore {
       const params = cjk.flatMap((term) => [term,term,term,term]);
       const scores = cjk.flatMap((term) => [term,term,term,term]);
       const rows = this.context.db.prepare(
-        `SELECT *,(${score}) AS matched_score FROM knowledge_pages
-         WHERE scope=? AND status IN ${statuses} AND (${predicates})
-         ORDER BY matched_score DESC,updated_at DESC LIMIT ?`
-      ).all(...scores, input.scope, ...params, limit) as SqliteRow[];
+        `SELECT k.*,(${score}) AS matched_score FROM knowledge_pages k
+         WHERE k.scope=? AND k.status IN ${statuses}
+           AND NOT EXISTS (
+             SELECT 1 FROM json_each(k.refs) source
+             JOIN evidence e ON e.ref=source.value AND e.scope=k.scope
+             WHERE e.expires_at IS NOT NULL AND e.expires_at<=?
+           )
+           AND (${predicates})
+         ORDER BY matched_score DESC,k.updated_at DESC LIMIT ?`
+      ).all(...scores, input.scope, new Date().toISOString(), ...params, limit) as SqliteRow[];
       for (const row of rows) {
         const hit = this.mapHit(row, Number(row.matched_score) / (cjk.length * 7));
         const old = results.get(hit.id);
@@ -512,8 +584,13 @@ export class SqliteKnowledgeStore {
       const neighborIds = [...scoreByNeighbor.keys()].slice(0, maxPages - expanded.size);
       const placeholders = neighborIds.map(() => '?').join(',');
       const rows = this.context.db.prepare(
-        `SELECT * FROM knowledge_pages WHERE scope=? AND status='active' AND id IN (${placeholders})`
-      ).all(input.scope, ...neighborIds) as SqliteRow[];
+        `SELECT * FROM knowledge_pages WHERE scope=? AND status='active' AND id IN (${placeholders})
+          AND NOT EXISTS (
+            SELECT 1 FROM json_each(knowledge_pages.refs) source
+            JOIN evidence e ON e.ref=source.value AND e.scope=knowledge_pages.scope
+            WHERE e.expires_at IS NOT NULL AND e.expires_at<=?
+          )`
+      ).all(input.scope, ...neighborIds, new Date().toISOString()) as SqliteRow[];
       const next: Array<{ id: string; score: number }> = [];
       for (const row of rows) {
         const id = String(row.id);
