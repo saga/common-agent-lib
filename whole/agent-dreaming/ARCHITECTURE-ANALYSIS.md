@@ -1,13 +1,15 @@
 # Dreaming 与 Anthropic Agent Memory 的差异分析及演进方案
 
 - 日期：2026-11-28
-- 状态：设计分析；原定实现项已完成，当前功能状态以 README 和 IMPLEMENTATION-CHECKLIST.md 为准
+- 状态：设计分析与实现对照；原方案保留作设计依据，原定核心实施项已完成。当前状态以 README 和 IMPLEMENTATION-CHECKLIST.md 为准
 - 对照对象：
   - [Anthropic: The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory)
   - [ChinaSiro/claude-code-sourcemap](https://github.com/ChinaSiro/claude-code-sourcemap)，恢复出的 Claude Code 2.1.88 源码，仅作为实现研究材料
   - 本目录当前 `@saga/agent-dreaming` 实现
 
 > 本文讨论的是设计能力和实现差距，不代表 Claude Code 的恢复源码就是 Anthropic 研究文章的全部实现。Source Map 仓库为非官方还原版本，不能将其视为 Anthropic 的内部设计规范。
+
+> **实现状态说明（2026-11-28）**：本文最初用于分析差距并提出方案；其中保留的流程图、模型建议和验收场景用于解释设计依据，不代表仍有待实现的功能。原实施清单已经完成，逐项状态见 [IMPLEMENTATION-CHECKLIST.md](./IMPLEMENTATION-CHECKLIST.md)。Agent Dreaming 当前实现还包含 Evidence `expiresAt` 重新验证、持久化 Memory Manifest、Context Feedback 和独立 consumer 打包验证。
 
 ## 1. 结论
 
@@ -124,7 +126,7 @@ Memory 与 Knowledge 是不同的持久化对象：
 
 ### 6.2 在 agent-dreaming 内增加 Knowledge 数据模型
 
-建议在本 package 内增加独立的知识实体，而不是把长篇内容塞进 `DreamingMemory.content`。
+当前 package 已在内部实现独立的知识实体，而不是把长篇内容塞进 `DreamingMemory.content`。
 
 建议的最小模型：
 
@@ -147,7 +149,7 @@ Memory 与 Knowledge 是不同的持久化对象：
 
 ### 6.3 维护流程
 
-建议将 Knowledge Maintenance 放在现有 Dreaming 流程之后，作为一个有条件触发的阶段：
+当前实现将 Knowledge Maintenance 放在 Dreaming 流程内，作为有条件触发的阶段：
 
 1. **Discover**：从本次已处理 Experience、现有 Memory、Knowledge 和反馈中寻找有复用价值的主题。
 2. **Retrieve**：读取相关 Knowledge 页面和原始 Evidence；发现现有引用不完整时，调用本 package 的历史证据搜索。
@@ -161,7 +163,7 @@ Memory 与 Knowledge 是不同的持久化对象：
 
 ### 6.4 索引和检索
 
-本 package 内应提供两种检索：
+本 package 已提供两种检索路径：
 
 - 主题检索：按 title、summary、tags、正文和来源进行全文检索。
 - 语义检索：复用本 package 自身的 EmbeddingProvider / VectorIndex 能力。
@@ -200,7 +202,7 @@ Knowledge 页面不要求全部放进 Prompt。搜索命中后只返回必要页
 
 ### 7.2 在本 package 内提供完整 Context Builder
 
-建议增加内部模块：
+当前 Context Builder 已覆盖以下职责（内部文件按存储和 API 边界组织，不要求逐项拆成独立 package）：
 
 - `context/retriever.ts`：统一检索 Memory、Knowledge 和 Recent Experience。
 - `context/selector.ts`：执行 scope、有效期、authority、相关性和重要性过滤及排序。
@@ -224,7 +226,7 @@ const context = await dreaming.buildContext({
 const promptContext = context.text;
 ```
 
-以上是目标 API 示例，不代表当前版本已经实现。
+当前 API 已由 `SqliteDreamingStore.buildContext()` 暴露；可运行示例见 [README 的 task-aware context 章节](./README.md#search-and-task-aware-context)。
 
 Context Result 应至少包含：
 
