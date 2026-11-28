@@ -30,7 +30,7 @@
 - [x] Prioritize two or more negative feedback signals for the exact active page version; retain old-version feedback without treating it as current.
 - [x] Bind Knowledge context-use feedback to context ID/hash and the exact page version, with scope and context-membership checks.
 - [x] Demote a Knowledge page to draft if its cited Evidence is deleted.
-- [ ] Add explicit Evidence expiry metadata and expiry-driven Knowledge demotion / revalidation.
+- [x] Add immutable Evidence expiry metadata; expired sources demote active Knowledge to versioned drafts, suppress retrieval / context / Manifest injection, and allow only evidence-backed revalidation.
 - [x] Test page revision history, duplicate-save idempotency, CJK retrieval, cross-scope isolation, evidence provenance and relation integrity.
 - [x] Test all six Knowledge lifecycle operations, proposal idempotency, low-confidence mutation safety and Dreaming Engine integration.
 
@@ -45,14 +45,15 @@
 
 ## P3 — Hardening and evaluation
 
-- [ ] Add end-to-end evaluation scenarios for personal memory, project memory, knowledge maintenance and context injection.
-- [ ] Add benchmarks for FTS / CJK search and large per-scope memory collections.
+- [x] Add deterministic end-to-end evaluation scenarios for personal memory, project memory, Knowledge expiry / maintenance and context injection.
+- [x] Add a repeatable FTS / CJK retrieval benchmark for large per-scope Memory collections; report p50 / p95 without brittle wall-clock pass thresholds.
 - [x] Verify npm pack contains the package decision, design, implementation checklist and usage docs.
 - [x] Run package build, typecheck, full test suite and isolated-consumer package test (Node.js 24 and 26 CI).
 
 ## Implementation notes
 
 - The built-in default remains SQLite. FTS5 is part of the SQLite capability used by the supported Node runtime.
+- Evidence expiry is immutable metadata: publish a new Evidence ref when the source is refreshed. Expired Evidence remains available to maintenance for historical inspection but is excluded from ordinary retrieval; active Knowledge that depends on it is versioned and demoted to draft.
 - Token budgets use an injected tokenizer when supplied. Without one, the built-in estimator is explicitly marked as approximate.
 - Explicit user memories are required context items. If they exceed the available budget, they remain included and the result reports overflow instead of silently discarding them.
 - Candidate memories are available to the consolidation engine but are not eligible for normal Agent context.

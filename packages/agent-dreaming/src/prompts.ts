@@ -78,6 +78,7 @@ Rules:
 - Use create for a new durable topic, revise for a materially better supported existing page, merge for duplicate/overlapping pages, link for a meaningful relationship, supersede when newer evidence replaces an older page, and deprecate when a page is no longer valid or useful.
 - Prefer concise pages with clear titles, summaries, tags and enough explanation to be reusable. Do not create near-duplicate pages.
 - Confidence must reflect evidence quality and durability. Low-confidence content may be saved as a draft, but must not overwrite, supersede or deprecate an active page.
+- Evidence expiry is authoritative. An active page whose source Evidence has expired is automatically demoted to draft and excluded from normal retrieval. Revalidate it against current evidence; only a high-confidence revision with fresh, non-expired sourceRefs may restore it to active. If current evidence cannot support it, keep it as draft or deprecate it. Never reactivate a page using expired Evidence.
 - Re-check pages explicitly supplied for maintenance against their original source evidence and recent feedback. Report an ID in reviewedKnowledgePageIds only after its source references were actually examined; an item merely appearing in the prompt is not a review.
 - Repeated not-useful, outdated, incorrect or contradicting signals are reasons to inspect the exact page version and original sources. Repeated useful or supporting feedback can support continued use, but retrieval alone is never positive feedback.
 - A page update resets its review clock. Do not mark a page reviewed if any of its source references were unavailable or not examined.
@@ -103,7 +104,7 @@ export function buildPrompt(
     relationships,
     sourceEvidence: evidence,
     memoryQuality,
-    activeKnowledgePages: knowledgePages,
+    knowledgePagesForMaintenance: knowledgePages,
     knowledgeRelationships: knowledgeLinks,
     recentKnowledgeFeedback: knowledgeFeedback,
   }, null, 2);
