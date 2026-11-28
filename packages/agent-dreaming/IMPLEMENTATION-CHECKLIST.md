@@ -18,15 +18,19 @@
 
 ## P1 — Knowledge maintenance (next major capability)
 
-- [x] Add KnowledgePage, KnowledgeLink and KnowledgePageVersion types owned by this package. (KnowledgeProposal is deferred until the page lifecycle is proven.)
+- [x] Add KnowledgePage, KnowledgeLink, KnowledgePageVersion and structured KnowledgeProposal types owned by this package.
 - [x] Add SQLite tables, additive migration, FTS5 index and pre-update version snapshots for Knowledge pages and links.
 - [x] Implement model-proposed create, revise, merge, link, supersede and deprecate operations with structured-output validation, scope / provenance checks, transactional idempotency and immutable prior-page snapshots.
 - [x] Add scope-isolated Knowledge full-text search (FTS5 + CJK fallback) and bounded, scope-filtered link expansion (depth 0-2; 50-page hard cap).
 - [x] Persist a bounded Memory Manifest for explicit instructions, important Memory and active Knowledge; source-table triggers mark it stale, reads rebuild only when dirty, and unchanged content keeps its version/hash.
-- [ ] Connect model-proposed Knowledge create, revise, merge, link, supersede and deprecate operations to the Dreaming run.
+- [x] Connect model-proposed Knowledge create, revise, merge, link, supersede and deprecate operations to the Dreaming run.
 - [x] Add a bounded Knowledge Maintenance stage to each eligible Dreaming batch. Supply at most 100 active pages / 200 active links and cap each model response at 30 Knowledge proposals.
 - [x] Create pages only when the model identifies durable value; low-confidence creates/revisions/merges/supersedes become drafts and cannot mutate active pages.
-- [ ] Re-check pages affected by contradictory, expired or superseding evidence.
+- [x] Re-review active pages at a bounded 90-day default interval; changed pages reset their review timestamp.
+- [x] Prioritize two or more negative feedback signals for the exact active page version; retain old-version feedback without treating it as current.
+- [x] Bind Knowledge context-use feedback to context ID/hash and the exact page version, with scope and context-membership checks.
+- [x] Demote a Knowledge page to draft if its cited Evidence is deleted.
+- [ ] Add explicit Evidence expiry metadata and expiry-driven Knowledge demotion / revalidation.
 - [x] Test page revision history, duplicate-save idempotency, CJK retrieval, cross-scope isolation, evidence provenance and relation integrity.
 - [x] Test all six Knowledge lifecycle operations, proposal idempotency, low-confidence mutation safety and Dreaming Engine integration.
 
@@ -34,8 +38,8 @@
 
 - [ ] Allow a host-provided source adapter to search historical transcripts / traces when local Experience and Evidence search is insufficient.
 - [ ] Keep retrieval orchestration, ranking, scope checks and evidence validation inside this package; adapters only fetch authorized source records.
-- [x] Add memory context-use feedback linked to context ID, task ID, memory ID and exact revision. (Knowledge-page feedback follows with P1.)
-- [ ] Use repeated usefulness / contradiction signals to prioritize re-review; never treat retrieval alone as positive feedback.
+- [x] Add memory and Knowledge context-use feedback linked to context ID, context hash, task ID, entity ID and exact revision.
+- [x] Use repeated current-version negative usefulness / contradiction signals to prioritize Knowledge re-review; never treat retrieval alone as positive feedback.
 - [ ] Add bounded discovery triggers and a minimum new-signal threshold to avoid wasteful Dreaming runs.
 
 ## P3 — Hardening and evaluation

@@ -1,6 +1,6 @@
 import type {
   DreamingCheckpoint, DreamingContextRequest, DreamingContextResult, DreamingEvidence, DreamingEvidenceResolver, DreamingExperience,
-  DreamingContextFeedbackInput, DreamingFeedbackEvent, DreamingKnowledgeLink, DreamingKnowledgePage, DreamingKnowledgePageInput, DreamingKnowledgePageVersion, DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest, DreamingKnowledgeProposal, DreamingKnowledgeProposalResult, DreamingMemory, DreamingMemoryManifest, DreamingMemoryHistoryStore, DreamingPage,
+  DreamingContextFeedbackInput, DreamingKnowledgeContextFeedbackInput, DreamingKnowledgeFeedbackEvent, DreamingFeedbackEvent, DreamingKnowledgeLink, DreamingKnowledgePage, DreamingKnowledgePageInput, DreamingKnowledgePageVersion, DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest, DreamingKnowledgeProposal, DreamingKnowledgeProposalResult, DreamingMemory, DreamingMemoryManifest, DreamingMemoryHistoryStore, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingRunStore,
   DreamingReviewQueue, DreamingReviewQueueItem, DreamingSearchHit, DreamingSearchRequest, DreamingUserDirectiveInput,
 } from './types.js';
@@ -18,6 +18,7 @@ import { SqliteUserDirectiveStore } from './sqlite/directives.js';
 import { SqliteSearchStore } from './sqlite/search.js';
 import { SqliteContextStore } from './sqlite/context.js';
 import { SqliteKnowledgeStore } from './sqlite/knowledge.js';
+import { SqliteKnowledgeFeedbackStore } from './sqlite/knowledge-feedback.js';
 import { SqliteMemoryManifestStore } from './sqlite/manifest.js';
 
 export type { SqliteDreamingOptions, ProposalReviewReason };
@@ -46,6 +47,7 @@ export class SqliteDreamingStore implements
   private readonly searchStore: SqliteSearchStore;
   private readonly contextStore: SqliteContextStore;
   private readonly knowledgeStore: SqliteKnowledgeStore;
+  private readonly knowledgeFeedbackStore: SqliteKnowledgeFeedbackStore;
   private readonly manifestStore: SqliteMemoryManifestStore;
 
   constructor(options: SqliteDreamingStoreOptions) {
@@ -62,6 +64,7 @@ export class SqliteDreamingStore implements
     this.searchStore = new SqliteSearchStore(this.database);
     this.contextStore = new SqliteContextStore(this.database);
     this.knowledgeStore = new SqliteKnowledgeStore(this.database);
+    this.knowledgeFeedbackStore = new SqliteKnowledgeFeedbackStore(this.database);
     this.manifestStore = new SqliteMemoryManifestStore(this.database);
   }
 
@@ -149,6 +152,14 @@ export class SqliteDreamingStore implements
     return this.knowledgeStore.listPages(input);
   }
 
+  listKnowledgePagesForMaintenance(input: { scope: string; reviewBefore: string; limit: number }): Promise<DreamingKnowledgePage[]> {
+    return this.knowledgeStore.listPagesForMaintenance(input);
+  }
+
+  markKnowledgePagesReviewed(input: { scope: string; ids: readonly string[]; reviewedAt: string }): Promise<void> {
+    return this.knowledgeStore.markPagesReviewed(input);
+  }
+
   listKnowledgePageVersions(input: { scope: string; pageId: string; limit?: number }): Promise<DreamingKnowledgePageVersion[]> {
     return this.knowledgeStore.listPageVersions(input);
   }
@@ -171,6 +182,42 @@ export class SqliteDreamingStore implements
     runId: string;
   }): Promise<DreamingKnowledgeProposalResult> {
     return this.knowledgeStore.commitProposal(input);
+  }
+
+  async recordKnowledgeContextFeedback(input: DreamingKnowledgeContextFeedbackInput): Promise<void> {
+    if (!input.id.trim() || !input.taskId.trim() || !input.context.id.trim() || !input.context.hash.trim()) {
+      throw new TypeError('Knowledge context feedback requires IDs and a context hash.');
+    }
+    const item = input.context.items.find((candidate) =>
+      candidate.id === input.pageId && candidate.sourceType === 'knowledge');
+    if (!item || !item.knowledgeVersion) {
+      throw new Error('The Knowledge page was not included in the supplied Context Builder result.');
+    }
+    await this.knowledgeFeedbackStore.record({
+      id: input.id,
+      scope: input.context.scope,
+      pageId: item.id,
+      pageVersion: item.knowledgeVersion,
+      kind: 'retrieval',
+      outcome: input.outcome,
+      occurredAt: input.occurredAt ?? new Date().toISOString(),
+      taskId: input.taskId,
+      contextId: input.context.id,
+      contextHash: input.context.hash,
+    });
+  }
+
+  recordKnowledgeFeedback(event: DreamingKnowledgeFeedbackEvent): Promise<void> {
+    return this.knowledgeFeedbackStore.record(event);
+  }
+
+  loadKnowledgeFeedback(input: {
+    scope: string;
+    pageIds: readonly string[];
+    since: string;
+    limit: number;
+  }): Promise<readonly DreamingKnowledgeFeedbackEvent[]> {
+    return this.knowledgeFeedbackStore.load(input);
   }
 
   search(input: DreamingSearchRequest): Promise<DreamingSearchHit[]> {

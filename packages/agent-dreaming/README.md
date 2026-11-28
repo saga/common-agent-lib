@@ -180,6 +180,22 @@ The Dreaming runtime can propose six operations: create, revise, merge, link, su
 
 Active Knowledge pages and their active-to-active links are included in the bounded Dreaming prompt. Context Builder searches active Knowledge alongside Memory and Evidence, expands related pages by one hop and records the exact page version in each context item. Hosts can also call `searchKnowledge({ scope, query, expandLinks: true, maxDepth: 1, maxPages: 20 })`; graph expansion is scope-filtered, supports at most two hops and 50 pages.
 
+Active pages are re-checked at least every 90 days by default, with unreviewed and recently changed pages first. Two or more negative signals (not useful, outdated, incorrect, rejected or contradicting) for the exact current page version within the review window move a page to the front of the review queue. Older-version feedback is retained but does not count against the current version. Page content changes reset the review timestamp. If referenced evidence is deleted, the page is demoted to draft; evidence references themselves are immutable, so publish changed source content under a new reference and revise the page with that reference.
+
+Hosts can report a result against the precise Knowledge page version included in a Context Builder response:
+
+```ts
+await store.recordKnowledgeContextFeedback({
+  id: 'feedback:task-42:payment-recovery',
+  context, // exact result returned by buildContext()
+  pageId: 'knowledge:payment-recovery',
+  taskId: 'task:42',
+  outcome: 'not-useful',
+});
+```
+
+The feedback record stores the context ID/hash and the included page version. Repeating the same feedback ID is idempotent; a page that was not actually included in the supplied context is rejected. Retrieval by itself is not treated as positive feedback.
+
 The persistent Memory Manifest is a compact per-scope index of explicit instructions, important confirmed memories and active Knowledge pages. SQLite triggers mark it stale whenever source rows change. `getMemoryManifest(scope)` rebuilds only a stale index; its version advances only when the content hash changes. The default hard bounds are 200 entries and 16,000 characters. The task-specific manifest returned by Context Builder remains distinct from this persistent index.
 
 ```ts

@@ -2,7 +2,6 @@ import type {
   DreamingCheckpoint, DreamingEvidence, DreamingEvidenceResolver, DreamingFeedbackEvent, DreamingMemory,
   DreamingMemoryQuality, DreamingModelResult, DreamingOptions, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun,
-  DreamingKnowledgePage, DreamingKnowledgeLink,
   DreamingRunInput, DreamingRuntime, DreamingUserMessageInput,
 } from './types.js';
 import { SYSTEM_PROMPT, buildPrompt } from './prompts.js';
@@ -185,6 +184,7 @@ export class DreamingEngine {
       rejectedProposalIds: [],
       pendingProposalIds: [],
       reviewedMemoryIds: [],
+      reviewedKnowledgePageIds: [],
       runtimeId: this.runtime.id,
     };
     await this.repository.createRun(run);
@@ -192,6 +192,7 @@ export class DreamingEngine {
       const batchSize = Math.max(1, this.options.batchSize ?? 40);
       const maxBatches = Math.max(1, this.options.maxBatchesPerRun ?? 3);
       const reviewBefore = new Date(Date.now() - (this.options.reviewIntervalMs ?? 30 * 24 * 60 * 60_000)).toISOString();
+      const knowledgeReviewBefore = new Date(Date.now() - (this.options.knowledgeReviewIntervalMs ?? 90 * 24 * 60 * 60_000)).toISOString();
       let afterSequence = checkpoint.afterSequence;
       let lastModel: string | undefined;
       let lastUsage: Readonly<Record<string, number>> | undefined;
@@ -247,11 +248,52 @@ export class DreamingEngine {
         if (relationships.some((item) => item.scope !== scope || !item.id || !item.fromId || !item.toId || item.fromId === item.toId)) {
           throw new Error('Repository returned invalid relationships for the active scope.');
         }
-        if (!experiences.length && !memories.length) break;
+        const knowledgeLimit = Math.min(100, Math.max(1, this.options.maxKnowledgePages ?? 30));
+        const knowledgePages = this.repository.listKnowledgePagesForMaintenance
+          ? await this.repository.listKnowledgePagesForMaintenance({
+            scope, reviewBefore: knowledgeReviewBefore, limit: knowledgeLimit,
+          })
+          : this.repository.listKnowledgePages
+            ? await this.repository.listKnowledgePages({ scope, status: 'active', limit: knowledgeLimit })
+            : [];
+        const seenKnowledgePageIds = new Set<string>();
+        for (const page of knowledgePages) {
+          if (page.scope !== scope || page.status !== 'active' || seenKnowledgePageIds.has(page.id)) {
+            throw new Error('Repository returned invalid, duplicate or cross-scope active Knowledge pages.');
+          }
+          seenKnowledgePageIds.add(page.id);
+        }
+        const knowledgePageIds = new Set(knowledgePages.map((page) => page.id));
+        const knowledgeFeedback = this.repository.loadKnowledgeFeedback
+          ? await this.repository.loadKnowledgeFeedback({
+            scope, pageIds: knowledgePages.map((page) => page.id),
+            since: knowledgeReviewBefore, limit: 500,
+          })
+          : [];
+        const pageVersions = new Map(knowledgePages.map((page) => [page.id, page.version]));
+        if (knowledgeFeedback.some((event) => event.scope !== scope
+          || !knowledgePageIds.has(event.pageId)
+          || !Number.isSafeInteger(event.pageVersion) || event.pageVersion < 1
+          || event.pageVersion > (pageVersions.get(event.pageId) ?? 0))) {
+          throw new Error('Repository returned invalid or cross-scope Knowledge feedback.');
+        }
+        const negativeFeedbackCount = new Map<string, number>();
+        for (const event of knowledgeFeedback) {
+          if (event.pageVersion === pageVersions.get(event.pageId)
+            && ['not-useful', 'contradicts', 'incorrect', 'outdated', 'rejected'].includes(event.outcome)) {
+            negativeFeedbackCount.set(event.pageId, (negativeFeedbackCount.get(event.pageId) ?? 0) + 1);
+          }
+        }
+        const dueKnowledgePages = knowledgePages.filter((page) =>
+          !page.lastReviewedAt || Date.parse(page.lastReviewedAt) < Date.parse(knowledgeReviewBefore)
+          || Date.parse(page.updatedAt) > Date.parse(page.lastReviewedAt ?? '')
+          || (negativeFeedbackCount.get(page.id) ?? 0) >= 2);
+        if (!experiences.length && !memories.length && !dueKnowledgePages.length) break;
         const refs = unique([
           ...experiences.flatMap((item) => [...item.sourceRefs]),
           ...memories.flatMap((item) => [...item.sourceRefs]),
           ...relationships.flatMap((item) => [...item.sourceRefs]),
+          ...knowledgePages.flatMap((item) => [...item.sourceRefs]),
         ]);
         const requestedRefs = refs.slice(0, Math.max(1, this.options.maxEvidenceItems ?? 100));
         const requestedRefSet = new Set(requestedRefs);
@@ -267,14 +309,9 @@ export class DreamingEngine {
         const evidence = [...resolvedEvidence];
         const evidenceRefs = new Set(evidence.map((item) => item.ref));
 
-        const knowledgeLimit = Math.min(100, Math.max(1, this.options.maxKnowledgePages ?? 30));
-        const knowledgePages = this.repository.listKnowledgePages
-          ? await this.repository.listKnowledgePages({ scope, status: 'active', limit: knowledgeLimit })
-          : [];
-        if (knowledgePages.some((page) => page.scope !== scope || page.status !== 'active')) {
-          throw new Error('Repository returned invalid or cross-scope active Knowledge pages.');
-        }
-        const knowledgePageIds = new Set(knowledgePages.map((page) => page.id));
+        const reviewableKnowledgePageIds = new Set(knowledgePages
+          .filter((page) => page.sourceRefs.length > 0 && page.sourceRefs.every((ref) => evidenceRefs.has(ref)))
+          .map((page) => page.id));
         const rawKnowledgeLinks = this.repository.listKnowledgeLinks
           ? await this.repository.listKnowledgeLinks({ scope, pageIds: [...knowledgePageIds], limit: 200 })
           : [];
@@ -286,11 +323,11 @@ export class DreamingEngine {
           knowledgePageIds.has(link.fromId) && knowledgePageIds.has(link.toId));
         const promptKnowledgePages = knowledgePages.map((page) => ({
           ...page,
-          content: page.content.slice(0, 3_500),
+          content: page.content.slice(0, 1_800),
         }));
         const prompt = buildPrompt(
           scope, experiences, memories, relationships, evidence, [...qualityByMemory.values()],
-          promptKnowledgePages, knowledgeLinks,
+          promptKnowledgePages, knowledgeLinks, knowledgeFeedback,
         );
         const maxPromptChars = this.options.maxPromptChars ?? 120_000;
         if (!Number.isSafeInteger(maxPromptChars) || maxPromptChars < 1_000) {
@@ -323,6 +360,22 @@ export class DreamingEngine {
             scope, ids: result.reviewedMemoryIds, reviewedAt: new Date().toISOString(),
           });
           run.reviewedMemoryIds.push(...result.reviewedMemoryIds);
+        }
+        const loadedKnowledgePageIds = new Set(knowledgePages.map((page) => page.id));
+        for (const id of result.reviewedKnowledgePageIds ?? []) {
+          if (!loadedKnowledgePageIds.has(id) || !reviewableKnowledgePageIds.has(id)) {
+            throw new Error(`Runtime marked an unavailable or unsupported Knowledge page as reviewed: ${id}`);
+          }
+        }
+        if (result.reviewedKnowledgePageIds?.length) {
+          if (!this.repository.markKnowledgePagesReviewed) {
+            throw new Error('Repository cannot persist Knowledge review timestamps.');
+          }
+          const reviewedAt = new Date().toISOString();
+          await this.repository.markKnowledgePagesReviewed({
+            scope, ids: result.reviewedKnowledgePageIds, reviewedAt,
+          });
+          run.reviewedKnowledgePageIds?.push(...result.reviewedKnowledgePageIds);
         }
 
         const memoryIds = new Set(memories.map((item) => item.id));

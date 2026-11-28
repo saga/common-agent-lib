@@ -104,7 +104,7 @@ export class SqliteKnowledgeStore {
         'INSERT INTO knowledge_page_versions(scope,page_id,version,reason,captured_at,payload) VALUES(?,?,?,?,?,?)'
       ).run(input.scope, input.id, previous.version, input.reason?.trim() || 'revise', now, encode(previous));
       this.context.db.prepare(
-        'UPDATE knowledge_pages SET title=?,summary=?,content=?,status=?,tags=?,refs=?,version=?,updated_at=?,metadata=? WHERE id=? AND scope=?'
+        'UPDATE knowledge_pages SET title=?,summary=?,content=?,status=?,tags=?,refs=?,version=?,updated_at=?,metadata=?,last_reviewed_at=NULL WHERE id=? AND scope=?'
       ).run(input.title.trim(), input.summary.trim(), input.content.trim(), status,
         encode(tags), encode(input.sourceRefs), version, now, encode(metadata), input.id, input.scope);
     } else {
@@ -135,6 +135,40 @@ export class SqliteKnowledgeStore {
       : this.context.db.prepare('SELECT * FROM knowledge_pages WHERE scope=? ORDER BY updated_at DESC LIMIT ?')
         .all(input.scope, limit) as SqliteRow[];
     return rows.map(mapKnowledgePage);
+  }
+
+  async listPagesForMaintenance(input: { scope: string; reviewBefore: string; limit: number }): Promise<DreamingKnowledgePage[]> {
+    this.context.ensureOpen();
+    const limit = assertLimit(input.limit, 100);
+    if (!input.scope.trim() || !Number.isFinite(Date.parse(input.reviewBefore))) {
+      throw new TypeError('Knowledge maintenance query requires a scope and valid reviewBefore timestamp.');
+    }
+    const rows = this.context.db.prepare(
+      "SELECT * FROM knowledge_pages WHERE scope=? AND status='active' " +
+      "ORDER BY CASE WHEN EXISTS (SELECT 1 FROM knowledge_feedback f WHERE f.scope=knowledge_pages.scope " +
+      "AND f.page_id=knowledge_pages.id AND f.page_version=knowledge_pages.version AND f.occurred_at>=? " +
+      "AND f.outcome IN ('not-useful','contradicts','incorrect','outdated','rejected') " +
+      "GROUP BY f.scope,f.page_id HAVING COUNT(*)>=2) THEN 0 " +
+      "WHEN last_reviewed_at IS NULL OR last_reviewed_at<? OR updated_at>last_reviewed_at THEN 1 ELSE 2 END, " +
+      "COALESCE(last_reviewed_at,updated_at) ASC,updated_at DESC LIMIT ?"
+    ).all(input.scope, input.reviewBefore, input.reviewBefore, limit) as SqliteRow[];
+    return rows.map(mapKnowledgePage);
+  }
+
+  async markPagesReviewed(input: { scope: string; ids: readonly string[]; reviewedAt: string }): Promise<void> {
+    this.context.ensureOpen();
+    if (!input.scope.trim() || !Number.isFinite(Date.parse(input.reviewedAt))) {
+      throw new TypeError('Knowledge review update requires a scope and valid timestamp.');
+    }
+    const ids = [...new Set(input.ids)];
+    if (!ids.length) return;
+    if (ids.length > 100) throw new TypeError('At most 100 Knowledge pages may be marked reviewed at once.');
+    this.context.transaction(() => {
+      const update = this.context.db.prepare(
+        "UPDATE knowledge_pages SET last_reviewed_at=? WHERE scope=? AND id=? AND status='active'"
+      );
+      for (const id of ids) update.run(input.reviewedAt, input.scope, id);
+    });
   }
 
   async listPageVersions(input: { scope: string; pageId: string; limit?: number }): Promise<DreamingKnowledgePageVersion[]> {

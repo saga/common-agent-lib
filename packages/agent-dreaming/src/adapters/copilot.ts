@@ -153,6 +153,7 @@ export const DREAMING_RESPONSE_SCHEMA = {
     },
     processedRecordIds: { type: 'array', items: { type: 'string' } },
     reviewedMemoryIds: { type: 'array', items: { type: 'string' } },
+    reviewedKnowledgePageIds: { type: 'array', maxItems: 100, items: { type: 'string' } },
     notes: { type: 'array', items: { type: 'string' } },
   },
 } as const;

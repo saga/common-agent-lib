@@ -1,6 +1,7 @@
 import type {
   DreamingEvidence, DreamingExperience, DreamingMemory,
   DreamingMemoryQuality, DreamingRelationship, DreamingKnowledgePage, DreamingKnowledgeLink,
+  DreamingKnowledgeFeedbackEvent,
 } from './types.js';
 
 export const SYSTEM_PROMPT = `You maintain one person's long-term memory by reviewing experiences, existing memories and source evidence.
@@ -49,6 +50,7 @@ Return JSON with this shape:
   }],
   "processedRecordIds": ["experience ids reviewed"],
   "reviewedMemoryIds": ["existing memory ids actually reviewed"],
+  "reviewedKnowledgePageIds": ["existing Knowledge page IDs actually re-checked against source evidence"],
   "notes": []
 }
 
@@ -76,6 +78,9 @@ Rules:
 - Use create for a new durable topic, revise for a materially better supported existing page, merge for duplicate/overlapping pages, link for a meaningful relationship, supersede when newer evidence replaces an older page, and deprecate when a page is no longer valid or useful.
 - Prefer concise pages with clear titles, summaries, tags and enough explanation to be reusable. Do not create near-duplicate pages.
 - Confidence must reflect evidence quality and durability. Low-confidence content may be saved as a draft, but must not overwrite, supersede or deprecate an active page.
+- Re-check pages explicitly supplied for maintenance against their original source evidence and recent feedback. Report an ID in reviewedKnowledgePageIds only after its source references were actually examined; an item merely appearing in the prompt is not a review.
+- Repeated not-useful, outdated, incorrect or contradicting signals are reasons to inspect the exact page version and original sources. Repeated useful or supporting feedback can support continued use, but retrieval alone is never positive feedback.
+- A page update resets its review clock. Do not mark a page reviewed if any of its source references were unavailable or not examined.
 - All target IDs and proposed pages must remain inside the provided scope. Keep Knowledge changes evidence-backed and versionable.
 - Return no markdown fences or prose outside the JSON object.`;;
 
@@ -88,6 +93,7 @@ export function buildPrompt(
   memoryQuality: readonly DreamingMemoryQuality[] = [],
   knowledgePages: readonly DreamingKnowledgePage[] = [],
   knowledgeLinks: readonly DreamingKnowledgeLink[] = [],
+  knowledgeFeedback: readonly DreamingKnowledgeFeedbackEvent[] = [],
 ): string {
   return JSON.stringify({
     scope,
@@ -99,5 +105,6 @@ export function buildPrompt(
     memoryQuality,
     activeKnowledgePages: knowledgePages,
     knowledgeRelationships: knowledgeLinks,
+    recentKnowledgeFeedback: knowledgeFeedback,
   }, null, 2);
 }

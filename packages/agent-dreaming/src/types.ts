@@ -104,6 +104,7 @@ export interface DreamingKnowledgePage {
   version: number;
   createdAt: string;
   updatedAt: string;
+  lastReviewedAt?: string;
   metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -342,6 +343,29 @@ export interface DreamingContextFeedbackInput {
   occurredAt?: string;
 }
 
+export interface DreamingKnowledgeFeedbackEvent {
+  id: string;
+  scope: string;
+  pageId: string;
+  pageVersion: number;
+  kind: DreamingFeedbackKind;
+  outcome: DreamingFeedbackOutcome;
+  occurredAt: string;
+  taskId?: string;
+  contextId?: string;
+  contextHash?: string;
+  sourceRef?: string;
+}
+
+export interface DreamingKnowledgeContextFeedbackInput {
+  id: string;
+  context: Pick<DreamingContextResult, 'id' | 'scope' | 'hash' | 'items'>;
+  pageId: string;
+  taskId: string;
+  outcome: 'useful' | 'not-useful' | 'neutral';
+  occurredAt?: string;
+}
+
 export interface DreamingReviewEffectiveness {
   reviewedAt: string;
   baselineSampleCount: number;
@@ -385,6 +409,7 @@ export interface DreamingModelResult {
   processedRecordIds: string[];
   reviewedMemoryIds: string[];
   knowledgeProposals?: DreamingKnowledgeProposal[];
+  reviewedKnowledgePageIds?: string[];
   notes?: string[];
 }
 
@@ -428,6 +453,7 @@ export interface DreamingRun {
   rejectedProposalIds: string[];
   pendingProposalIds: string[];
   reviewedMemoryIds: string[];
+  reviewedKnowledgePageIds?: string[];
   error?: string;
   runtimeId: string;
   model?: string;
@@ -469,6 +495,10 @@ export interface DreamingRepository {
   updateRun(run: DreamingRun): Promise<void>;
   commitProposal(input: { proposal: DreamingProposal; evidence: readonly DreamingEvidence[]; runId: string }): Promise<{ applied: boolean; reason?: string }>;
   listKnowledgePages?(input: { scope: string; status?: DreamingKnowledgeStatus; limit?: number }): Promise<DreamingKnowledgePage[]>;
+  listKnowledgePagesForMaintenance?(input: { scope: string; reviewBefore: string; limit: number }): Promise<DreamingKnowledgePage[]>;
+  markKnowledgePagesReviewed?(input: { scope: string; ids: readonly string[]; reviewedAt: string }): Promise<void>;
+  recordKnowledgeFeedback?(event: DreamingKnowledgeFeedbackEvent): Promise<void>;
+  loadKnowledgeFeedback?(input: { scope: string; pageIds: readonly string[]; since: string; limit: number }): Promise<readonly DreamingKnowledgeFeedbackEvent[]>;
   listKnowledgeLinks?(input: { scope: string; pageIds?: readonly string[]; limit?: number }): Promise<DreamingKnowledgeLink[]>;
   commitKnowledgeProposal?(input: { proposal: DreamingKnowledgeProposal; evidence: readonly DreamingEvidence[]; runId: string }): Promise<DreamingKnowledgeProposalResult>;
   applyUserDirective?(input: DreamingUserDirectiveInput): Promise<DreamingMemory>;
@@ -511,6 +541,8 @@ export interface DreamingOptions {
   maxPromptChars?: number;
   /** Number of active Knowledge pages supplied to one Dreaming batch (1-100). */
   maxKnowledgePages?: number;
+  /** Re-review active Knowledge pages after this interval; defaults to 90 days. */
+  knowledgeReviewIntervalMs?: number;
   leaseMs?: number;
   reviewIntervalMs?: number;
   memoryReviewIntervalMs?: number;

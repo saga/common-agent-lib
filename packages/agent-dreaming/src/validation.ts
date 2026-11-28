@@ -14,8 +14,9 @@ export function parseResult(value: unknown, scope: string): DreamingModelResult 
   const knowledgeProposals = value.knowledgeProposals === undefined
     ? []
     : parseKnowledgeProposals(value.knowledgeProposals, scope);
+  const reviewedKnowledgePageIds = stringArray(value.reviewedKnowledgePageIds ?? [], 'reviewedKnowledgePageIds');
   const notes = value.notes === undefined ? [] : stringArray(value.notes, 'notes');
-  return { proposals, processedRecordIds, reviewedMemoryIds, knowledgeProposals, notes };
+  return { proposals, processedRecordIds, reviewedMemoryIds, knowledgeProposals, reviewedKnowledgePageIds, notes };
 }
 
 function parseProposal(value: unknown, scope: string): DreamingProposal {

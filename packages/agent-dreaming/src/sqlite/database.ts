@@ -66,6 +66,7 @@ export function mapKnowledgePage(row: SqliteRow): DreamingKnowledgePage {
     version: Number(row.version),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    ...(row.last_reviewed_at ? { lastReviewedAt: String(row.last_reviewed_at) } : {}),
     metadata: decode<Record<string, unknown>>(row.metadata),
   };
 }
@@ -101,7 +102,7 @@ export class SqliteDatabase {
       'CREATE INDEX IF NOT EXISTS relationships_scope_to ON relationships(scope,to_id);' +
       'CREATE TABLE IF NOT EXISTS evidence(ref TEXT PRIMARY KEY,scope TEXT NOT NULL,content TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT,metadata TEXT NOT NULL,origin TEXT);' +
       'CREATE INDEX IF NOT EXISTS evidence_scope_created ON evidence(scope,created_at DESC);' +
-      'CREATE TABLE IF NOT EXISTS knowledge_pages(id TEXT PRIMARY KEY,scope TEXT NOT NULL,title TEXT NOT NULL,summary TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,tags TEXT NOT NULL,refs TEXT NOT NULL,version INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,metadata TEXT NOT NULL);' +
+      'CREATE TABLE IF NOT EXISTS knowledge_pages(id TEXT PRIMARY KEY,scope TEXT NOT NULL,title TEXT NOT NULL,summary TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,tags TEXT NOT NULL,refs TEXT NOT NULL,version INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,metadata TEXT NOT NULL,last_reviewed_at TEXT);' +
       'CREATE INDEX IF NOT EXISTS knowledge_pages_scope_status ON knowledge_pages(scope,status,updated_at DESC);' +
       'CREATE TABLE IF NOT EXISTS knowledge_page_versions(version_id INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,page_id TEXT NOT NULL,version INTEGER NOT NULL,reason TEXT NOT NULL,captured_at TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(scope,page_id,version));' +
       'CREATE INDEX IF NOT EXISTS knowledge_page_versions_lookup ON knowledge_page_versions(scope,page_id,version DESC);' +
@@ -110,6 +111,8 @@ export class SqliteDatabase {
       'CREATE INDEX IF NOT EXISTS knowledge_links_scope_to ON knowledge_links(scope,to_id);' +
       'CREATE TABLE IF NOT EXISTS memory_manifest_state(scope TEXT PRIMARY KEY,version INTEGER NOT NULL,hash TEXT NOT NULL,content TEXT NOT NULL,item_ids TEXT NOT NULL,stale INTEGER NOT NULL,truncated INTEGER NOT NULL,item_count INTEGER NOT NULL,built_at TEXT NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS applied_knowledge_proposals(proposal_id TEXT PRIMARY KEY,scope TEXT NOT NULL,run_id TEXT NOT NULL,applied_at TEXT NOT NULL,payload TEXT NOT NULL);' +
+      'CREATE TABLE IF NOT EXISTS knowledge_feedback(id TEXT PRIMARY KEY,scope TEXT NOT NULL,page_id TEXT NOT NULL,page_version INTEGER NOT NULL,occurred_at TEXT NOT NULL,outcome TEXT NOT NULL,payload TEXT NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS knowledge_feedback_scope_page_time ON knowledge_feedback(scope,page_id,occurred_at DESC,outcome);' +
       'CREATE TABLE IF NOT EXISTS feedback(id TEXT PRIMARY KEY,scope TEXT NOT NULL,memory_id TEXT NOT NULL,occurred_at TEXT NOT NULL,payload TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS feedback_memory_time ON feedback(scope,memory_id,occurred_at);' +
       'CREATE TABLE IF NOT EXISTS checkpoints(scope TEXT PRIMARY KEY,after_sequence INTEGER NOT NULL,last_run_at TEXT,last_run_id TEXT);' +
@@ -133,6 +136,7 @@ export class SqliteDatabase {
     ensureColumn('evidence', 'origin', 'TEXT');
     ensureColumn('memories', 'memory_type', 'TEXT');
     ensureColumn('memories', 'authority', "TEXT NOT NULL DEFAULT 'derived'");
+    ensureColumn('knowledge_pages', 'last_reviewed_at', 'TEXT');
     const appliedColumns = this.db.prepare('PRAGMA table_info(applied_proposals)').all() as SqliteRow[];
     if (!appliedColumns.some((column) => column.name === 'payload')) {
       this.db.exec("ALTER TABLE applied_proposals ADD COLUMN payload TEXT NOT NULL DEFAULT ''");
@@ -160,8 +164,11 @@ export class SqliteDatabase {
       "CREATE TRIGGER IF NOT EXISTS manifest_memory_update AFTER UPDATE ON memories BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
       "CREATE TRIGGER IF NOT EXISTS manifest_memory_delete AFTER DELETE ON memories BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
       "CREATE TRIGGER IF NOT EXISTS manifest_knowledge_insert AFTER INSERT ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
-      "CREATE TRIGGER IF NOT EXISTS manifest_knowledge_update AFTER UPDATE ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
-      "CREATE TRIGGER IF NOT EXISTS manifest_knowledge_delete AFTER DELETE ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;"
+      "DROP TRIGGER IF EXISTS manifest_knowledge_update;" +
+      "CREATE TRIGGER manifest_knowledge_update AFTER UPDATE OF id,scope,title,summary,content,status,tags,refs,version,metadata ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(new.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
+      "CREATE TRIGGER IF NOT EXISTS manifest_knowledge_delete AFTER DELETE ON knowledge_pages BEGIN INSERT INTO memory_manifest_state(scope,version,hash,content,item_ids,stale,truncated,item_count,built_at) VALUES(old.scope,0,'','{}','[]',1,0,0,'') ON CONFLICT(scope) DO UPDATE SET stale=1; END;" +
+      "CREATE TRIGGER IF NOT EXISTS knowledge_evidence_update AFTER UPDATE OF scope,content,kind,created_at,metadata ON evidence BEGIN UPDATE knowledge_pages SET last_reviewed_at=NULL WHERE scope=old.scope AND EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) WHERE json_each.value=old.ref); UPDATE knowledge_pages SET last_reviewed_at=NULL WHERE scope=new.scope AND EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) WHERE json_each.value=new.ref); END;" +
+      "CREATE TRIGGER IF NOT EXISTS knowledge_evidence_delete AFTER DELETE ON evidence BEGIN UPDATE knowledge_pages SET status='draft',last_reviewed_at=NULL WHERE scope=old.scope AND EXISTS (SELECT 1 FROM json_each(knowledge_pages.refs) WHERE json_each.value=old.ref); END;"
     );
     // Backfill indexes for databases created before FTS support was introduced.
     this.db.exec(
@@ -170,7 +177,7 @@ export class SqliteDatabase {
       'INSERT INTO evidence_search(rowid,ref,scope,content) SELECT e.rowid,e.ref,e.scope,e.content FROM evidence e WHERE NOT EXISTS (SELECT 1 FROM evidence_search f WHERE f.rowid=e.rowid);' +
       'INSERT INTO knowledge_search(rowid,id,scope,title,summary,content,tags) SELECT k.rowid,k.id,k.scope,k.title,k.summary,k.content,k.tags FROM knowledge_pages k WHERE NOT EXISTS (SELECT 1 FROM knowledge_search f WHERE f.rowid=k.rowid);'
     );
-    this.db.exec('PRAGMA user_version=8');
+    this.db.exec('PRAGMA user_version=9');
     if (filename !== ':memory:') {
       try { chmodSync(filename, 0o600); } catch { /* Directory permissions still protect the database. */ }
     }
