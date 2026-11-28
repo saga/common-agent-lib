@@ -33,7 +33,7 @@ Run it independently:
 
 ```bash
 cd whole/rust-agent
-cargo fmt --all -- --check
+cargo fmt --all
 cargo test --all-targets
 cargo clippy --all-targets
 cargo build --release --bins
