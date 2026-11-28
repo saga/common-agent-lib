@@ -81,19 +81,22 @@ export class DreamingEngine {
   }
 
   /** Call after appending a meaningful record; runs are coalesced per scope. */
-  async notifyRecordAppended(scope: string): Promise<DreamingRun | undefined> {
+  notifyRecordAppended(scope: string): Promise<DreamingRun | undefined> {
+    // Keep scope validation synchronous so callers can reject invalid tenant IDs before scheduling work.
     this.assertScope(scope);
-    if (this.stopped) return undefined;
+    if (this.stopped) return Promise.resolve(undefined);
     const active = this.active.get(scope);
     if (active) return active;
 
     const threshold = this.options.minNewExperiencesToTrigger ?? 2;
     if (threshold > 1 && this.repository.countUnprocessedExperiences) {
-      const count = await this.repository.countUnprocessedExperiences(scope);
-      if (!Number.isSafeInteger(count) || count < 0) {
-        throw new Error('Repository returned an invalid unprocessed Experience count.');
-      }
-      if (count < threshold) return undefined;
+      return this.repository.countUnprocessedExperiences(scope).then((count) => {
+        if (!Number.isSafeInteger(count) || count < 0) {
+          throw new Error('Repository returned an invalid unprocessed Experience count.');
+        }
+        if (count < threshold) return undefined;
+        return this.safeRun({ scope, trigger: 'record-appended' });
+      });
     }
     // Adapters without a count method retain the previous eager-trigger behavior.
     return this.safeRun({ scope, trigger: 'record-appended' });
