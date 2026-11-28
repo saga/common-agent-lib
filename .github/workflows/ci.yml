@@ -23,6 +23,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Benchmark large-scope Memory retrieval
+        run: npm run benchmark --workspace=@saga/agent-dreaming
       - run: npm run build
       - name: Verify agent-dreaming as an installed package
         shell: bash

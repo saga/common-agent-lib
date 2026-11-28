@@ -33,7 +33,7 @@ await store.recordContextFeedback({
 
 Candidate, expired, superseded and archived memories are excluded from normal context. Explicit user memories are treated as required context: when they exceed the available budget they remain present and the result reports overflow. Token measurement uses the supplied `measure` callback when exact model-token accounting is required; the built-in fallback is approximate and is marked in `context.budget.estimated`.
 
-The context result includes a bounded always-on memory index, rendered text, included items and source references, omitted items with reasons, a context hash and budget diagnostics. `recordContextFeedback()` links a known task outcome to the exact context hash and memory revision; it rejects feedback for a memory that was not included in that context. A durable, separately persisted Memory Manifest remains future work.
+The context result includes a bounded always-on memory index, rendered text, included items and source references, omitted items with reasons, a context hash and budget diagnostics. `recordContextFeedback()` links a known task outcome to the exact context hash and memory revision; it rejects feedback for a memory that was not included in that context. The Memory Manifest is persisted per scope in SQLite. Source mutations mark it stale through database triggers; reads rebuild it only when its source hash changes.
 
 ## Knowledge pages
 
@@ -72,11 +72,11 @@ const pages = await store.searchKnowledge({
 });
 ```
 
-Saving a page requires all `sourceRefs` to resolve to immutable Evidence in the same scope. Identical repeated saves are idempotent; changes preserve a pre-update snapshot and increment the page version. Search defaults to active pages; drafts, deprecated and superseded pages require `includeInactive: true`. Page and link maintenance proposals and Dreaming-driven automation are still pending.
+Saving a page requires all `sourceRefs` to resolve to immutable, non-expired Evidence in the same scope. Identical repeated saves are idempotent; changes preserve a pre-update snapshot and increment the page version. Search defaults to active pages; drafts, deprecated and superseded pages require `includeInactive: true`. Dreaming can propose create, revise, merge, link, supersede and deprecate operations. The package validates scope, targets, source provenance and confidence, then commits accepted changes transactionally with an idempotency ledger.
 
 ## Implementation status
 
-The current release implements the Dreaming engine, Experience / Evidence / Memory persistence, automatic evidence-validated consolidation, version history, feedback, local retrieval, task-aware Context Builder, context-use feedback, SQLite scheduling and run recovery. Knowledge-page maintenance and a separately persisted Memory Manifest remain accepted package-owned work items documented in [ARCHITECTURE-ANALYSIS.md](./ARCHITECTURE-ANALYSIS.md). They will be added here rather than delegated to another package.
+The current package includes the Dreaming engine, Experience / Evidence / Memory persistence, versioned Knowledge maintenance, FTS5 and CJK retrieval, bounded graph expansion, persistent Memory Manifest, task-aware Context Builder, context-use feedback, SQLite scheduling and run recovery. Evidence can carry immutable `expiresAt` metadata. Expired source records remain available to maintenance, but are excluded from normal Evidence search; Knowledge pages that depend on them are versioned and demoted to draft until revalidated against fresh evidence. End-to-end tests and a repeatable retrieval benchmark are included in the package.
 
 ## Default runtime: Copilot SDK
 
@@ -178,9 +178,9 @@ Knowledge is maintained separately from personal Memory. It is intended for dura
 
 The Dreaming runtime can propose six operations: create, revise, merge, link, supersede and deprecate. The package validates the scope, targets and evidence references, then applies each operation in one SQLite transaction. Repeated proposal IDs are idempotent. Confidence of 0.82 or higher is required for changes to active pages; weaker create/revise/merge/supersede proposals are retained as drafts. Weak proposals never overwrite, supersede or deprecate active pages. This is an automatic maintenance path, not a manual approval queue.
 
-Active Knowledge pages and their active-to-active links are included in the bounded Dreaming prompt. Context Builder searches active Knowledge alongside Memory and Evidence, expands related pages by one hop and records the exact page version in each context item. Hosts can also call `searchKnowledge({ scope, query, expandLinks: true, maxDepth: 1, maxPages: 20 })`; graph expansion is scope-filtered, supports at most two hops and 50 pages.
+Active Knowledge pages and any expiry-drafts awaiting revalidation are included in the bounded Dreaming prompt. Context Builder searches only active Knowledge alongside Memory and Evidence, expands related pages by one hop and records the exact page version in each context item. Hosts can also call `searchKnowledge({ scope, query, expandLinks: true, maxDepth: 1, maxPages: 20 })`; graph expansion is scope-filtered, supports at most two hops and 50 pages.
 
-Active pages are re-checked at least every 90 days by default, with unreviewed and recently changed pages first. Two or more negative signals (not useful, outdated, incorrect, rejected or contradicting) for the exact current page version within the review window move a page to the front of the review queue. Older-version feedback is retained but does not count against the current version. Page content changes reset the review timestamp. If referenced evidence is deleted, the page is demoted to draft; evidence references themselves are immutable, so publish changed source content under a new reference and revise the page with that reference.
+Active pages are re-checked at least every 90 days by default, with unreviewed and recently changed pages first. Two or more negative signals (not useful, outdated, incorrect, rejected or contradicting) for the exact current page version within the review window move a page to the front of the review queue. Older-version feedback is retained but does not count against the current version. Page content changes reset the review timestamp. If referenced Evidence is deleted or reaches its `expiresAt`, the page is demoted to a versioned draft and excluded from search, Context and the persistent Manifest. Dreaming can re-check the original source record and either revise it with fresh Evidence, leave it as a draft or deprecate it. Active pages cannot be saved or reactivated with expired Evidence. Evidence references are immutable, so publish changed source content under a new reference and revise the page with that reference.
 
 Hosts can report a result against the precise Knowledge page version included in a Context Builder response:
 

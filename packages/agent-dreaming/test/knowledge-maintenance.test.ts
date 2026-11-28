@@ -248,7 +248,7 @@ test('Dreaming Engine supplies active Knowledge and commits model-proposed durab
     };
     const engine = new DreamingEngine(runtime, x.store, x.store, { scopes: ['alice'], maxKnowledgePages: 10 });
     const run = await engine.runNow('alice');
-    assert.ok(prompt.includes('activeKnowledgePages'));
+    assert.ok(prompt.includes('knowledgePagesForMaintenance'));
     assert.ok(prompt.includes('knowledge:existing'));
     assert.ok(run?.appliedProposalIds.includes('knowledge:knowledge-proposal:engine'));
     assert.equal((await x.store.getKnowledgePage({ scope: 'alice', pageId: 'knowledge:payments' }))?.status, 'active');

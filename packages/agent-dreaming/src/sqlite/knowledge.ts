@@ -341,18 +341,26 @@ export class SqliteKnowledgeStore {
         page: DreamingKnowledgePageInput,
         status: DreamingKnowledgePageInput['status'],
         id?: string,
-      ): DreamingKnowledgePageInput => ({
-        ...page,
-        ...(id ? { id } : {}),
-        status,
-        sourceRefs: [...new Set(page.sourceRefs)],
-        metadata: {
-          ...(page.metadata ?? {}),
-          maintenanceProposalId: proposal.id,
-          maintenanceRationale: proposal.rationale,
-        },
-        reason: proposal.rationale,
-      });
+      ): DreamingKnowledgePageInput => {
+        const metadata = { ...(page.metadata ?? {}) };
+        if (status === 'active') {
+          delete metadata.evidenceExpiryRequiresReview;
+          delete metadata.expiredEvidenceRefs;
+          delete metadata.evidenceExpiryDetectedAt;
+        }
+        return {
+          ...page,
+          ...(id ? { id } : {}),
+          status,
+          sourceRefs: [...new Set(page.sourceRefs)],
+          metadata: {
+            ...metadata,
+            maintenanceProposalId: proposal.id,
+            maintenanceRationale: proposal.rationale,
+          },
+          reason: proposal.rationale,
+        };
+      };
       const changeStatus = (page: DreamingKnowledgePage, status: 'superseded' | 'deprecated') =>
         this.savePageInTransaction({
           id: page.id, scope: page.scope, title: page.title, summary: page.summary,
@@ -508,11 +516,11 @@ export class SqliteKnowledgeStore {
            ON k.id=knowledge_search.id AND k.scope=knowledge_search.scope
          WHERE knowledge_search.scope=? AND knowledge_search MATCH ?
            AND k.status IN ${statuses}
-           AND NOT EXISTS (
+           AND (k.status<>'active' OR NOT EXISTS (
              SELECT 1 FROM json_each(k.refs) source
              JOIN evidence e ON e.ref=source.value AND e.scope=k.scope
              WHERE e.expires_at IS NOT NULL AND e.expires_at<=?
-           )
+           ))
          ORDER BY bm25(knowledge_search),k.updated_at DESC LIMIT ?`
       ).all(input.scope, fts, new Date().toISOString(), limit) as SqliteRow[];
       for (const row of rows) {
@@ -529,11 +537,11 @@ export class SqliteKnowledgeStore {
       const rows = this.context.db.prepare(
         `SELECT k.*,(${score}) AS matched_score FROM knowledge_pages k
          WHERE k.scope=? AND k.status IN ${statuses}
-           AND NOT EXISTS (
+           AND (k.status<>'active' OR NOT EXISTS (
              SELECT 1 FROM json_each(k.refs) source
              JOIN evidence e ON e.ref=source.value AND e.scope=k.scope
              WHERE e.expires_at IS NOT NULL AND e.expires_at<=?
-           )
+           ))
            AND (${predicates})
          ORDER BY matched_score DESC,k.updated_at DESC LIMIT ?`
       ).all(...scores, input.scope, new Date().toISOString(), ...params, limit) as SqliteRow[];
@@ -563,8 +571,13 @@ export class SqliteKnowledgeStore {
       const links = this.context.db.prepare(
         `SELECT * FROM knowledge_links WHERE scope=? AND
          (from_id IN (${marks}) OR to_id IN (${marks}))
+         AND NOT EXISTS (
+           SELECT 1 FROM json_each(knowledge_links.refs) source
+           JOIN evidence e ON e.ref=source.value AND e.scope=knowledge_links.scope
+           WHERE e.expires_at IS NOT NULL AND e.expires_at<=?
+         )
          ORDER BY created_at,id LIMIT ?`
-      ).all(input.scope, ...ids, ...ids, 200) as SqliteRow[];
+      ).all(input.scope, ...ids, ...ids, new Date().toISOString(), 200) as SqliteRow[];
       const scoreByNeighbor = new Map<string, { score: number; via: string }>();
       const frontierScores = new Map(frontier.map((item) => [item.id, item.score]));
       for (const link of links) {
