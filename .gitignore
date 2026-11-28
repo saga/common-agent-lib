@@ -7,8 +7,9 @@
 /.angular/
 .angular/
 
-# Node modules and dependency files
-/node_modules/
+# Node modules, Cargo build output and dependency files
+**/node_modules/
+**/target/
 /package-lock.json
 /yarn.lock
 

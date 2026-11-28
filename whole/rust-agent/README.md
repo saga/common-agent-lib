@@ -33,7 +33,7 @@ The Rust runtime owns the Agent loop, conversation history, session lifecycle, c
 ## Build and run
 
 ```bash
-cd tools/rust-agent
+cd whole/rust-agent
 export OPENAI_API_KEY="<key>"
 cargo run --release -- --model <model-id> --workspace /path/to/workspace --fallback-model <fallback-model>
 ```

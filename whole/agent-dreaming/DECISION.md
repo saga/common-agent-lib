@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-28
-- Scope: `packages/agent-dreaming`
+- Scope: `whole/agent-dreaming`
 
 ## Decision
 
@@ -115,7 +115,7 @@ Trade-offs:
 
 Before merging a new capability, verify:
 
-1. Its core types and implementation live under `packages/agent-dreaming`.
+1. Its core types and implementation live under `whole/agent-dreaming`.
 2. Its default persistence and tests are included in this package.
 3. No internal `@saga/*` dependency or import is added.
 4. The package can be packed and installed in an isolated consumer.

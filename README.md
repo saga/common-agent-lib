@@ -19,13 +19,21 @@
 | `@saga/agent-structured-output` | Provider-neutral 的结构化输出解析和最终 Schema 校验 | `zod` |
 | `@saga/agent-eval` | Eval case、observation、code/model/human grader 和结果汇总 | 无 |
 | `@saga/agent-memory` | 持久记忆契约、分页、工作记忆窗口和归档候选 | `zod` |
-| `@saga/agent-dreaming` | 后台记忆 Dreaming、反馈评估、SQLite 持久化、Evidence、Review Queue、checkpoint、lease 与自动调度 | Node.js 24.15+ 内置 `node:sqlite` |
 | `@saga/agent-rules` | 小型声明式确定性规则评估器 | `zod` |
 | `@saga/agent-state-machine` | 小型确定性状态转移运行时 | 无 |
 
-这些 package 可独立安装、按需使用；只有确实需要公共契约的模块才声明单向依赖，例如 agent-tracing 依赖 agent-contracts。不存在一个必须同时安装的“大一统 Agent Framework”。
+上表只列入 `packages/*` npm workspace 中的可复用库。`whole/` 下的 Agent Dreaming 与 Rust Agent 是完整、独立构建和运行的功能，不属于这个 workspace，也不依赖仓库里的其它 package。公共库仍可按需独立安装；只有确实需要公共契约的模块才声明单向依赖，例如 agent-tracing 依赖 agent-contracts。不存在一个必须同时安装的“大一统 Agent Framework”。
 
 CodeBuddy / WorkBuddy SDK 的 option 是否生效取决于具体 API surface，而不只是字段名称。跨版本兼容性探针、`query()` 与 V2 Session 的已知差异、上下文窗口配置与会话池边界记录在 [CodeBuddy SDK Compatibility Notes](docs/codebuddy-sdk-compatibility.md)；后续升级应按文档的声明、编译和实际传输三层证据复核。
+
+## 完整独立功能（whole/）
+
+| 目录 | 功能 | 独立边界 |
+|---|---|---|
+| [whole/agent-dreaming](whole/agent-dreaming/README.md) | 完整 Agent Memory / Dreaming：Experience、Evidence、Memory、Knowledge、检索、Context、反馈、SQLite 持久化和调度 | 独立 npm package；不依赖任何内部 `@saga/*` package；Copilot SDK 是可选 peer |
+| [whole/rust-agent](whole/rust-agent/README.md) | 原生 Rust Agent Runtime、CLI、MCP Server、工具策略、会话、任务、记忆和 Dreaming | 独立 Cargo crate；不依赖仓库中的其它 package；CodeBuddy Host 是可选 Node.js 互操作示例 |
+
+两个目录都有自己的依赖声明、构建和验证入口。它们不是 `packages/*` 的 workspace 子包，不要求先安装或构建 common-agent-lib 里的其它模块。独立开发与测试命令见 [whole/README.md](whole/README.md)。
 
 ## 为什么新增这些 package
 
@@ -407,6 +415,11 @@ The host application still owns retrieval, authorization, evidence validation, t
 
 ## Agent memory dreaming
 
-`@saga/agent-dreaming` 提供独立的后台 Dreaming Engine 和内置 SQLite Store。Experience、Memory、Relationship、Evidence、Feedback、Checkpoint、Run、Lease 与 Review Queue 均有内置持久化实现；宿主只需接入模型 Runtime，外部资料源可选接入 Evidence Resolver。高质量新增记忆以 candidate 状态自动写入，现有记忆修改必须经过人工审批。
+`whole/agent-dreaming` 是完整独立的 Agent Memory / Dreaming 实现，内置 Experience、Evidence、Memory、Knowledge、检索、Context Builder、Feedback、SQLite、Manifest、Scheduler、Worker Lease 和 Run Recovery。模型 Runtime 与宿主认证仍通过明确的 adapter 接入；核心记忆能力不依赖其它内部 package。通过 scope、Evidence 和目标校验的变更由引擎自动提交并保留版本；不确定的新记忆可保持 candidate 状态，不把普通维护流程变成强制人工审批。
 
-接口、接入示例和调度语义见 [packages/agent-dreaming/README.md](packages/agent-dreaming/README.md)。
+接口、运行方式和边界见 [whole/agent-dreaming/README.md](whole/agent-dreaming/README.md)。
+
+
+## Rust Agent
+
+[whole/rust-agent](whole/rust-agent/README.md) 是完整独立的原生 Rust Agent Runtime，包含 CLI、OpenAI-compatible Provider、确定性工具策略、工作区工具、Session、后台任务、SQLite Memory / Dreaming、审计和独立 MCP Server。默认构建和运行不需要 Node.js、npm、CodeBuddy CLI 或任何仓库内其它 package。CodeBuddy Host 只作为可选的互操作示例。

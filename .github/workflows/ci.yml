@@ -7,14 +7,14 @@ on:
     branches: [main]
 
 jobs:
-  check:
+  packages:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         node-version: [24, 26]
-    name: check (Node.js ${{ matrix.node-version }})
+    name: packages (Node.js ${{ matrix.node-version }})
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.1.0
@@ -23,14 +23,37 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - name: Benchmark large-scope Memory retrieval
-        run: npm run benchmark --workspace=@saga/agent-dreaming
       - run: npm run build
-      - name: Verify agent-dreaming as an installed package
+
+  agent-dreaming:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [24, 26]
+    name: standalone Agent Dreaming (Node.js ${{ matrix.node-version }})
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install this package only
+        working-directory: whole/agent-dreaming
+        run: npm install --workspaces=false --no-audit --no-fund
+      - name: Typecheck, test, benchmark and build
+        working-directory: whole/agent-dreaming
+        run: |
+          npm run typecheck
+          npm test
+          npm run benchmark
+          npm run build
+      - name: Verify packed package in an isolated consumer
+        working-directory: whole/agent-dreaming
         shell: bash
         run: |
           set -euo pipefail
-          pack_file="$(npm pack --workspace=@saga/agent-dreaming --pack-destination "$RUNNER_TEMP" --silent | tail -n 1)"
+          pack_file="$(npm pack --pack-destination "$RUNNER_TEMP" --silent | tail -n 1)"
           consumer="$RUNNER_TEMP/agent-dreaming-consumer"
           mkdir -p "$consumer"
           cd "$consumer"
@@ -52,3 +75,24 @@ jobs:
           assert.equal(evidence[0]?.content, 'standalone package works');
           await store.close();
           NODE
+
+  rust-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    name: standalone Rust Agent
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+      - name: Check formatting
+        working-directory: whole/rust-agent
+        run: cargo fmt --all -- --check
+      - name: Run Clippy
+        working-directory: whole/rust-agent
+        run: cargo clippy --all-targets
+      - name: Run tests
+        working-directory: whole/rust-agent
+        run: cargo test --all-targets
+      - name: Build standalone binaries
+        working-directory: whole/rust-agent
+        run: cargo build --release --bins

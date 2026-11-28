@@ -82,7 +82,7 @@ This amendment removes human approval from the normal memory lifecycle without r
 
 ## 2026-11-28 amendment: self-contained Agent Memory package
 
-The package-level decision in [packages/agent-dreaming/DECISION.md](../../packages/agent-dreaming/DECISION.md) makes `@saga/agent-dreaming` the single installable owner of the complete Agent Memory lifecycle.
+The package-level decision in [packages/agent-dreaming/DECISION.md](../../whole/agent-dreaming/DECISION.md) makes `@saga/agent-dreaming` the single installable owner of the complete Agent Memory lifecycle.
 
 - Memory, Knowledge, Evidence Search, Retrieval, Context Assembly, feedback, persistence, scheduling and authorization primitives are implemented inside this package.
 - No other internal `@saga/*` package is a runtime or type dependency.

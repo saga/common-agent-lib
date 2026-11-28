@@ -2,13 +2,13 @@
 
 ## Decision
 
-`@saga/agent-dreaming` is the self-contained owner of the complete Agent Memory lifecycle. Experience, Evidence, Memory, Knowledge, retrieval, context assembly, feedback, scheduling, persistence and authorization primitives belong inside this package; no other internal package is required. The current release implements the core Dreaming / Memory lifecycle. Knowledge-page maintenance and the end-to-end Context Builder are accepted next-phase work and must also be implemented here. Copilot is the built-in optional model adapter; other model providers use the package-owned runtime contract.
+`@saga/agent-dreaming` is the self-contained owner of the complete Agent Memory lifecycle. Experience, Evidence, Memory, Knowledge, retrieval, context assembly, feedback, scheduling, persistence and authorization primitives belong inside this package; no other internal package is required. The current release implements the complete local Memory lifecycle, including Knowledge-page maintenance, the persistent Memory Manifest, task-aware Context Builder, context feedback and Evidence expiry revalidation. Copilot is the built-in optional model adapter; other model providers use the package-owned runtime contract.
 
-The design follows [Anthropic's components of agent memory](https://www.anthropic.com/research/components-of-agent-memory): raw experiences remain inspectable, durable memory is derived from them, knowledge is maintained over time, and only a bounded, task-relevant context is injected into future tasks. See the package [Decision](../packages/agent-dreaming/DECISION.md) and [architecture analysis](../packages/agent-dreaming/ARCHITECTURE-ANALYSIS.md).
+The design follows [Anthropic's components of agent memory](https://www.anthropic.com/research/components-of-agent-memory): raw experiences remain inspectable, durable memory is derived from them, knowledge is maintained over time, and only a bounded, task-relevant context is injected into future tasks. See the package [Decision](../whole/agent-dreaming/DECISION.md) and [architecture analysis](../whole/agent-dreaming/ARCHITECTURE-ANALYSIS.md).
 
 ## Target internal responsibilities
 
-All capabilities below are owned by internal modules of `@saga/agent-dreaming`, not separate package dependencies. Knowledge page maintenance and complete Context Assembly are target capabilities, not claims about the current release:
+All capabilities below are implemented by internal modules of `@saga/agent-dreaming`; they are not separate package dependencies:
 
 - Experience and Evidence: immutable source material, provenance, append-only history, evidence resolution and historical search.
 - Memory: durable memory records, authority, lifecycle, relationships and version history.
@@ -38,7 +38,7 @@ flowchart TD
   K --> M["Preserve prior memory versions"]
 ```
 
-A run is bounded by batch size, maximum batches, memory count, relationship count, evidence count and prompt characters. The built-in SQLite repository ranks memories using source-reference overlap, optional local vector similarity, expiry, staleness and importance. The engine persists the model-reported `reviewedMemoryIds` separately from experience review. Only a contiguous processed prefix advances the checkpoint. A per-scope lease prevents concurrent workers from applying the same work; the engine renews the lease during long model calls. Knowledge-page maintenance and Memory Manifest / task-aware Context rebuilding are the next implementation phase described in the package architecture analysis; they are not yet part of the current release.
+A run is bounded by batch size, maximum batches, memory count, relationship count, evidence count and prompt characters. The built-in SQLite repository ranks memories using source-reference overlap, optional local vector similarity, expiry, staleness and importance. The engine persists the model-reported `reviewedMemoryIds` separately from experience review. Only a contiguous processed prefix advances the checkpoint. A per-scope lease prevents concurrent workers from applying the same work; the engine renews the lease during long model calls. Knowledge-page maintenance, persistent Memory Manifest and task-aware Context rebuilding are part of the current implementation. Evidence expiry automatically invalidates dependent active Knowledge pages until they are revalidated with fresh evidence.
 
 ## Runtime contract
 
@@ -48,7 +48,7 @@ Other model providers can implement the same interface. Provider-specific authen
 
 ## Persistence and recovery
 
-`SqliteDreamingStore` currently persists experiences, memories, relationships, evidence, feedback, checkpoints, runs, proposals, applied-proposal idempotency keys, leases and prior memory snapshots. The planned Knowledge extension will add page / link / version / index tables; the planned Context extension will add a generated Memory Manifest and context-build records. Mutations run in transactions; the previous record is captured before update, merge, supersede or archive.
+`SqliteDreamingStore` persists experiences, memories, relationships, evidence, feedback, checkpoints, runs, proposals, applied-proposal idempotency keys, leases, prior memory snapshots, versioned Knowledge pages and links, and the persistent Memory Manifest. Mutations run in transactions; the previous record is captured before update, merge, supersede or archive.
 
 SQLite is suitable for local/single-host use. Multi-host deployments should replace it with a shared transactional repository and distributed lease. The process-local timer is only a trigger; guaranteed scheduling requires a durable worker or external scheduler.
 
@@ -58,11 +58,11 @@ The model only proposes changes. The engine validates scope, targets, evidence p
 
 Quality scores (confidence, durability, specificity and contradiction risk) are triage hints, not calibrated truth or permission to promote a memory. Expiry triggers re-review; it does not trigger deletion. The host authenticates the user, supplies the trusted scope and authorizes source records. The package enforces its own scope and mutation invariants.
 
-The planned Context Builder will apply lifecycle / expiry / authority rules before injection, and will report selected and omitted records. It must not expose candidate or unclassified content by default.
+The Context Builder applies lifecycle, expiry, scope and authority rules before injection. It reports selected and omitted records, source references, revisions, context hash and budget overflow; candidate and expired content is excluded from normal context.
 
 ## Long-term quality feedback
 
-The host records immutable feedback against a memory ID: task usefulness after retrieval, later evidence support/contradiction, explicit user corrections, and (for legacy integrations) human review outcomes. A retrieval event is not automatically positive; useful/not-useful should be emitted only when the task outcome is known. The planned Context API will return memory / page IDs and versions so feedback can be tied to the exact content injected into a task.
+The host records immutable feedback against a memory ID: task usefulness after retrieval, later evidence support/contradiction, explicit user corrections, and (for legacy integrations) human review outcomes. A retrieval event is not automatically positive; useful/not-useful should be emitted only when the task outcome is known. The Context API returns memory / page IDs and versions, and context feedback is tied to the exact context hash and revisions injected into a task.
 
 `evaluateMemoryQuality()` computes separate recency-weighted usefulness and evidence-support rates over a 180-day window with a 90-day half-life. It reports sample size, effective sample size, corrections and human rejections. Review thresholds require repeated observations; a single negative retrieval is not enough. Human rejection is an explicit review signal.
 

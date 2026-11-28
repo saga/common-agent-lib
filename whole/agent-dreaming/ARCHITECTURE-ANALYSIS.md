@@ -1,7 +1,7 @@
 # Dreaming 与 Anthropic Agent Memory 的差异分析及演进方案
 
 - 日期：2026-11-28
-- 状态：设计分析 / 待按优先级实施
+- 状态：设计分析；原定实现项已完成，当前功能状态以 README 和 IMPLEMENTATION-CHECKLIST.md 为准
 - 对照对象：
   - [Anthropic: The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory)
   - [ChinaSiro/claude-code-sourcemap](https://github.com/ChinaSiro/claude-code-sourcemap)，恢复出的 Claude Code 2.1.88 源码，仅作为实现研究材料
@@ -15,7 +15,7 @@
 
 我们当前实现更偏向一个**结构化、可审计的长期记忆维护引擎**；Anthropic 描述的是一个更完整的**Agent Memory 生命周期**，还强调主动探索历史资料、持续维护知识表示，以及按任务选择和控制上下文注入。
 
-不需要推翻现有 Engine、SQLite、Evidence、Version、Feedback 和 Scheduler。真正值得补齐的是：
+不需要推翻现有 Engine、SQLite、Evidence、Version、Feedback 和 Scheduler。本文记录的四项原始差距现已在独立 package 内实现：
 
 1. **Knowledge Maintenance**：Dreaming 不只维护短小的 Memory Record，还能按需维护由多个经历支撑的主题知识页及其关系。
 2. **Evidence Discovery**：已有 sourceRefs 不足时，能够在授权范围内主动检索历史经历和原始证据，而不是只消费当前已经关联好的引用。
@@ -95,14 +95,14 @@ Consolidation Prompt 有四个阶段：
 
 | 能力 | Anthropic / Claude Code 研究及实现 | 当前 Dreaming | 判断 |
 |---|---|---|---|
-| 原始经历 | Transcript / JSONL 可搜索 | Experience + Evidence | 已有结构化基础，但主动发现能力有限 |
-| 长期记忆 | 主题化记忆文件 | SQLite Memory | 已具备，且版本和事务能力更明确 |
-| 记忆纠错 | 回看历史、修订已有文件 | Evidence 驱动的自动 proposal | 方向一致 |
-| 知识表示 | Wiki、主题页和双向关系 | Relationship；尚无完整 Wiki 维护流程 | 需要补齐 |
-| 记忆入口 | 小型 MEMORY.md 索引 | 有检索与上下文预算构件，但尚未形成端到端入口 | 需要补齐 |
-| 任务相关注入 | 入口索引 + 按需读取 | 尚无内置完整 Context API | 需要补齐 |
-| 运行可靠性 | 后台 fork、时间门槛和文件锁 | SQLite Scheduler、Lease、Checkpoint、Run Ledger | 当前实现更工程化 |
-| 质量反馈 | 研究中的任务表现评估 | 结构化 Feedback 和时间衰减统计 | 已有基础，需接入任务上下文闭环 |
+| 原始经历 | Transcript / JSONL 可搜索 | Experience + Evidence、历史证据检索 | 已实现 |
+| 长期记忆 | 主题化记忆文件 | SQLite Memory、版本和事务 | 已实现 |
+| 记忆纠错 | 回看历史、修订已有文件 | Evidence 驱动的提案验证、自动提交和过期复查 | 已实现 |
+| 知识表示 | Wiki、主题页和双向关系 | 版本化 Knowledge Page、Link、Maintenance | 已实现 |
+| 记忆入口 | 小型 MEMORY.md 索引 | 持久化、按 scope 生成的 Memory Manifest | 已实现 |
+| 任务相关注入 | 入口索引 + 按需读取 | Context Builder、预算、来源和省略诊断 | 已实现 |
+| 运行可靠性 | 后台 fork、时间门槛和文件锁 | SQLite Scheduler、Lease、Checkpoint、Run Ledger | 已实现 |
+| 质量反馈 | 研究中的任务表现评估 | 结构化 Feedback、context hash / revision 关联 | 已实现 |
 
 ## 6. 差异二：Knowledge / Wiki Maintenance 应该怎么做
 
@@ -287,17 +287,17 @@ Context Builder 必须返回所使用的 memory/page ID 和版本。任务结束
 
 “被检索到”不能直接算作有用；必须根据实际任务结果记录反馈。
 
-## 8. 建议实施顺序
+## 8. 原实施顺序（已完成）
 
-| 顺序 | 工作项 | 验收结果 |
+| 状态 | 工作项 | 验收结果 |
 |---|---|---|
-| 1 | 统一 package 内部的 Memory、Knowledge、Evidence 模型 | 不需要其他内部 package；数据有明确 owner scope 和来源 |
-| 2 | 增加 KnowledgePage、KnowledgeLink、Version、Proposal 及 SQLite 迁移 | 可以创建、更新、合并、链接、废弃并回滚检查知识页面 |
-| 3 | 增加历史证据搜索 | 可以从当前 Experience / Memory 找到未直接关联但相关的历史 Evidence |
-| 4 | 增加 Knowledge Maintenance 阶段 | Dreaming 可以按价值门槛增量维护知识页，而不是每轮强制生成 Wiki |
-| 5 | 增加 Memory Index | 常驻索引有固定预算，更新后可重建，索引条目可追溯 |
-| 6 | 增加 Context Builder | 通过任务查询得到有界、可解释、可追溯的 Context |
-| 7 | 接通 Context Feedback | 后续 Dreaming 能利用使用结果纠正记忆和知识 |
+| 完成 | 统一 package 内部的 Memory、Knowledge、Evidence 模型 | 不需要其他内部 package；数据有明确 owner scope 和来源 |
+| 完成 | KnowledgePage、KnowledgeLink、Version、Proposal 及 SQLite 迁移 | 可以创建、更新、合并、链接、废弃并保留版本 |
+| 完成 | 历史证据搜索 | 从 Experience / Memory 线索检索同 scope 的 Evidence |
+| 完成 | Knowledge Maintenance 阶段 | 按价值门槛增量维护知识页，不强制生成 Wiki |
+| 完成 | Memory Index | 持久化入口索引有固定预算并可重建 |
+| 完成 | Context Builder | 任务相关、有界、可解释、可追溯的 Context |
+| 完成 | Context Feedback | 使用结果关联到实际注入的 context hash 和版本 |
 
 ## 9. 验收场景
 
