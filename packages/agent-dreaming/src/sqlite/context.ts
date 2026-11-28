@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type {
   DreamingContextItem, DreamingContextOmission, DreamingContextRequest,
-  DreamingContextResult, DreamingSearchHit, DreamingHistorySourceAdapter,
+  DreamingContextResult, DreamingSearchHit, DreamingHistoryRecord, DreamingHistorySourceAdapter,
 } from '../types.js';
 import type { SqliteDatabase } from './database.js';
 import { SqliteSearchStore } from './search.js';
@@ -256,8 +256,9 @@ export class SqliteContextStore {
       if (!Array.isArray(records) || records.length > this.maxHistoryItems) {
         throw new Error('History adapter returned an invalid result or exceeded its requested limit.');
       }
+      const historyRecords = records as readonly DreamingHistoryRecord[];
       const uniqueRecords = new Set<string>();
-      for (const record of records) {
+      for (const record of historyRecords) {
         if (!record || typeof record !== 'object'
           || typeof record.id !== 'string' || !record.id.trim() || record.id.length > 500
           || typeof record.scope !== 'string' || record.scope !== input.scope
@@ -283,10 +284,10 @@ export class SqliteContextStore {
           throw new Error('History adapter returned invalid provenance metadata.');
         }
       }
-      const allHistoryEvidenceRefs = [...new Set(records.flatMap((record) => [...record.sourceRefs]))];
+      const allHistoryEvidenceRefs = [...new Set(historyRecords.flatMap((record) => [...record.sourceRefs]))];
       const resolvedHistoryEvidence = await this.evidence.resolve({ scope: input.scope, refs: allHistoryEvidenceRefs });
       const availableHistoryEvidence = new Set(resolvedHistoryEvidence.map((item) => item.ref));
-      historyHits = records.flatMap((record) => {
+      historyHits = historyRecords.flatMap((record) => {
         if (!record.sourceRefs.every((ref) => availableHistoryEvidence.has(ref))) return [];
         const score = scoreHistoryRecord(query, record.content, record.createdAt);
         if (score <= 0) return [];
