@@ -227,6 +227,7 @@ runtime.remember(MemoryInput {
     source: "explicit host input".into(),
     confidence: 95,
     expires_at_ms: None,
+    source_refs: vec![],
 })?;
 
 let answer = runtime.run_turn("Review the repository").await?;

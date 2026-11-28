@@ -2622,7 +2622,7 @@ impl AgentRuntime {
         )?;
         self.memory_store.propose(MemoryInput {
             kind, scope, scope_id, content: content.to_owned(), source: "agent observation".into(),
-            confidence, expires_at_ms: None,
+            confidence, expires_at_ms: None, source_refs: Vec::new(),
         }, importance, evidence)
     }
 

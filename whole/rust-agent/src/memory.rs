@@ -10,6 +10,7 @@ use std::{
 
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     context::terms,
@@ -154,6 +155,7 @@ pub struct MemoryInput {
     pub source: String,
     pub confidence: u8,
     pub expires_at_ms: Option<u128>,
+    pub source_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -659,12 +661,8 @@ impl MemoryStore {
     }
 
     pub fn remember(&self, input: MemoryInput) -> Result<MemoryRecord, AgentError> {
-        self.insert_memory(
-            input,
-            MemoryStatus::Consolidated,
-            70,
-            Vec::new(),
-        )
+        let source_refs = input.source_refs.clone();
+        self.insert_memory(input, MemoryStatus::Consolidated, 70, source_refs)
     }
 
     /// Save an in-session observation as a proposal. Proposed notes are never injected.
@@ -674,7 +672,11 @@ impl MemoryStore {
         importance: u8,
         source_refs: Vec<String>,
     ) -> Result<MemoryRecord, AgentError> {
-        self.insert_memory(input, MemoryStatus::Proposed, importance, source_refs)
+        let mut combined_refs = input.source_refs.clone();
+        combined_refs.extend(source_refs);
+        combined_refs.sort();
+        combined_refs.dedup();
+        self.insert_memory(input, MemoryStatus::Proposed, importance, combined_refs)
     }
 
     fn insert_memory(
@@ -2641,6 +2643,7 @@ mod tests {
             source: "test".into(),
             confidence: 95,
             expires_at_ms: None,
+            source_refs: Vec::new(),
         }
     }
 

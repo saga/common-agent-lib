@@ -478,11 +478,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn write_file_replaces_a_hard_link_without_modifying_the_external_inode() {
-        use std::os::unix::fs::hard_link;
         let root = workspace();
         let outside = root.with_extension("outside");
         fs::write(&outside, "original external content").unwrap();
-        hard_link(&outside, root.join("inside.txt")).unwrap();
+        fs::hard_link(&outside, root.join("inside.txt")).unwrap();
         let executor = ToolExecutor::new(root.clone());
         let action = ToolAction {
             name: "write_file".into(),
