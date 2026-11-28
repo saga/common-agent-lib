@@ -196,6 +196,36 @@ await store.recordKnowledgeContextFeedback({
 
 The feedback record stores the context ID/hash and the included page version. Repeating the same feedback ID is idempotent; a page that was not actually included in the supplied context is rejected. Retrieval by itself is not treated as positive feedback.
 
+### Host history adapter
+
+When local retrieval has fewer than two task-relevant Memory / Experience / Knowledge / Evidence hits, Context Builder can optionally query a host-provided history adapter. This is intended for authorized conversation archives, transcripts and execution traces.
+
+The host adapter is responsible for user authentication, authorization and source-system access. It receives the active `scope`, query, task and a bounded result limit. Each returned record must repeat the exact scope and reference one or more Evidence records already stored under that same scope. The package rejects cross-scope or malformed results, drops records with missing Evidence, computes relevance and recency scores itself, limits the number and size of records, and then applies the normal context budget. It does not trust provider-supplied ranking scores or let an adapter change the authorization boundary.
+
+```ts
+const store = new SqliteDreamingStore({
+  filename: './agent-memory.sqlite',
+  historyFallbackMinLocalHits: 2,
+  maxHistoryItems: 4, // hard maximum: 10
+  historySourceAdapter: {
+    async search({ scope, query, task, limit }) {
+      // Authenticate and authorize in the host, then query your transcript / trace store.
+      return history.search({ subjectScope: scope, query, task, limit }).map((row) => ({
+        id: row.id,
+        scope,
+        content: row.excerpt,
+        createdAt: row.createdAt,
+        sourceRefs: row.evidenceRefs, // refs already stored by store.putEvidence(scope, ...)
+        origin: { system: 'conversation-archive', recordId: row.id },
+      }));
+    },
+  },
+  embeddingProvider: false,
+});
+```
+
+The adapter is optional. Without it, Context Builder behaves as before. Set `historyFallbackMinLocalHits` to tune the fallback threshold (0-200); `maxHistoryItems` is 1-10 and defaults to 4. History results are lower priority than durable Memory and Knowledge and cannot bypass scope checks, Evidence provenance or the configured item / token budget.
+
 For event-driven hosts, `notifyRecordAppended(scope)` coalesces calls per scope and defaults to requiring two unprocessed Experience records before invoking the model. Set `minNewExperiencesToTrigger` to adjust the threshold (1-100). This gate applies only to the `record-appended` trigger. Startup, interval and manual runs bypass it, so old Memory / Knowledge review work is not blocked. When an external repository does not implement the cheap unprocessed-record count, the engine preserves the previous eager-trigger behavior. Batch size is bounded to 100 records and a run is bounded to 10 batches.
 
 The persistent Memory Manifest is a compact per-scope index of explicit instructions, important confirmed memories and active Knowledge pages. SQLite triggers mark it stale whenever source rows change. `getMemoryManifest(scope)` rebuilds only a stale index; its version advances only when the content hash changes. The default hard bounds are 200 entries and 16,000 characters. The task-specific manifest returned by Context Builder remains distinct from this persistent index.

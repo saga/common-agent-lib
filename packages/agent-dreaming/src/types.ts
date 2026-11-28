@@ -230,6 +230,30 @@ export interface DreamingSearchRequest {
   includeCandidates?: boolean;
 }
 
+/** A scope-bound historical transcript / trace returned by a host adapter. */
+export interface DreamingHistoryRecord {
+  id: string;
+  scope: string;
+  content: string;
+  createdAt: string;
+  /** Must resolve to source Evidence already owned by this scope in the package. */
+  sourceRefs: readonly string[];
+  origin?: DreamingOrigin;
+}
+
+/**
+ * The host authenticates and authorizes access to its history system.
+ * The package still validates scope, references, ranking and context budgets.
+ */
+export interface DreamingHistorySourceAdapter {
+  search(input: {
+    scope: string;
+    query: string;
+    task: string;
+    limit: number;
+  }): Promise<readonly DreamingHistoryRecord[]>;
+}
+
 /** Budget is measured against the complete rendered context, including headers. */
 export interface DreamingContextBudget {
   maxUnits: number;
@@ -256,7 +280,7 @@ export interface DreamingContextRequest {
 
 export interface DreamingContextItem {
   id: string;
-  sourceType: 'always-on-memory' | 'knowledge' | DreamingSearchSourceType;
+  sourceType: 'always-on-memory' | 'knowledge' | 'history' | DreamingSearchSourceType;
   text: string;
   score: number;
   required: boolean;

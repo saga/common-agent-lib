@@ -3,6 +3,7 @@ import type {
   DreamingContextFeedbackInput, DreamingKnowledgeContextFeedbackInput, DreamingKnowledgeFeedbackEvent, DreamingFeedbackEvent, DreamingKnowledgeLink, DreamingKnowledgePage, DreamingKnowledgePageInput, DreamingKnowledgePageVersion, DreamingKnowledgeSearchHit, DreamingKnowledgeSearchRequest, DreamingKnowledgeProposal, DreamingKnowledgeProposalResult, DreamingMemory, DreamingMemoryManifest, DreamingMemoryHistoryStore, DreamingPage,
   DreamingProposal, DreamingRelationship, DreamingRepository, DreamingRun, DreamingRunStore,
   DreamingReviewQueue, DreamingReviewQueueItem, DreamingSearchHit, DreamingSearchRequest, DreamingUserDirectiveInput,
+  DreamingHistorySourceAdapter,
 } from './types.js';
 import { SqliteDatabase, type SqliteDreamingOptions } from './sqlite/database.js';
 import { SqliteExperienceStore } from './sqlite/experiences.js';
@@ -16,13 +17,18 @@ import { TransformersJsEmbeddingProvider } from './embedding.js';
 import { SqliteDreamingScheduler, type DurableSchedulerOptions } from './scheduler.js';
 import { SqliteUserDirectiveStore } from './sqlite/directives.js';
 import { SqliteSearchStore } from './sqlite/search.js';
-import { SqliteContextStore } from './sqlite/context.js';
+import { SqliteContextStore, type SqliteContextStoreOptions } from './sqlite/context.js';
 import { SqliteKnowledgeStore } from './sqlite/knowledge.js';
 import { SqliteKnowledgeFeedbackStore } from './sqlite/knowledge-feedback.js';
 import { SqliteMemoryManifestStore } from './sqlite/manifest.js';
 
 export type { SqliteDreamingOptions, ProposalReviewReason };
-export type SqliteDreamingStoreOptions = SqliteDreamingOptions & { embeddingProvider?: EmbeddingProvider | false };
+export type SqliteDreamingStoreOptions = SqliteDreamingOptions & {
+  embeddingProvider?: EmbeddingProvider | false;
+  historySourceAdapter?: DreamingHistorySourceAdapter;
+  historyFallbackMinLocalHits?: number;
+  maxHistoryItems?: number;
+};
 export type { DreamingReviewQueueItem as ReviewQueueItem } from './types.js';
 export type AppendExperienceInput = Omit<DreamingExperience, 'sequence'> & { sequence?: number };
 
@@ -51,6 +57,19 @@ export class SqliteDreamingStore implements
   private readonly manifestStore: SqliteMemoryManifestStore;
 
   constructor(options: SqliteDreamingStoreOptions) {
+    if (options.historyFallbackMinLocalHits !== undefined
+      && (!Number.isSafeInteger(options.historyFallbackMinLocalHits)
+        || options.historyFallbackMinLocalHits < 0 || options.historyFallbackMinLocalHits > 200)) {
+      throw new TypeError('historyFallbackMinLocalHits must be an integer between 0 and 200.');
+    }
+    if (options.maxHistoryItems !== undefined
+      && (!Number.isSafeInteger(options.maxHistoryItems) || options.maxHistoryItems < 1 || options.maxHistoryItems > 10)) {
+      throw new TypeError('maxHistoryItems must be an integer between 1 and 10.');
+    }
+    if (options.historySourceAdapter !== undefined
+      && typeof options.historySourceAdapter.search !== 'function') {
+      throw new TypeError('historySourceAdapter.search must be a function.');
+    }
     this.database = new SqliteDatabase(options);
     this.experiences = new SqliteExperienceStore(this.database);
     const vectorIndex = options.embeddingProvider === false ? undefined
@@ -62,7 +81,13 @@ export class SqliteDreamingStore implements
     this.reviews = new SqliteReviewQueueStore(this.database, this.memories);
     this.directives = new SqliteUserDirectiveStore(this.database, this.memories);
     this.searchStore = new SqliteSearchStore(this.database);
-    this.contextStore = new SqliteContextStore(this.database);
+    const contextOptions: SqliteContextStoreOptions = {
+      ...(options.historySourceAdapter ? { historySourceAdapter: options.historySourceAdapter } : {}),
+      ...(options.historyFallbackMinLocalHits !== undefined
+        ? { historyFallbackMinLocalHits: options.historyFallbackMinLocalHits } : {}),
+      ...(options.maxHistoryItems !== undefined ? { maxHistoryItems: options.maxHistoryItems } : {}),
+    };
+    this.contextStore = new SqliteContextStore(this.database, contextOptions);
     this.knowledgeStore = new SqliteKnowledgeStore(this.database);
     this.knowledgeFeedbackStore = new SqliteKnowledgeFeedbackStore(this.database);
     this.manifestStore = new SqliteMemoryManifestStore(this.database);

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type {
   DreamingContextItem, DreamingContextOmission, DreamingContextRequest,
-  DreamingContextResult, DreamingSearchHit,
+  DreamingContextResult, DreamingSearchHit, DreamingHistorySourceAdapter,
 } from '../types.js';
 import type { SqliteDatabase } from './database.js';
 import { SqliteSearchStore } from './search.js';
@@ -37,6 +37,7 @@ function sectionFor(type: DreamingContextItem['sourceType']): string {
     case 'experience': return 'Related experiences';
     case 'evidence': return 'Original source evidence';
     case 'knowledge': return 'Reusable Knowledge pages';
+    case 'history': return 'Related historical transcripts and traces';
   }
 }
 
@@ -54,6 +55,7 @@ function render(items: readonly Candidate[]): string {
       sourceType: item.sourceType,
       ...(item.authority ? { authority: item.authority } : {}),
       ...(item.memoryType ? { memoryType: item.memoryType } : {}),
+      ...(item.origin ? { origin: item.origin } : {}),
       content: item.text,
       sourceRefs: item.sourceRefs.slice(0, 8),
       ...(item.sourceRefs.length > 8 ? { additionalSourceRefCount: item.sourceRefs.length - 8 } : {}),
@@ -94,12 +96,64 @@ function contextItemFromHit(hit: DreamingSearchHit, text: string): Candidate {
   };
 }
 
+
+function historyQueryTerms(query: string): string[] {
+  const normalized = query.normalize('NFKC').toLowerCase();
+  const cjkRuns = normalized.match(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]{2,}/gu) ?? [];
+  const cjkBigrams = cjkRuns.flatMap((run) =>
+    Array.from({ length: run.length - 1 }, (_, index) => run.slice(index, index + 2)),
+  );
+  const latinTokens = normalized
+    .replace(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/gu, ' ')
+    .match(/[a-z0-9]{2,}/gu) ?? [];
+  return [...new Set([...latinTokens, ...cjkBigrams])].slice(0, 100);
+}
+
+function scoreHistoryRecord(query: string, content: string, createdAt: string): number {
+  const terms = historyQueryTerms(query);
+  const normalized = content.normalize('NFKC').toLowerCase();
+  if (!terms.length) {
+    return normalized.includes(query.normalize('NFKC').toLowerCase()) ? 1 : 0;
+  }
+  const matched = terms.filter((term) => normalized.includes(term)).length;
+  if (!matched) return 0;
+  const coverage = matched / terms.length;
+  const ageDays = Math.max(0, Date.now() - Date.parse(createdAt)) / 86_400_000;
+  const recency = 1 / (1 + ageDays / 90);
+  return Math.min(1, coverage * 0.9 + recency * 0.1);
+}
+
+export interface SqliteContextStoreOptions {
+  historySourceAdapter?: DreamingHistorySourceAdapter;
+  /** Fetch history only when this many local Memory / Experience / Knowledge / Evidence hits are not available. */
+  historyFallbackMinLocalHits?: number;
+  /** Maximum historical records to consider per Context build (hard cap 10). */
+  maxHistoryItems?: number;
+}
+
 export class SqliteContextStore {
   private readonly search: SqliteSearchStore;
   private readonly evidence: SqliteEvidenceStore;
   private readonly knowledge: SqliteKnowledgeStore;
+  private readonly historySourceAdapter?: DreamingHistorySourceAdapter;
+  private readonly historyFallbackMinLocalHits: number;
+  private readonly maxHistoryItems: number;
 
-  constructor(private readonly context: SqliteDatabase) {
+  constructor(
+    private readonly context: SqliteDatabase,
+    options: SqliteContextStoreOptions = {},
+  ) {
+    this.historyFallbackMinLocalHits = options.historyFallbackMinLocalHits ?? 2;
+    this.maxHistoryItems = options.maxHistoryItems ?? 4;
+    if (!Number.isSafeInteger(this.historyFallbackMinLocalHits)
+      || this.historyFallbackMinLocalHits < 0 || this.historyFallbackMinLocalHits > 200) {
+      throw new TypeError('historyFallbackMinLocalHits must be an integer between 0 and 200.');
+    }
+    if (!Number.isSafeInteger(this.maxHistoryItems)
+      || this.maxHistoryItems < 1 || this.maxHistoryItems > 10) {
+      throw new TypeError('maxHistoryItems must be an integer between 1 and 10.');
+    }
+    this.historySourceAdapter = options.historySourceAdapter;
     this.search = new SqliteSearchStore(context);
     this.evidence = new SqliteEvidenceStore(context);
     this.knowledge = new SqliteKnowledgeStore(context);
@@ -185,6 +239,68 @@ export class SqliteContextStore {
       maxPages: Math.min(30, Math.max(10, searchLimit)),
     });
     const evidenceHits = hits.filter((hit) => hit.sourceType === 'evidence').slice(0, maxEvidence);
+    const localEvidenceHitCount = hits.filter((hit) => hit.sourceType === 'evidence').length;
+    const localHitCount = memoryHits.length + experienceHits.length + knowledgeHits.length + localEvidenceHitCount;
+    let historyHits: Array<{
+      id: string;
+      content: string;
+      score: number;
+      createdAt: string;
+      sourceRefs: readonly string[];
+      origin?: DreamingContextItem['origin'];
+    }> = [];
+    if (this.historySourceAdapter && localHitCount < this.historyFallbackMinLocalHits) {
+      const records = await this.historySourceAdapter.search({
+        scope: input.scope, query, task: input.task, limit: this.maxHistoryItems,
+      });
+      if (!Array.isArray(records) || records.length > this.maxHistoryItems) {
+        throw new Error('History adapter returned an invalid result or exceeded its requested limit.');
+      }
+      const uniqueRecords = new Set<string>();
+      for (const record of records) {
+        if (!record || typeof record !== 'object'
+          || typeof record.id !== 'string' || !record.id.trim() || record.id.length > 500
+          || typeof record.scope !== 'string' || record.scope !== input.scope
+          || typeof record.content !== 'string' || !record.content.trim()
+          || record.content.length > 50_000
+          || typeof record.createdAt !== 'string' || !Number.isFinite(Date.parse(record.createdAt))
+          || !Array.isArray(record.sourceRefs) || record.sourceRefs.length < 1
+          || record.sourceRefs.length > 20
+          || record.sourceRefs.some((ref) => typeof ref !== 'string' || !ref.trim() || ref.length > 500)
+          || new Set(record.sourceRefs).size !== record.sourceRefs.length) {
+          throw new Error('History adapter returned an invalid or cross-scope historical record.');
+        }
+        if (uniqueRecords.has(record.id)) {
+          throw new Error('History adapter returned a duplicate record ID: ' + record.id);
+        }
+        uniqueRecords.add(record.id);
+        if (record.origin !== undefined
+          && (!record.origin || typeof record.origin.system !== 'string'
+            || !record.origin.system.trim() || record.origin.system.length > 120
+            || (record.origin.application !== undefined && (typeof record.origin.application !== 'string' || record.origin.application.length > 120))
+            || (record.origin.channel !== undefined && (typeof record.origin.channel !== 'string' || record.origin.channel.length > 120))
+            || (record.origin.recordId !== undefined && (typeof record.origin.recordId !== 'string' || record.origin.recordId.length > 300)))) {
+          throw new Error('History adapter returned invalid provenance metadata.');
+        }
+      }
+      const allHistoryEvidenceRefs = [...new Set(records.flatMap((record) => [...record.sourceRefs]))];
+      const resolvedHistoryEvidence = await this.evidence.resolve({ scope: input.scope, refs: allHistoryEvidenceRefs });
+      const availableHistoryEvidence = new Set(resolvedHistoryEvidence.map((item) => item.ref));
+      historyHits = records.flatMap((record) => {
+        if (!record.sourceRefs.every((ref) => availableHistoryEvidence.has(ref))) return [];
+        const score = scoreHistoryRecord(query, record.content, record.createdAt);
+        if (score <= 0) return [];
+        return [{
+          id: record.id,
+          content: record.content.trim(),
+          score,
+          createdAt: record.createdAt,
+          sourceRefs: [...record.sourceRefs],
+          ...(record.origin ? { origin: record.origin } : {}),
+        }];
+      }).sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+        .slice(0, this.maxHistoryItems);
+    }
 
     for (const hit of memoryHits) {
       if (seenIds.has(hit.id)) continue;
@@ -219,6 +335,28 @@ export class SqliteContextStore {
       seenIds.add(hit.id);
     }
 
+    for (const hit of historyHits) {
+      if (seenIds.has(hit.id)) continue;
+      const item: DreamingContextItem = {
+        id: hit.id,
+        sourceType: 'history',
+        text: shorten(hit.content, maxItemChars),
+        score: hit.score,
+        required: false,
+        sourceRefs: hit.sourceRefs,
+        revision: hit.createdAt,
+        ...(hit.origin ? { origin: hit.origin } : {}),
+      };
+      candidates.push({
+        item,
+        section: sectionFor('history'),
+        order: 175,
+        priority: 250 + hit.score * 100,
+        dedupe: normalizeContent(hit.content),
+      });
+      seenIds.add(hit.id);
+    }
+
     for (const hit of experienceHits) {
       const candidate = contextItemFromHit(hit, shorten(hit.content, maxItemChars));
       candidates.push({
@@ -234,6 +372,7 @@ export class SqliteContextStore {
       ...memoryHits.flatMap((hit) => [...hit.sourceRefs]),
       ...experienceHits.flatMap((hit) => [...hit.sourceRefs]),
       ...knowledgeHits.flatMap((hit) => [...hit.sourceRefs]),
+      ...historyHits.flatMap((hit) => [...hit.sourceRefs]),
     ])].filter((ref) => !directEvidenceRefs.has(ref))
       .slice(0, Math.max(0, maxEvidence - evidenceHits.length));
     const resolvedEvidence = input.includeEvidence === false || maxEvidence === 0

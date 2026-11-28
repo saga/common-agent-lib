@@ -36,7 +36,7 @@
 
 ## P2 — Improve evidence discovery and feedback
 
-- [ ] Allow a host-provided source adapter to search historical transcripts / traces when local Experience and Evidence search is insufficient.
+- [x] Allow a host-provided history adapter to search historical transcripts / traces when local Memory / Experience / Knowledge / Evidence retrieval is insufficient; the package validates scope and Evidence refs, re-ranks locally and enforces hard result / context bounds.
 - [x] Keep retrieval orchestration, ranking, scope checks and evidence validation inside this package; the host remains responsible for authenticating external source access.
 - [x] Add memory and Knowledge context-use feedback linked to context ID, context hash, task ID, entity ID and exact revision.
 - [x] Use repeated current-version negative usefulness / contradiction signals to prioritize Knowledge re-review; never treat retrieval alone as positive feedback.
